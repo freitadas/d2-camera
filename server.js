@@ -8,6 +8,13 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
+function broadcastOnlineUsers() {
+  const users = [...io.sockets.sockets.values()]
+    .filter(s => s.data.username)
+    .map(s => ({ id: s.id, username: s.data.username }));
+  io.emit('online-users', users);
+}
+
 const id = () => crypto.randomBytes(5).toString('hex');
 
 const servers = new Map();
@@ -198,6 +205,7 @@ body.locked{overflow:hidden!important}
 
     <div class="sideScroll">
       <button id="homeBtn" class="navBtn active">◐ Início</button>
+      <button id="friendsBtn" class="navBtn">👥 Amigos</button>
       <button id="messagesBtn" class="navBtn">✉ Mensagens</button>
 
       <div class="groupHead">
@@ -238,6 +246,22 @@ body.locked{overflow:hidden!important}
             <button id="homeCreateServer" class="btn primary">+ Criar servidor</button>
             <button id="homeCreateText" class="btn secondary"># Criar chat</button>
             <button id="homeCreateVoice" class="btn secondary">)) Criar voz</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="friendsView" class="view hidden">
+        <div style="height:100%;display:grid;grid-template-rows:auto 1fr;">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div>
+              <strong>👥 Amigos</strong>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">Sua lista de amigos do e-cord</div>
+            </div>
+            <button id="addFriendBtn" class="btn primary small">+ Adicionar amigo</button>
+          </div>
+
+          <div style="overflow:auto;padding:18px;">
+            <div id="friendsList" style="display:grid;gap:10px;"></div>
           </div>
         </div>
       </section>
@@ -312,7 +336,8 @@ const state = {
   peerNames: new Map(),
   remoteStreams: new Map(),
   pendingCandidates: new Map(),
-  modalAction: null
+  modalAction: null,
+  onlineUsers: []
 };
 
 const rtcConfig = {
@@ -348,14 +373,21 @@ function currentVoice(){
 
 function setView(name){
   $('#homeView').classList.toggle('hidden', name!=='home');
+  $('#friendsView').classList.toggle('hidden', name!=='friends');
   $('#chatView').classList.toggle('hidden', name!=='chat');
   $('#voiceView').classList.toggle('hidden', name!=='voice');
   $('#homeBtn').classList.toggle('active', name==='home');
+  $('#friendsBtn').classList.toggle('active', name==='friends');
   $('#messagesBtn').classList.toggle('active', name==='chat');
 
   if(name==='home'){
     $('#topTitle').textContent = currentServer()?.name || 'e-cord';
     $('#topSub').textContent = 'servidores, chat, voz, câmera e tela';
+  }
+  if(name==='friends'){
+    $('#topTitle').textContent = '👥 Amigos';
+    $('#topSub').textContent = 'adicione e veja quem está online';
+    renderFriends();
   }
   if(name==='chat'){
     const c = currentText();
@@ -476,12 +508,110 @@ function sendMessage(){
   input.focus();
 }
 
+
+function getFriends(){
+  try{
+    const list = JSON.parse(localStorage.getItem('ecord-friends') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch{
+    return [];
+  }
+}
+
+function saveFriends(list){
+  localStorage.setItem('ecord-friends', JSON.stringify(list));
+}
+
+function addFriendByName(name){
+  const clean = String(name || '').trim().slice(0,30);
+  if(!clean) return;
+
+  if(clean.toLowerCase() === state.username.toLowerCase()){
+    toast('Você não pode adicionar você mesmo');
+    return;
+  }
+
+  const friends = getFriends();
+  if(friends.some(f => f.toLowerCase() === clean.toLowerCase())){
+    toast('Esse amigo já está na sua lista');
+    return;
+  }
+
+  friends.push(clean);
+  saveFriends(friends);
+  renderFriends();
+  toast('Amigo adicionado');
+}
+
+function removeFriend(name){
+  const friends = getFriends().filter(f => f.toLowerCase() !== name.toLowerCase());
+  saveFriends(friends);
+  renderFriends();
+}
+
+function renderFriends(){
+  const box = $('#friendsList');
+  if(!box) return;
+
+  const friends = getFriends();
+  box.innerHTML = '';
+
+  if(!friends.length){
+    const empty = document.createElement('div');
+    empty.style.color = 'var(--low)';
+    empty.style.fontSize = '13px';
+    empty.style.padding = '18px 4px';
+    empty.textContent = 'Você ainda não adicionou nenhum amigo.';
+    box.appendChild(empty);
+    return;
+  }
+
+  friends.forEach(friendName => {
+    const online = state.onlineUsers.some(
+      u => String(u.username || '').toLowerCase() === friendName.toLowerCase()
+    );
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = initials(friendName);
+
+    const meta = document.createElement('div');
+    meta.style.flex = '1';
+    meta.style.minWidth = '0';
+
+    const strong = document.createElement('strong');
+    strong.textContent = friendName;
+    strong.style.display = 'block';
+
+    const status = document.createElement('span');
+    status.textContent = online ? '● Online' : '● Offline';
+    status.style.display = 'block';
+    status.style.fontSize = '12px';
+    status.style.marginTop = '3px';
+    status.style.color = online ? 'var(--mint)' : 'var(--low)';
+
+    meta.append(strong, status);
+
+    const remove = document.createElement('button');
+    remove.className = 'btn secondary small';
+    remove.textContent = 'Remover';
+    remove.addEventListener('click', () => removeFriend(friendName));
+
+    row.append(avatar, meta, remove);
+    box.appendChild(row);
+  });
+}
+
 function openModal(type){
   state.modalAction = type;
   const cfg = {
     server:['Criar servidor','Digite o nome do novo servidor.','Ex.: Meus amigos'],
     text:['Criar chat','Digite o nome do novo canal de texto.','Ex.: memes'],
-    voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos']
+    voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos'],
+    friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no e-cord.','Ex.: Davi']
   }[type];
 
   $('#modalTitle').textContent = cfg[0];
@@ -506,6 +636,8 @@ function confirmModal(){
     socket.emit('create-channel',{serverId:state.serverId,type:'text',name:value});
   } else if(state.modalAction==='voice'){
     socket.emit('create-channel',{serverId:state.serverId,type:'voice',name:value});
+  } else if(state.modalAction==='friend'){
+    addFriendByName(value);
   }
   closeModal();
 }
@@ -830,6 +962,7 @@ $('#loginBtn').addEventListener('click',()=>{
   $('#userAvatar').textContent = initials(name);
   $('#welcomeTitle').textContent = 'Bem-vindo, '+name;
   $('#login').classList.add('hidden');
+  socket.emit('set-username', { username: name });
 });
 
 $('#loginName').addEventListener('keydown',e=>{if(e.key==='Enter') $('#loginBtn').click()});
@@ -850,6 +983,8 @@ $('#modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')confirmModal(
 $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))closeModal()});
 
 $('#homeBtn').addEventListener('click',()=>setView('home'));
+$('#friendsBtn').addEventListener('click',()=>setView('friends'));
+$('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#messagesBtn').addEventListener('click',()=>{
   if(state.textChannelId) selectText(state.textChannelId);
   else toast('Crie um chat primeiro');
@@ -881,6 +1016,11 @@ document.addEventListener('keydown',e=>{
     document.querySelectorAll('.fakeFullscreen').forEach(x=>x.classList.remove('fakeFullscreen'));
     document.body.classList.remove('locked');
   }
+});
+
+socket.on('online-users', users => {
+  state.onlineUsers = Array.isArray(users) ? users : [];
+  renderFriends();
 });
 
 socket.on('server-list',list=>{
@@ -979,6 +1119,7 @@ socket.on('disconnect',()=>{
 
 socket.on('connect',()=>{
   socket.emit('get-servers');
+  if(state.username) socket.emit('set-username',{username:state.username});
   if(state.joinedVoiceId && state.serverId && state.voiceChannelId){
     closePeers();
     socket.emit('join-voice',{
@@ -998,6 +1139,12 @@ app.get('/', (req, res) => {
 
 io.on('connection', socket => {
   socket.emit('server-list', publicServers());
+  broadcastOnlineUsers();
+
+  socket.on('set-username', ({ username }) => {
+    socket.data.username = cleanName(username);
+    broadcastOnlineUsers();
+  });
 
   socket.on('get-servers', () => {
     socket.emit('server-list', publicServers());
@@ -1146,6 +1293,7 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     const room = socket.data.voiceRoom;
+    setTimeout(broadcastOnlineUsers, 0);
     if (room) {
       socket.to(room).emit('user-left', { id: socket.id });
 
