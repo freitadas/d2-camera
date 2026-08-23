@@ -14,9 +14,14 @@ const copyRoomBtn = document.getElementById('copyRoomBtn');
 const videoGrid = document.getElementById('videoGrid');
 const micBtn = document.getElementById('micBtn');
 const cameraBtn = document.getElementById('cameraBtn');
+const screenBtn = document.getElementById('screenBtn');
 const leaveBtn = document.getElementById('leaveBtn');
 
 let localStream = null;
+let cameraTrack = null;
+let screenStream = null;
+let screenTrack = null;
+let outgoingVideoTrack = null;
 let currentRoom = '';
 let currentUsername = '';
 const peers = new Map();
@@ -80,8 +85,12 @@ function createPeer(peerId, username = 'Usuário') {
   const pc = new RTCPeerConnection(rtcConfig);
   peers.set(peerId, pc);
 
-  for (const track of localStream.getTracks()) {
+  for (const track of localStream.getAudioTracks()) {
     pc.addTrack(track, localStream);
+  }
+
+  if (outgoingVideoTrack) {
+    pc.addTrack(outgoingVideoTrack, new MediaStream([outgoingVideoTrack]));
   }
 
   pc.onicecandidate = (event) => {
@@ -136,6 +145,8 @@ async function joinRoom() {
     joinBtn.disabled = true;
     joinBtn.textContent = 'Abrindo câmera...';
     localStream = await getLocalMedia();
+    cameraTrack = localStream.getVideoTracks()[0] || null;
+    outgoingVideoTrack = cameraTrack;
 
     addVideoCard('local', `${currentUsername} (você)`, localStream, true);
     roomLabel.textContent = currentRoom;
@@ -163,13 +174,89 @@ function toggleTrack(kind, button, onText, offText) {
   button.textContent = enabled ? onText : offText;
 }
 
+function updateLocalPreview(stream, label) {
+  addVideoCard('local', label, stream, true);
+  const localVideo = document.querySelector('#card-local video');
+  if (localVideo) localVideo.style.objectFit = screenTrack ? 'contain' : 'cover';
+}
+
+async function replaceOutgoingVideoTrack(track) {
+  outgoingVideoTrack = track;
+
+  const replacements = [];
+  for (const pc of peers.values()) {
+    const sender = pc.getSenders().find((item) => item.track?.kind === 'video');
+    if (sender) replacements.push(sender.replaceTrack(track));
+  }
+  await Promise.allSettled(replacements);
+}
+
+async function stopScreenShare() {
+  if (!screenTrack && !screenStream) return;
+
+  if (screenTrack) screenTrack.onended = null;
+  screenStream?.getTracks().forEach((track) => track.stop());
+  screenStream = null;
+  screenTrack = null;
+
+  await replaceOutgoingVideoTrack(cameraTrack);
+  if (localStream) updateLocalPreview(localStream, `${currentUsername} (você)`);
+
+  screenBtn.classList.remove('sharing');
+  screenBtn.textContent = '🖥️ Compartilhar tela';
+  cameraBtn.disabled = false;
+}
+
+async function toggleScreenShare() {
+  if (screenTrack) {
+    await stopScreenShare();
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    alert('Este navegador não oferece compartilhamento de tela. Use Chrome, Edge ou outro navegador compatível.');
+    return;
+  }
+
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30, max: 60 } },
+      audio: false
+    });
+
+    screenTrack = screenStream.getVideoTracks()[0] || null;
+    if (!screenTrack) throw new Error('Nenhuma tela foi selecionada.');
+
+    await replaceOutgoingVideoTrack(screenTrack);
+    updateLocalPreview(new MediaStream([screenTrack]), `${currentUsername} — compartilhando tela`);
+
+    screenBtn.classList.add('sharing');
+    screenBtn.textContent = '⏹️ Parar tela';
+    cameraBtn.disabled = true;
+
+    screenTrack.onended = () => {
+      stopScreenShare().catch(console.error);
+    };
+  } catch (error) {
+    if (error?.name !== 'NotAllowedError') console.error(error);
+    screenStream?.getTracks().forEach((track) => track.stop());
+    screenStream = null;
+    screenTrack = null;
+  }
+}
+
 function leaveCall() {
   for (const pc of peers.values()) pc.close();
   peers.clear();
   peerNames.clear();
   pendingCandidates.clear();
+  screenStream?.getTracks().forEach((track) => track.stop());
+  screenStream = null;
+  screenTrack = null;
   localStream?.getTracks().forEach((track) => track.stop());
   localStream = null;
+  cameraTrack = null;
+  outgoingVideoTrack = null;
   socket.disconnect();
   window.location.reload();
 }
@@ -193,6 +280,7 @@ copyRoomBtn.addEventListener('click', async () => {
 
 micBtn.addEventListener('click', () => toggleTrack('audio', micBtn, '🎤 Microfone', '🔇 Microfone'));
 cameraBtn.addEventListener('click', () => toggleTrack('video', cameraBtn, '📷 Câmera', '🚫 Câmera'));
+screenBtn.addEventListener('click', toggleScreenShare);
 leaveBtn.addEventListener('click', leaveCall);
 
 const inviteRoom = normalizeRoom(new URLSearchParams(window.location.search).get('room') || '');

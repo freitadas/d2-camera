@@ -121,3 +121,7 @@ input:focus { border-color: #7e83ff; box-shadow: 0 0 0 3px rgba(126,131,255,.15)
 .entry-actions .primary { margin-top: 0; }
 .full { width: 100%; }
 .hint { min-height: 20px; color: #b9bdfc; font-size: 13px; margin: 14px 0 0; }
+
+.control.sharing { background: #5a61ff; }
+.control:disabled { cursor: not-allowed; opacity: .45; }
+.video-card video[style*="contain"] { background: #05060a; }

@@ -31,3 +31,7 @@ O arquivo `render.yaml` também foi incluído.
 ## Observação WebRTC
 
 A versão atual usa servidores STUN públicos. Isso funciona em muitas redes, mas não garante conexão entre todos os tipos de NAT/firewall. Para confiabilidade de produção, configure um servidor TURN e adicione as credenciais em `rtcConfig.iceServers` no arquivo `public/app.js`.
+
+
+## Compartilhamento de tela
+Dentro da sala, clique em **Compartilhar tela** e escolha uma aba, uma janela ou a tela inteira. Enquanto a tela estiver sendo compartilhada, ela substitui temporariamente a imagem da câmera para os outros participantes. Ao clicar em **Parar tela** ou encerrar pelo seletor do navegador, a câmera volta automaticamente.
