@@ -1,4 +1,3 @@
-const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -17,17 +16,13 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-
   socket.on('join-room', ({ roomId, username }) => {
-
     const room = io.sockets.adapter.rooms.get(roomId);
-
     const participants = [];
 
     if (room) {
       for (const id of room) {
         const user = io.sockets.sockets.get(id);
-
         if (user) {
           participants.push({
             id,
@@ -39,16 +34,27 @@ io.on('connection', (socket) => {
 
     socket.data.roomId = roomId;
     socket.data.username = username;
-
     socket.join(roomId);
 
-    // envia para quem acabou de entrar
     socket.emit('room-participants', participants);
 
-    // avisa quem já estava na sala
     socket.to(roomId).emit('user-joined', {
       id: socket.id,
       username
+    });
+  });
+
+  socket.on('chat-message', ({ roomId, username, text }) => {
+    const safeRoom = String(roomId || '').slice(0, 24);
+    const safeName = String(username || 'Usuário').slice(0, 30);
+    const safeText = String(text || '').trim().slice(0, 500);
+
+    if (!safeRoom || !safeText) return;
+    if (socket.data.roomId !== safeRoom) return;
+
+    socket.to(safeRoom).emit('chat-message', {
+      username: safeName,
+      text: safeText
     });
   });
 
@@ -76,11 +82,8 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId;
-
     if (roomId) {
-      socket.to(roomId).emit('user-left', {
-        id: socket.id
-      });
+      socket.to(roomId).emit('user-left', { id: socket.id });
     }
   });
 });

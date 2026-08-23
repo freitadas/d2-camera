@@ -17,6 +17,12 @@ const micBtn = document.getElementById('micBtn');
 const cameraBtn = document.getElementById('cameraBtn');
 const screenBtn = document.getElementById('screenBtn');
 const leaveBtn = document.getElementById('leaveBtn');
+const messagesBtn = document.getElementById('messagesBtn');
+const friendsBtn = document.getElementById('friendsBtn');
+const chatView = document.getElementById('chatView');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const sendChatBtn = document.getElementById('sendChatBtn');
 
 let localStream = null;
 let cameraTrack = null;
@@ -404,6 +410,59 @@ function closeAllPeers() {
   pendingCandidates.clear();
 }
 
+
+function showCallView() {
+  if (!joinedOnce) return;
+  chatView?.classList.add('hidden');
+  callView?.classList.remove('hidden');
+  friendsBtn?.classList.add('active');
+  messagesBtn?.classList.remove('active');
+}
+
+function showChatView() {
+  if (!joinedOnce) {
+    joinError.textContent = 'Entre em uma sala primeiro para usar o chat.';
+    return;
+  }
+  callView?.classList.add('hidden');
+  chatView?.classList.remove('hidden');
+  messagesBtn?.classList.add('active');
+  friendsBtn?.classList.remove('active');
+  chatInput?.focus();
+}
+
+function addChatMessage(username, text, mine = false) {
+  if (!chatMessages) return;
+  const row = document.createElement('div');
+  row.className = `chat-message${mine ? ' mine' : ''}`;
+
+  const name = document.createElement('strong');
+  name.textContent = username;
+
+  const body = document.createElement('span');
+  body.textContent = text;
+
+  row.append(name, body);
+  chatMessages.appendChild(row);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function sendChatMessage() {
+  if (!joinedOnce || !currentRoom || !chatInput) return;
+  const text = chatInput.value.trim().slice(0, 500);
+  if (!text) return;
+
+  socket.emit('chat-message', {
+    roomId: currentRoom,
+    username: currentUsername,
+    text
+  });
+
+  addChatMessage(`${currentUsername} (você)`, text, true);
+  chatInput.value = '';
+  chatInput.focus();
+}
+
 function leaveCall() {
   joinedOnce = false;
   closeAllPeers();
@@ -439,6 +498,13 @@ micBtn.addEventListener('click', () => toggleTrack('audio', micBtn, '🎤 Microf
 cameraBtn.addEventListener('click', () => toggleTrack('video', cameraBtn, '📷 Câmera', '🚫 Câmera'));
 screenBtn.addEventListener('click', toggleScreenShare);
 leaveBtn.addEventListener('click', leaveCall);
+
+messagesBtn?.addEventListener('click', showChatView);
+friendsBtn?.addEventListener('click', showCallView);
+sendChatBtn?.addEventListener('click', sendChatMessage);
+chatInput?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') sendChatMessage();
+});
 
 const inviteRoom = normalizeRoom(new URLSearchParams(window.location.search).get('room') || '');
 if (inviteRoom) {
@@ -508,6 +574,10 @@ socket.on('user-left', ({ id }) => {
   removeVideoCard(id);
 });
 
+socket.on('chat-message', ({ username, text }) => {
+  addChatMessage(username || 'Usuário', text || '');
+});
+
 if (navigator.mediaDevices?.addEventListener) {
   navigator.mediaDevices.addEventListener('devicechange', () => {
     clearTimeout(deviceChangeTimer);
@@ -529,3 +599,22 @@ setInterval(() => {
   const mic = localStream.getAudioTracks()[0];
   if (!mic || mic.readyState === 'ended') recoverMicrophone('Verificação periódica do microfone.');
 }, 10000);
+
+// Clicar no vídeo para colocar em tela cheia
+videoGrid.addEventListener('click', async (event) => {
+  const video = event.target.closest('video');
+
+  if (!video) return;
+
+  try {
+    if (!document.fullscreenElement) {
+      await video.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (error) {
+    if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
+    }
+  }
+});
