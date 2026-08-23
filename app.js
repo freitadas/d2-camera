@@ -106,7 +106,7 @@ function removeVideoCard(id) {
 
 async function getLocalMedia() {
   return navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    video: false,
     audio: audioConstraints
   });
 }
