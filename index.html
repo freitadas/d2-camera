@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#11131a" />
+  <title>D2 Camera</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section id="joinView" class="panel join-panel">
+      <div class="brand">D2</div>
+      <h1>D2 Camera</h1>
+      <p>Crie uma sala ou entre pelo link enviado por um amigo.</p>
+
+      <label>
+        Seu nome
+        <input id="usernameInput" maxlength="30" placeholder="Ex.: Davi" autocomplete="name" />
+      </label>
+
+      <label>
+        Código da sala
+        <div class="room-row">
+          <input id="roomInput" maxlength="24" placeholder="Ex.: ABC123" />
+          <button id="randomRoomBtn" class="secondary" type="button">Gerar</button>
+        </div>
+      </label>
+
+      <div class="entry-actions">
+        <button id="createRoomBtn" class="secondary full" type="button">Criar nova sala</button>
+        <button id="joinBtn" class="primary" type="button">Entrar na sala</button>
+      </div>
+      <p id="inviteHint" class="hint hidden">Você abriu um convite. Digite seu nome e entre.</p>
+      <p id="joinError" class="error" aria-live="polite"></p>
+    </section>
+
+    <section id="callView" class="call-view hidden">
+      <header class="topbar">
+        <div>
+          <strong>D2 Camera</strong>
+          <span>Sala <b id="roomLabel"></b></span>
+        </div>
+        <button id="copyRoomBtn" class="secondary small" type="button">Copiar link da sala</button>
+      </header>
+
+      <div id="videoGrid" class="video-grid"></div>
+
+      <footer class="controls">
+        <button id="micBtn" class="control active" type="button">🎤 Microfone</button>
+        <button id="cameraBtn" class="control active" type="button">📷 Câmera</button>
+        <button id="leaveBtn" class="control danger" type="button">☎ Sair</button>
+      </footer>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
