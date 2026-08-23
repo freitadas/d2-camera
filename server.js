@@ -863,8 +863,17 @@ async function ensureMic(){
 }
 
 function getVideoSender(pc){
-  return pc.getSenders().find(s=>s.track?.kind==='video') ||
-         pc.getSenders().find(s=>s.track===null);
+  const videoTransceiver = pc.getTransceivers().find(
+    t => t.receiver?.track?.kind === 'video'
+  );
+
+  if(videoTransceiver){
+    videoTransceiver.direction = 'sendrecv';
+    return videoTransceiver.sender;
+  }
+
+  const transceiver = pc.addTransceiver('video', { direction:'sendrecv' });
+  return transceiver.sender;
 }
 
 function ensureCard(peerId,name,stream,isLocal=false){
@@ -989,7 +998,24 @@ function createPeer(peerId,username){
     for(const track of state.localStream.getAudioTracks()) pc.addTrack(track,state.localStream);
   }
 
-  pc.addTransceiver('video',{direction:'sendrecv'});
+  const videoTransceiver = pc.addTransceiver('video',{direction:'sendrecv'});
+
+  // Se já estivermos com câmera ou tela sendo compartilhada quando
+  // um novo participante entrar, já envia essa faixa para ele.
+  const activeVideoTrack =
+    state.screenTrack && state.screenTrack.readyState === 'live'
+      ? state.screenTrack
+      : (
+          state.cameraTrack &&
+          state.cameraTrack.readyState === 'live' &&
+          state.cameraTrack.enabled
+            ? state.cameraTrack
+            : null
+        );
+
+  if(activeVideoTrack){
+    videoTransceiver.sender.replaceTrack(activeVideoTrack).catch(console.error);
+  }
 
   pc.onicecandidate = ev=>{
     if(ev.candidate) socket.emit('ice-candidate',{target:peerId,candidate:ev.candidate});
@@ -1128,6 +1154,39 @@ function toggleMic(){
   $('#micBtn').classList.toggle('off',!t.enabled);
 }
 
+
+async function renegotiatePeer(peerId, pc){
+  try{
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit('offer',{
+      target: peerId,
+      sdp: pc.localDescription
+    });
+  }catch(err){
+    console.error('Erro ao renegociar vídeo com', peerId, err);
+  }
+}
+
+async function replaceVideoForAll(track){
+  const tasks = [];
+
+  for(const [peerId, pc] of state.peers.entries()){
+    const sender = getVideoSender(pc);
+
+    tasks.push(
+      sender.replaceTrack(track).then(async()=>{
+        // Renegociamos também para garantir compatibilidade entre navegadores
+        // quando o compartilhamento começa depois da call já estar conectada.
+        await renegotiatePeer(peerId, pc);
+      })
+    );
+  }
+
+  await Promise.allSettled(tasks);
+}
+
 async function toggleCamera(){
   if(!state.joinedVoiceId) return;
 
@@ -1152,12 +1211,7 @@ async function toggleCamera(){
     if(!state.localStream) state.localStream = new MediaStream();
     state.localStream.addTrack(state.cameraTrack);
 
-    const tasks = [];
-    for(const pc of state.peers.values()){
-      const sender = getVideoSender(pc);
-      if(sender) tasks.push(sender.replaceTrack(state.cameraTrack));
-    }
-    await Promise.allSettled(tasks);
+    await replaceVideoForAll(state.cameraTrack);
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
     $('#cameraBtn').textContent = '📷 Câmera';
@@ -1177,18 +1231,20 @@ async function stopScreen(){
   state.screenStream = null;
   state.screenTrack = null;
 
-  const replacement = state.cameraTrack && state.cameraTrack.enabled ? state.cameraTrack : null;
-  const tasks = [];
-  for(const pc of state.peers.values()){
-    const sender = getVideoSender(pc);
-    if(sender) tasks.push(sender.replaceTrack(replacement));
-  }
-  await Promise.allSettled(tasks);
+  const replacement =
+    state.cameraTrack &&
+    state.cameraTrack.readyState === 'live' &&
+    state.cameraTrack.enabled
+      ? state.cameraTrack
+      : null;
+
+  await replaceVideoForAll(replacement);
 
   ensureCard('local',state.username+' (você)',state.localStream,true);
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
   $('#cameraBtn').disabled = false;
+  if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
 }
 
 async function toggleScreen(){
@@ -1199,14 +1255,20 @@ async function toggleScreen(){
   }
 
   try{
-    state.screenStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+    state.screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video:{
+        frameRate:{ideal:30,max:60}
+      },
+      audio:false
+    });
+
     state.screenTrack = state.screenStream.getVideoTracks()[0];
-    const tasks = [];
-    for(const pc of state.peers.values()){
-      const sender = getVideoSender(pc);
-      if(sender) tasks.push(sender.replaceTrack(state.screenTrack));
-    }
-    await Promise.allSettled(tasks);
+
+    try{
+      state.screenTrack.contentHint = 'detail';
+    }catch{}
+
+    await replaceVideoForAll(state.screenTrack);
 
     const preview = new MediaStream([state.screenTrack]);
     ensureCard('local',state.username+' — compartilhando tela',preview,true);
@@ -1214,6 +1276,7 @@ async function toggleScreen(){
     $('#screenBtn').textContent = '⏹ Parar tela';
     $('#screenBtn').classList.add('sharing');
     $('#cameraBtn').disabled = true;
+    $('#voiceStatus').textContent = 'Compartilhando tela';
     state.screenTrack.onended = ()=>stopScreen().catch(console.error);
   }catch(err){
     if(err?.name!=='NotAllowedError') console.error(err);
@@ -1371,18 +1434,41 @@ socket.on('user-joined',({id,username})=>{
 
 socket.on('offer',async({from,sdp,username})=>{
   const pc=createPeer(from,username);
-  await pc.setRemoteDescription(sdp);
-  await flushCandidates(from);
-  const answer=await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  socket.emit('answer',{target:from,sdp:pc.localDescription});
+
+  try{
+    if(pc.signalingState !== 'stable'){
+      try{
+        await pc.setLocalDescription({type:'rollback'});
+      }catch{}
+    }
+
+    await pc.setRemoteDescription(sdp);
+    await flushCandidates(from);
+
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.emit('answer',{
+      target:from,
+      sdp:pc.localDescription
+    });
+  }catch(err){
+    console.error('Erro ao receber offer:', err);
+  }
 });
 
 socket.on('answer',async({from,sdp})=>{
   const pc=state.peers.get(from);
   if(!pc)return;
-  await pc.setRemoteDescription(sdp);
-  await flushCandidates(from);
+
+  try{
+    if(pc.signalingState !== 'stable'){
+      await pc.setRemoteDescription(sdp);
+      await flushCandidates(from);
+    }
+  }catch(err){
+    console.error('Erro ao aplicar answer:', err);
+  }
 });
 
 socket.on('ice-candidate',async({from,candidate})=>{
