@@ -163,10 +163,143 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .modal h2{margin:0 0 7px}.modal p{margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
 .modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 
-.login{position:fixed;inset:0;z-index:2000000;background:radial-gradient(circle at 25% 20%,rgba(65,217,154,.08),transparent 32%),radial-gradient(circle at 78% 75%,rgba(255,107,74,.10),transparent 36%),var(--bg0);display:grid;place-items:center;padding:18px}
-.loginCard{width:min(440px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:22px;padding:30px}
-.loginMark{width:58px;height:58px;border-radius:18px;background:var(--coral);color:#281009;display:grid;place-items:center;font-weight:900;font-size:23px}
-.loginCard h1{margin:19px 0 7px}.loginCard p{color:var(--muted);line-height:1.5}.loginCard .btn{width:100%;margin-top:12px}
+.login{
+  position:fixed;inset:0;z-index:2000000;
+  background:
+    radial-gradient(circle at 12% 20%,rgba(65,217,154,.12),transparent 30%),
+    radial-gradient(circle at 82% 78%,rgba(255,107,74,.14),transparent 34%),
+    var(--bg0);
+  display:grid;place-items:center;padding:28px;
+}
+.loginShell{
+  width:min(980px,100%);
+  min-height:570px;
+  display:grid;
+  grid-template-columns:1.12fr .88fr;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:28px;
+  background:rgba(13,27,23,.96);
+  box-shadow:0 28px 100px rgba(0,0,0,.42);
+}
+.loginBrandPanel{
+  position:relative;
+  padding:46px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  background:
+    linear-gradient(145deg,rgba(65,217,154,.08),transparent 42%),
+    radial-gradient(circle at 75% 20%,rgba(255,107,74,.12),transparent 38%),
+    #0a1713;
+  border-right:1px solid var(--line);
+}
+.loginBrandTop{display:flex;align-items:center;gap:13px}
+.loginMark{
+  width:62px;height:62px;border-radius:20px;
+  background:var(--coral);color:#281009;
+  display:grid;place-items:center;font-weight:1000;font-size:26px;
+  box-shadow:0 0 0 7px rgba(255,107,74,.08);
+}
+.loginBrandName{font-size:25px;font-weight:950;letter-spacing:-.04em}
+.loginBadge{
+  width:max-content;
+  margin-top:32px;
+  padding:7px 10px;
+  border:1px solid rgba(65,217,154,.22);
+  border-radius:999px;
+  color:var(--mint);
+  background:rgba(65,217,154,.07);
+  font-size:12px;
+  font-weight:800;
+}
+.loginHero h1{
+  max-width:460px;
+  margin:16px 0 12px;
+  font-size:44px;
+  line-height:1.03;
+  letter-spacing:-.055em;
+}
+.loginHero p{
+  max-width:470px;
+  margin:0;
+  color:var(--muted);
+  font-size:15px;
+  line-height:1.65;
+}
+.loginFeatures{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:9px;
+  margin-top:28px;
+}
+.loginFeature{
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(18,36,30,.7);
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.4;
+}
+.loginFeature strong{
+  display:block;
+  color:var(--text);
+  margin-bottom:4px;
+  font-size:12px;
+}
+.loginSignature{
+  color:var(--low);
+  font-size:11px;
+  letter-spacing:.03em;
+}
+.loginCard{
+  width:100%;
+  padding:48px 38px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  background:var(--bg1);
+}
+.loginCard .smallLogo{
+  display:none;
+  align-items:center;
+  gap:10px;
+  margin-bottom:26px;
+}
+.loginCard h2{
+  margin:0 0 7px;
+  font-size:27px;
+  letter-spacing:-.035em;
+}
+.loginCard>p{
+  margin:0 0 24px;
+  color:var(--muted);
+  line-height:1.55;
+  font-size:13px;
+}
+.loginLabel{
+  display:block;
+  color:var(--low);
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  margin-bottom:7px;
+}
+.loginCard .btn{width:100%;margin-top:12px;padding:13px}
+.loginPrivacy{
+  margin-top:16px;
+  padding:11px 12px;
+  border-radius:12px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  color:var(--low);
+  font-size:11px;
+  line-height:1.45;
+}
+.loginPrivacy b{color:var(--mint)}
+
 
 .fakeFullscreen{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:999999!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
 .fakeFullscreen video{object-fit:contain!important}
@@ -175,18 +308,82 @@ body.locked{overflow:hidden!important}
 .toast{position:fixed;right:18px;bottom:18px;z-index:3000000;background:var(--bg3);border:1px solid var(--line);color:var(--text);padding:11px 14px;border-radius:10px;box-shadow:0 12px 35px rgba(0,0,0,.3);font-size:13px}
 
 @media(max-width:1050px){.app{grid-template-columns:72px 230px minmax(0,1fr)}.rightbar{display:none}}
-@media(max-width:760px){.app{grid-template-columns:62px minmax(0,1fr)}.sidebar{display:none}.videoGrid{grid-template-columns:1fr;padding:8px}.videoCard{min-height:180px}.control{min-width:auto;flex:1 1 42%;font-size:12px}.message{max-width:88%}.topSub{display:none}}
+@media(max-width:760px){
+  .app{grid-template-columns:62px minmax(0,1fr)}
+  .sidebar{display:none}
+  .videoGrid{grid-template-columns:1fr;padding:8px}
+  .videoCard{min-height:180px}
+  .control{min-width:auto;flex:1 1 42%;font-size:12px}
+  .message{max-width:88%}
+  .topSub{display:none}
+  .login{padding:14px}
+  .loginShell{grid-template-columns:1fr;min-height:auto;border-radius:22px}
+  .loginBrandPanel{display:none}
+  .loginCard{padding:30px 22px}
+  .loginCard .smallLogo{display:flex}
+}
 </style>
 </head>
 <body>
 
 <div id="login" class="login">
-  <div class="loginCard">
-    <div class="loginMark">e</div>
-    <h1>Entrar no e-cord</h1>
-    <p>Escolha seu nome. A câmera é opcional e só será solicitada quando você clicar em ligar câmera.</p>
-    <input id="loginName" maxlength="30" placeholder="Seu nome">
-    <button id="loginBtn" class="btn primary">Entrar</button>
+  <div class="loginShell">
+
+    <section class="loginBrandPanel">
+      <div>
+        <div class="loginBrandTop">
+          <div class="loginMark">e</div>
+          <div class="loginBrandName">e-cord</div>
+        </div>
+
+        <div class="loginHero">
+          <div class="loginBadge">● SEU ESPAÇO DE CONVERSA</div>
+          <h1>Entre, chame a galera e fique conectado.</h1>
+          <p>
+            Um lugar simples para criar servidores, conversar por texto,
+            entrar em calls, abrir a câmera e compartilhar sua tela.
+          </p>
+
+          <div class="loginFeatures">
+            <div class="loginFeature">
+              <strong>✉ Chats</strong>
+              Crie seus próprios canais.
+            </div>
+            <div class="loginFeature">
+              <strong>🎤 Calls</strong>
+              Voz rápida com seus amigos.
+            </div>
+            <div class="loginFeature">
+              <strong>🖥 Tela</strong>
+              Compartilhe quando quiser.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="loginSignature">e-cord · converse do seu jeito</div>
+    </section>
+
+    <section class="loginCard">
+      <div class="smallLogo">
+        <div class="loginMark">e</div>
+        <div class="loginBrandName">e-cord</div>
+      </div>
+
+      <h2>Entrar no e-cord</h2>
+      <p>Escolha como seus amigos vão ver seu nome dentro do aplicativo.</p>
+
+      <label class="loginLabel" for="loginName">Seu nome</label>
+      <input id="loginName" maxlength="30" placeholder="Ex.: Davi" autocomplete="nickname">
+
+      <button id="loginBtn" class="btn primary">Entrar no e-cord</button>
+
+      <div class="loginPrivacy">
+        <b>Privacidade:</b> sua câmera não abre ao entrar.
+        Ela só pede permissão quando você clicar em “Ligar câmera”.
+      </div>
+    </section>
+
   </div>
 </div>
 
@@ -335,6 +532,7 @@ const state = {
   peers: new Map(),
   peerNames: new Map(),
   remoteStreams: new Map(),
+  remoteAudio: new Map(),
   pendingCandidates: new Map(),
   modalAction: null,
   onlineUsers: []
@@ -697,13 +895,82 @@ function ensureCard(peerId,name,stream,isLocal=false){
   }
 
   const video = card.querySelector('video');
-  video.muted = isLocal;
+  // O vídeo fica mudo para evitar áudio duplicado.
+  // O áudio remoto é reproduzido em um elemento <audio> separado.
+  video.muted = true;
   if(stream && video.srcObject!==stream) video.srcObject = stream;
   const hasVideo = !!stream?.getVideoTracks().some(t=>t.readyState==='live' && t.enabled);
   card.classList.toggle('hasVideo',hasVideo);
   card.querySelector('.videoName').textContent = name;
   card.querySelector('.bigAvatar').textContent = initials(name);
   return card;
+}
+
+
+function removeRemoteAudio(peerId){
+  const audio = state.remoteAudio.get(peerId);
+  if(audio){
+    try{
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
+    }catch{}
+  }
+  state.remoteAudio.delete(peerId);
+}
+
+function ensureRemoteAudio(peerId, track){
+  let audio = state.remoteAudio.get(peerId);
+
+  if(!audio){
+    audio = document.createElement('audio');
+    audio.id = 'a-' + peerId;
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.controls = false;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+    state.remoteAudio.set(peerId, audio);
+  }
+
+  const current = audio.srcObject;
+  if(!current || !current.getTracks().some(t => t.id === track.id)){
+    audio.srcObject = new MediaStream([track]);
+  }
+
+  audio.muted = false;
+  audio.volume = 1;
+
+  const tryPlay = () => {
+    audio.play().catch(() => {
+      $('#voiceStatus').textContent = 'Clique na tela para ativar o áudio';
+    });
+  };
+
+  tryPlay();
+
+  // Se o navegador bloquear autoplay, qualquer clique do usuário libera o som.
+  const unlock = () => {
+    audio.play().then(() => {
+      if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
+    }).catch(()=>{});
+  };
+
+  document.addEventListener('click', unlock, { once:true });
+  document.addEventListener('keydown', unlock, { once:true });
+
+  track.addEventListener('unmute', tryPlay);
+  track.addEventListener('ended', () => removeRemoteAudio(peerId));
+
+  return audio;
+}
+
+function unlockAllRemoteAudio(){
+  for(const audio of state.remoteAudio.values()){
+    audio.muted = false;
+    audio.volume = 1;
+    audio.play().catch(()=>{});
+  }
 }
 
 function getRemoteStream(peerId){
@@ -729,12 +996,28 @@ function createPeer(peerId,username){
   };
 
   pc.ontrack = ev=>{
-    const stream = getRemoteStream(peerId);
-    if(!stream.getTracks().some(t=>t.id===ev.track.id)) stream.addTrack(ev.track);
-    ensureCard(peerId,state.peerNames.get(peerId)||'Usuário',stream,false);
-    ev.track.addEventListener('mute',()=>ensureCard(peerId,state.peerNames.get(peerId)||'Usuário',stream,false));
-    ev.track.addEventListener('unmute',()=>ensureCard(peerId,state.peerNames.get(peerId)||'Usuário',stream,false));
-    ev.track.addEventListener('ended',()=>ensureCard(peerId,state.peerNames.get(peerId)||'Usuário',stream,false));
+    const name = state.peerNames.get(peerId) || 'Usuário';
+
+    if(ev.track.kind === 'audio'){
+      ensureRemoteAudio(peerId, ev.track);
+
+      // Mesmo sem câmera, mantém o cartão/avatar do amigo visível.
+      const visualStream = getRemoteStream(peerId);
+      ensureCard(peerId, name, visualStream, false);
+      return;
+    }
+
+    if(ev.track.kind === 'video'){
+      const stream = getRemoteStream(peerId);
+      if(!stream.getTracks().some(t=>t.id===ev.track.id)) stream.addTrack(ev.track);
+
+      ensureCard(peerId, name, stream, false);
+
+      const refresh = ()=>ensureCard(peerId,name,stream,false);
+      ev.track.addEventListener('mute', refresh);
+      ev.track.addEventListener('unmute', refresh);
+      ev.track.addEventListener('ended', refresh);
+    }
   };
 
   pc.onconnectionstatechange = ()=>{
@@ -779,6 +1062,8 @@ async function joinVoice(){
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
 
+    unlockAllRemoteAudio();
+
     socket.emit('join-voice',{
       serverId:state.serverId,
       channelId:channel.id,
@@ -795,6 +1080,11 @@ async function joinVoice(){
 
 function closePeers(){
   for(const pc of state.peers.values()) pc.close();
+
+  for(const peerId of [...state.remoteAudio.keys()]){
+    removeRemoteAudio(peerId);
+  }
+
   state.peers.clear();
   state.peerNames.clear();
   state.remoteStreams.clear();
@@ -1069,6 +1359,7 @@ socket.on('voice-participants',async participants=>{
     state.peerNames.set(p.id,p.username);
     await makeOffer(p.id,p.username);
   }
+  unlockAllRemoteAudio();
   $('#voiceStatus').textContent='Conectado';
 });
 
@@ -1110,6 +1401,7 @@ socket.on('user-left',({id})=>{
   state.peers.delete(id);
   state.peerNames.delete(id);
   state.remoteStreams.delete(id);
+  removeRemoteAudio(id);
   document.getElementById('v-'+id)?.remove();
 });
 
