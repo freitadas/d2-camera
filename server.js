@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,26 +19,144 @@ function broadcastOnlineUsers() {
 
 const id = () => crypto.randomBytes(5).toString('hex');
 
+const DATA_FILE = process.env.ECORD_DATA_FILE || path.join(process.cwd(), 'ecord-data.json');
 const servers = new Map();
 
-function makeServer(name = 'e-cord') {
-  const serverId = id();
-  const textGeneral = { id: id(), name: 'geral' };
-  const voiceGeneral = { id: id(), name: 'Geral' };
+function normalizeChannelList(list, fallbackName) {
+  if (!Array.isArray(list) || !list.length) {
+    return [{ id: id(), name: fallbackName }];
+  }
+
+  return list
+    .filter(Boolean)
+    .slice(0, 100)
+    .map(channel => ({
+      id: String(channel.id || id()).slice(0, 80),
+      name: String(channel.name || fallbackName).trim().slice(0, 30) || fallbackName
+    }));
+}
+
+function makeServer(name = 'e-cord', options = {}) {
+  const serverId = String(options.id || id()).slice(0, 80);
+
+  if (servers.has(serverId)) {
+    return servers.get(serverId);
+  }
+
+  const textChannels = normalizeChannelList(options.textChannels, 'geral');
+  const voiceChannels = normalizeChannelList(options.voiceChannels, 'Geral');
+
+  const messages = new Map();
+  for (const channel of textChannels) {
+    const history = Array.isArray(options.messages?.[channel.id])
+      ? options.messages[channel.id].slice(-100)
+      : [];
+    messages.set(channel.id, history);
+  }
 
   const data = {
     id: serverId,
-    name: String(name).trim().slice(0, 30) || 'Servidor',
-    textChannels: [textGeneral],
-    voiceChannels: [voiceGeneral],
-    messages: new Map([[textGeneral.id, []]])
+    name: String(name || 'Servidor').trim().slice(0, 30) || 'Servidor',
+    textChannels,
+    voiceChannels,
+    messages
   };
 
   servers.set(serverId, data);
   return data;
 }
 
-const defaultServer = makeServer('e-cord');
+function serializeServers() {
+  return [...servers.values()].map(serverData => ({
+    id: serverData.id,
+    name: serverData.name,
+    textChannels: serverData.textChannels,
+    voiceChannels: serverData.voiceChannels,
+    messages: Object.fromEntries(serverData.messages)
+  }));
+}
+
+function saveServersToDisk() {
+  try {
+    const tmp = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, servers: serializeServers() }, null, 2), 'utf8');
+    fs.renameSync(tmp, DATA_FILE);
+  } catch (error) {
+    console.error('Não foi possível salvar os servidores:', error.message);
+  }
+}
+
+function loadServersFromDisk() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return false;
+
+    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const list = Array.isArray(parsed?.servers) ? parsed.servers : [];
+
+    for (const item of list) {
+      makeServer(item.name, {
+        id: item.id,
+        textChannels: item.textChannels,
+        voiceChannels: item.voiceChannels,
+        messages: item.messages
+      });
+    }
+
+    return servers.size > 0;
+  } catch (error) {
+    console.error('Não foi possível carregar os servidores salvos:', error.message);
+    return false;
+  }
+}
+
+function mergeRestoredServer(item) {
+  if (!item?.id) return null;
+
+  const serverId = String(item.id).slice(0, 80);
+  const existing = servers.get(serverId);
+
+  if (!existing) {
+    return makeServer(item.name || 'Servidor', {
+      id: serverId,
+      textChannels: item.textChannels,
+      voiceChannels: item.voiceChannels
+    });
+  }
+
+  if (item.name) {
+    existing.name = String(item.name).trim().slice(0, 30) || existing.name;
+  }
+
+  const mergeChannels = (target, incoming, fallback) => {
+    if (!Array.isArray(incoming)) return;
+    const known = new Set(target.map(channel => channel.id));
+
+    for (const channel of incoming.slice(0, 100)) {
+      const channelId = String(channel?.id || id()).slice(0, 80);
+      if (known.has(channelId)) continue;
+
+      target.push({
+        id: channelId,
+        name: String(channel?.name || fallback).trim().slice(0, 30) || fallback
+      });
+      known.add(channelId);
+    }
+  };
+
+  mergeChannels(existing.textChannels, item.textChannels, 'chat');
+  mergeChannels(existing.voiceChannels, item.voiceChannels, 'Voz');
+
+  for (const channel of existing.textChannels) {
+    if (!existing.messages.has(channel.id)) existing.messages.set(channel.id, []);
+  }
+
+  return existing;
+}
+
+if (!loadServersFromDisk()) {
+  makeServer('e-cord');
+  saveServersToDisk();
+}
 
 function publicServers() {
   return [...servers.values()].map(s => ({
@@ -301,6 +421,78 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .loginPrivacy b{color:var(--mint)}
 
 
+
+.sharePickerWrap{
+  position:fixed;inset:0;z-index:1900000;
+  display:grid;place-items:center;
+  padding:18px;
+  background:rgba(2,8,6,.78);
+  backdrop-filter:blur(10px);
+}
+.sharePicker{
+  width:min(720px,100%);
+  border:1px solid var(--line);
+  border-radius:24px;
+  overflow:hidden;
+  background:linear-gradient(145deg,rgba(65,217,154,.055),transparent 34%),var(--bg1);
+  box-shadow:0 28px 90px rgba(0,0,0,.48);
+}
+.sharePickerHead{
+  padding:24px 24px 17px;
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+}
+.sharePickerBrand{display:flex;gap:12px;align-items:center}
+.sharePickerLogo{
+  width:44px;height:44px;border-radius:14px;
+  display:grid;place-items:center;
+  background:var(--coral);color:#281009;
+  font-size:18px;font-weight:950;
+}
+.sharePickerHead h2{margin:0 0 4px;font-size:21px;letter-spacing:-.035em}
+.sharePickerHead p{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+.sharePickerClose{
+  width:34px;height:34px;border:1px solid var(--line);
+  border-radius:10px;background:var(--bg2);color:var(--muted);font-weight:900;
+}
+.shareChoices{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:10px;padding:18px;
+}
+.shareChoice{
+  min-height:150px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--bg2);
+  color:var(--text);
+  padding:17px;
+  text-align:left;
+  transition:.15s ease;
+}
+.shareChoice:hover{
+  transform:translateY(-2px);
+  border-color:rgba(255,107,74,.65);
+  background:var(--bg3);
+}
+.shareChoiceIcon{
+  width:43px;height:43px;border-radius:13px;
+  display:grid;place-items:center;
+  background:rgba(255,107,74,.10);
+  color:var(--coral);
+  font-size:21px;margin-bottom:14px;
+}
+.shareChoice strong{display:block;margin-bottom:6px;font-size:14px}
+.shareChoice span{display:block;color:var(--muted);font-size:12px;line-height:1.45}
+.sharePickerFoot{
+  padding:0 18px 18px;color:var(--low);
+  font-size:11px;line-height:1.5;
+}
+.audioGate{
+  border:1px solid rgba(65,217,154,.38)!important;
+  background:var(--mintbg)!important;
+  color:var(--mint)!important;
+}
+
 .fakeFullscreen{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:999999!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
 .fakeFullscreen video{object-fit:contain!important}
 body.locked{overflow:hidden!important}
@@ -321,6 +513,8 @@ body.locked{overflow:hidden!important}
   .loginBrandPanel{display:none}
   .loginCard{padding:30px 22px}
   .loginCard .smallLogo{display:flex}
+  .shareChoices{grid-template-columns:1fr}
+  .shareChoice{min-height:0}
 }
 </style>
 </head>
@@ -485,6 +679,7 @@ body.locked{overflow:hidden!important}
 
         <div id="voiceControls" class="controls hidden">
           <button id="micBtn" class="control">🎤 Microfone</button>
+          <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
           <button id="screenBtn" class="control">🖥️ Compartilhar tela</button>
           <button id="leaveVoiceBtn" class="control danger">☎ Sair</button>
@@ -497,6 +692,45 @@ body.locked{overflow:hidden!important}
     <div class="rightTitle">Online</div>
     <div id="members"></div>
   </aside>
+</div>
+
+<div id="sharePickerWrap" class="sharePickerWrap hidden">
+  <div class="sharePicker">
+    <div class="sharePickerHead">
+      <div class="sharePickerBrand">
+        <div class="sharePickerLogo">e</div>
+        <div>
+          <h2>Compartilhar no e-cord</h2>
+          <p>Escolha o tipo de conteúdo. Depois o Chrome abrirá a janela segura para você confirmar.</p>
+        </div>
+      </div>
+      <button id="sharePickerClose" class="sharePickerClose" type="button">×</button>
+    </div>
+
+    <div class="shareChoices">
+      <button class="shareChoice" data-share-kind="monitor" type="button">
+        <div class="shareChoiceIcon">🖥</div>
+        <strong>Tela inteira</strong>
+        <span>Mostre tudo o que aparece em um monitor.</span>
+      </button>
+
+      <button class="shareChoice" data-share-kind="window" type="button">
+        <div class="shareChoiceIcon">▣</div>
+        <strong>Uma janela</strong>
+        <span>Compartilhe somente um programa aberto.</span>
+      </button>
+
+      <button class="shareChoice" data-share-kind="browser" type="button">
+        <div class="shareChoiceIcon">▤</div>
+        <strong>Aba do navegador</strong>
+        <span>Ideal para sites, vídeos e apresentações.</span>
+      </button>
+    </div>
+
+    <div class="sharePickerFoot">
+      O seletor final de tela, janela ou aba é uma área de segurança do navegador e não pode receber o tema do e-cord.
+    </div>
+  </div>
 </div>
 
 <div id="modalWrap" class="modalWrap hidden">
@@ -535,14 +769,17 @@ const state = {
   remoteAudio: new Map(),
   pendingCandidates: new Map(),
   modalAction: null,
-  onlineUsers: []
+  onlineUsers: [],
+  inviteApplied: false
 };
 
 const rtcConfig = {
   iceServers: [
     {urls:'stun:stun.l.google.com:19302'},
-    {urls:'stun:stun1.l.google.com:19302'}
-  ]
+    {urls:'stun:stun1.l.google.com:19302'},
+    {urls:'stun:stun.cloudflare.com:3478'}
+  ],
+  iceCandidatePoolSize: 10
 };
 
 function toast(text){
@@ -555,6 +792,65 @@ function toast(text){
 
 function initials(name){
   return (name || 'U').trim().charAt(0).toUpperCase() || 'U';
+}
+
+
+function safeServerSnapshot(serverData){
+  if(!serverData?.id) return null;
+
+  return {
+    id:String(serverData.id),
+    name:String(serverData.name || 'Servidor').slice(0,30),
+    textChannels:Array.isArray(serverData.textChannels)
+      ? serverData.textChannels.map(c=>({id:String(c.id),name:String(c.name||'chat').slice(0,30)}))
+      : [],
+    voiceChannels:Array.isArray(serverData.voiceChannels)
+      ? serverData.voiceChannels.map(c=>({id:String(c.id),name:String(c.name||'Voz').slice(0,30)}))
+      : []
+  };
+}
+
+function getCachedServers(){
+  try{
+    const parsed = JSON.parse(localStorage.getItem('ecord-server-cache') || '[]');
+    return Array.isArray(parsed) ? parsed.map(safeServerSnapshot).filter(Boolean) : [];
+  }catch{
+    return [];
+  }
+}
+
+function cacheServers(list){
+  try{
+    const safe = (Array.isArray(list) ? list : [])
+      .map(safeServerSnapshot)
+      .filter(Boolean);
+    localStorage.setItem('ecord-server-cache', JSON.stringify(safe));
+  }catch{}
+}
+
+function encodeInviteServer(serverData){
+  try{
+    const json = JSON.stringify(safeServerSnapshot(serverData));
+    const bytes = new TextEncoder().encode(json);
+    let binary = '';
+    for(const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }catch{
+    return '';
+  }
+}
+
+function decodeInviteServer(value){
+  try{
+    if(!value) return null;
+    let base = value.replace(/-/g,'+').replace(/_/g,'/');
+    while(base.length % 4) base += '=';
+    const binary = atob(base);
+    const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+    return safeServerSnapshot(JSON.parse(new TextDecoder().decode(bytes)));
+  }catch{
+    return null;
+  }
 }
 
 function currentServer(){
@@ -844,6 +1140,10 @@ async function copyInvite(){
   if(!state.serverId) return;
   const url = new URL(location.href);
   url.searchParams.set('server',state.serverId);
+
+  const snapshot = encodeInviteServer(currentServer());
+  if(snapshot) url.searchParams.set('s',snapshot);
+
   try{
     await navigator.clipboard.writeText(url.toString());
     toast('Convite copiado');
@@ -862,18 +1162,59 @@ async function ensureMic(){
   return mic;
 }
 
-function getVideoSender(pc){
-  const videoTransceiver = pc.getTransceivers().find(
-    t => t.receiver?.track?.kind === 'video'
-  );
+function getTransceiverByKind(pc, kind){
+  return pc.getTransceivers().find(t =>
+    t.receiver?.track?.kind === kind ||
+    t.sender?.track?.kind === kind
+  ) || null;
+}
 
-  if(videoTransceiver){
-    videoTransceiver.direction = 'sendrecv';
-    return videoTransceiver.sender;
+function getSenderByKind(pc, kind){
+  return getTransceiverByKind(pc, kind)?.sender || null;
+}
+
+function ensureOfferTransceivers(pc){
+  if(!getTransceiverByKind(pc,'audio')){
+    pc.addTransceiver('audio',{direction:'sendrecv'});
   }
 
-  const transceiver = pc.addTransceiver('video', { direction:'sendrecv' });
-  return transceiver.sender;
+  if(!getTransceiverByKind(pc,'video')){
+    pc.addTransceiver('video',{direction:'sendrecv'});
+  }
+}
+
+async function attachLocalTracks(pc){
+  let audioTx = getTransceiverByKind(pc,'audio');
+  let videoTx = getTransceiverByKind(pc,'video');
+
+  if(!audioTx){
+    audioTx = pc.addTransceiver('audio',{direction:'sendrecv'});
+  }else{
+    audioTx.direction = 'sendrecv';
+  }
+
+  if(!videoTx){
+    videoTx = pc.addTransceiver('video',{direction:'sendrecv'});
+  }else{
+    videoTx.direction = 'sendrecv';
+  }
+
+  const micTrack = state.localStream?.getAudioTracks()?.[0] || null;
+  const activeVideoTrack =
+    state.screenTrack && state.screenTrack.readyState === 'live'
+      ? state.screenTrack
+      : (
+          state.cameraTrack &&
+          state.cameraTrack.readyState === 'live' &&
+          state.cameraTrack.enabled
+            ? state.cameraTrack
+            : null
+        );
+
+  await Promise.allSettled([
+    audioTx.sender.replaceTrack(micTrack),
+    videoTx.sender.replaceTrack(activeVideoTrack)
+  ]);
 }
 
 function ensureCard(peerId,name,stream,isLocal=false){
@@ -908,7 +1249,9 @@ function ensureCard(peerId,name,stream,isLocal=false){
   // O áudio remoto é reproduzido em um elemento <audio> separado.
   video.muted = true;
   if(stream && video.srcObject!==stream) video.srcObject = stream;
-  const hasVideo = !!stream?.getVideoTracks().some(t=>t.readyState==='live' && t.enabled);
+  const hasVideo = !!stream?.getVideoTracks().some(
+    t=>t.readyState==='live' && t.enabled && !t.muted
+  );
   card.classList.toggle('hasVideo',hasVideo);
   card.querySelector('.videoName').textContent = name;
   card.querySelector('.bigAvatar').textContent = initials(name);
@@ -928,7 +1271,7 @@ function removeRemoteAudio(peerId){
   state.remoteAudio.delete(peerId);
 }
 
-function ensureRemoteAudio(peerId, track){
+function ensureRemoteAudio(peerId, track, sourceStream = null){
   let audio = state.remoteAudio.get(peerId);
 
   if(!audio){
@@ -937,36 +1280,42 @@ function ensureRemoteAudio(peerId, track){
     audio.autoplay = true;
     audio.playsInline = true;
     audio.controls = false;
-    audio.style.display = 'none';
+    audio.preload = 'auto';
+    audio.style.position = 'fixed';
+    audio.style.width = '1px';
+    audio.style.height = '1px';
+    audio.style.opacity = '0';
+    audio.style.pointerEvents = 'none';
     document.body.appendChild(audio);
     state.remoteAudio.set(peerId, audio);
   }
 
-  const current = audio.srcObject;
-  if(!current || !current.getTracks().some(t => t.id === track.id)){
-    audio.srcObject = new MediaStream([track]);
+  const stream =
+    sourceStream && sourceStream.getAudioTracks?.().length
+      ? sourceStream
+      : new MediaStream([track]);
+
+  if(audio.srcObject !== stream){
+    audio.srcObject = stream;
   }
 
   audio.muted = false;
   audio.volume = 1;
 
-  const tryPlay = () => {
-    audio.play().catch(() => {
-      $('#voiceStatus').textContent = 'Clique na tela para ativar o áudio';
-    });
+  const tryPlay = async () => {
+    try{
+      await audio.play();
+      $('#audioGateBtn').classList.add('hidden');
+      if(state.joinedVoiceId && !state.screenTrack){
+        $('#voiceStatus').textContent = 'Conectado';
+      }
+    }catch{
+      $('#audioGateBtn').classList.remove('hidden');
+      $('#voiceStatus').textContent = 'Clique em “Ativar áudio”';
+    }
   };
 
   tryPlay();
-
-  // Se o navegador bloquear autoplay, qualquer clique do usuário libera o som.
-  const unlock = () => {
-    audio.play().then(() => {
-      if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
-    }).catch(()=>{});
-  };
-
-  document.addEventListener('click', unlock, { once:true });
-  document.addEventListener('keydown', unlock, { once:true });
 
   track.addEventListener('unmute', tryPlay);
   track.addEventListener('ended', () => removeRemoteAudio(peerId));
@@ -974,11 +1323,24 @@ function ensureRemoteAudio(peerId, track){
   return audio;
 }
 
-function unlockAllRemoteAudio(){
+async function unlockAllRemoteAudio(){
+  let blocked = false;
+
   for(const audio of state.remoteAudio.values()){
     audio.muted = false;
     audio.volume = 1;
-    audio.play().catch(()=>{});
+
+    try{
+      await audio.play();
+    }catch{
+      blocked = true;
+    }
+  }
+
+  $('#audioGateBtn').classList.toggle('hidden', !blocked);
+
+  if(!blocked && state.joinedVoiceId && !state.screenTrack){
+    $('#voiceStatus').textContent = 'Conectado';
   }
 }
 
@@ -987,70 +1349,72 @@ function getRemoteStream(peerId){
   return state.remoteStreams.get(peerId);
 }
 
-function createPeer(peerId,username){
+function createPeer(peerId, username, asOfferer = false){
   if(state.peers.has(peerId)) return state.peers.get(peerId);
 
-  state.peerNames.set(peerId,username || 'Usuário');
+  state.peerNames.set(peerId, username || 'Usuário');
+
   const pc = new RTCPeerConnection(rtcConfig);
-  state.peers.set(peerId,pc);
+  state.peers.set(peerId, pc);
 
-  if(state.localStream){
-    for(const track of state.localStream.getAudioTracks()) pc.addTrack(track,state.localStream);
+  if(asOfferer){
+    ensureOfferTransceivers(pc);
   }
 
-  const videoTransceiver = pc.addTransceiver('video',{direction:'sendrecv'});
-
-  // Se já estivermos com câmera ou tela sendo compartilhada quando
-  // um novo participante entrar, já envia essa faixa para ele.
-  const activeVideoTrack =
-    state.screenTrack && state.screenTrack.readyState === 'live'
-      ? state.screenTrack
-      : (
-          state.cameraTrack &&
-          state.cameraTrack.readyState === 'live' &&
-          state.cameraTrack.enabled
-            ? state.cameraTrack
-            : null
-        );
-
-  if(activeVideoTrack){
-    videoTransceiver.sender.replaceTrack(activeVideoTrack).catch(console.error);
-  }
-
-  pc.onicecandidate = ev=>{
-    if(ev.candidate) socket.emit('ice-candidate',{target:peerId,candidate:ev.candidate});
+  pc.onicecandidate = event=>{
+    if(event.candidate){
+      socket.emit('ice-candidate',{
+        target:peerId,
+        candidate:event.candidate
+      });
+    }
   };
 
-  pc.ontrack = ev=>{
+  pc.ontrack = event=>{
     const name = state.peerNames.get(peerId) || 'Usuário';
 
-    if(ev.track.kind === 'audio'){
-      ensureRemoteAudio(peerId, ev.track);
+    if(event.track.kind === 'audio'){
+      ensureRemoteAudio(peerId, event.track, event.streams?.[0] || null);
 
-      // Mesmo sem câmera, mantém o cartão/avatar do amigo visível.
       const visualStream = getRemoteStream(peerId);
       ensureCard(peerId, name, visualStream, false);
       return;
     }
 
-    if(ev.track.kind === 'video'){
+    if(event.track.kind === 'video'){
       const stream = getRemoteStream(peerId);
-      if(!stream.getTracks().some(t=>t.id===ev.track.id)) stream.addTrack(ev.track);
+
+      if(!stream.getTracks().some(t=>t.id===event.track.id)){
+        stream.addTrack(event.track);
+      }
 
       ensureCard(peerId, name, stream, false);
 
       const refresh = ()=>ensureCard(peerId,name,stream,false);
-      ev.track.addEventListener('mute', refresh);
-      ev.track.addEventListener('unmute', refresh);
-      ev.track.addEventListener('ended', refresh);
+      event.track.addEventListener('mute', refresh);
+      event.track.addEventListener('unmute', refresh);
+      event.track.addEventListener('ended', refresh);
     }
   };
 
-  pc.onconnectionstatechange = ()=>{
-    if(pc.connectionState==='failed'){
-      try{pc.restartIce()}catch{}
+  const updateConnectionStatus = ()=>{
+    const connection = pc.connectionState;
+    const ice = pc.iceConnectionState;
+
+    if(connection === 'connected'){
+      if(!state.screenTrack) $('#voiceStatus').textContent = 'Conectado';
+      unlockAllRemoteAudio();
+    }else if(connection === 'connecting' || ice === 'checking'){
+      $('#voiceStatus').textContent = 'Conectando mídia...';
+    }else if(connection === 'failed' || ice === 'failed'){
+      $('#voiceStatus').textContent = 'Falha na conexão de mídia';
+      toast('A conexão de voz/vídeo falhou nesta rede.');
+      try{ pc.restartIce(); }catch{}
     }
   };
+
+  pc.onconnectionstatechange = updateConnectionStatus;
+  pc.oniceconnectionstatechange = updateConnectionStatus;
 
   return pc;
 }
@@ -1058,18 +1422,32 @@ function createPeer(peerId,username){
 async function flushCandidates(peerId){
   const pc = state.peers.get(peerId);
   const list = state.pendingCandidates.get(peerId)||[];
+
   if(!pc?.remoteDescription) return;
-  for(const c of list){
-    try{await pc.addIceCandidate(c)}catch{}
+
+  for(const candidate of list){
+    try{
+      await pc.addIceCandidate(candidate);
+    }catch(error){
+      console.warn('ICE candidate rejeitado:', error);
+    }
   }
+
   state.pendingCandidates.delete(peerId);
 }
 
-async function makeOffer(peerId,username){
-  const pc = createPeer(peerId,username);
+async function makeOffer(peerId, username){
+  const pc = createPeer(peerId, username, true);
+
+  await attachLocalTracks(pc);
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  socket.emit('offer',{target:peerId,sdp:pc.localDescription});
+
+  socket.emit('offer',{
+    target:peerId,
+    sdp:pc.localDescription
+  });
 }
 
 async function joinVoice(){
@@ -1138,6 +1516,7 @@ function leaveVoice(){
 
   state.joinedVoiceId = null;
   $('#voiceControls').classList.add('hidden');
+  $('#audioGateBtn').classList.add('hidden');
   $('#joinVoiceBtn').classList.remove('hidden');
   $('#voiceStatus').textContent = 'Fora da chamada';
   $('#cameraBtn').textContent = '📷 Ligar câmera';
@@ -1155,33 +1534,18 @@ function toggleMic(){
 }
 
 
-async function renegotiatePeer(peerId, pc){
-  try{
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    socket.emit('offer',{
-      target: peerId,
-      sdp: pc.localDescription
-    });
-  }catch(err){
-    console.error('Erro ao renegociar vídeo com', peerId, err);
-  }
-}
-
 async function replaceVideoForAll(track){
   const tasks = [];
 
-  for(const [peerId, pc] of state.peers.entries()){
-    const sender = getVideoSender(pc);
+  for(const pc of state.peers.values()){
+    let sender = getSenderByKind(pc,'video');
 
-    tasks.push(
-      sender.replaceTrack(track).then(async()=>{
-        // Renegociamos também para garantir compatibilidade entre navegadores
-        // quando o compartilhamento começa depois da call já estar conectada.
-        await renegotiatePeer(peerId, pc);
-      })
-    );
+    if(!sender){
+      const tx = pc.addTransceiver('video',{direction:'sendrecv'});
+      sender = tx.sender;
+    }
+
+    tasks.push(sender.replaceTrack(track));
   }
 
   await Promise.allSettled(tasks);
@@ -1192,6 +1556,11 @@ async function toggleCamera(){
 
   if(state.cameraTrack && state.cameraTrack.readyState==='live'){
     state.cameraTrack.enabled = !state.cameraTrack.enabled;
+
+    if(!state.screenTrack){
+      await replaceVideoForAll(state.cameraTrack.enabled ? state.cameraTrack : null);
+    }
+
     $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : '📷 Ligar câmera';
     $('#cameraBtn').classList.toggle('off',!state.cameraTrack.enabled);
     ensureCard('local',state.username+' (você)',state.localStream,true);
@@ -1227,9 +1596,20 @@ async function toggleCamera(){
 }
 
 async function stopScreen(){
-  if(state.screenStream) state.screenStream.getTracks().forEach(t=>t.stop());
-  state.screenStream = null;
+  const oldTrack = state.screenTrack;
   state.screenTrack = null;
+
+  if(oldTrack){
+    oldTrack.onended = null;
+  }
+
+  if(state.screenStream){
+    state.screenStream.getTracks().forEach(t=>{
+      if(t.readyState !== 'ended') t.stop();
+    });
+  }
+
+  state.screenStream = null;
 
   const replacement =
     state.cameraTrack &&
@@ -1247,22 +1627,48 @@ async function stopScreen(){
   if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
 }
 
-async function toggleScreen(){
-  if(!state.joinedVoiceId) return;
-  if(state.screenTrack){
-    await stopScreen();
+function openSharePicker(){
+  if(!state.joinedVoiceId){
+    toast('Entre em um canal de voz primeiro');
     return;
   }
 
+  if(state.screenTrack){
+    stopScreen().catch(console.error);
+    return;
+  }
+
+  $('#sharePickerWrap').classList.remove('hidden');
+}
+
+function closeSharePicker(){
+  $('#sharePickerWrap').classList.add('hidden');
+}
+
+async function startScreenShare(displaySurface){
+  closeSharePicker();
+
   try{
+    const videoOptions = {
+      frameRate:{ideal:30,max:60}
+    };
+
+    if(displaySurface){
+      videoOptions.displaySurface = displaySurface;
+    }
+
     state.screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video:{
-        frameRate:{ideal:30,max:60}
-      },
-      audio:false
+      video:videoOptions,
+      audio:false,
+      selfBrowserSurface:'exclude',
+      surfaceSwitching:'include'
     });
 
     state.screenTrack = state.screenStream.getVideoTracks()[0];
+
+    if(!state.screenTrack){
+      throw new Error('Nenhuma faixa de tela foi selecionada.');
+    }
 
     try{
       state.screenTrack.contentHint = 'detail';
@@ -1271,16 +1677,36 @@ async function toggleScreen(){
     await replaceVideoForAll(state.screenTrack);
 
     const preview = new MediaStream([state.screenTrack]);
-    ensureCard('local',state.username+' — compartilhando tela',preview,true);
+    ensureCard(
+      'local',
+      state.username+' — compartilhando tela',
+      preview,
+      true
+    );
 
     $('#screenBtn').textContent = '⏹ Parar tela';
     $('#screenBtn').classList.add('sharing');
     $('#cameraBtn').disabled = true;
     $('#voiceStatus').textContent = 'Compartilhando tela';
-    state.screenTrack.onended = ()=>stopScreen().catch(console.error);
-  }catch(err){
-    if(err?.name!=='NotAllowedError') console.error(err);
+
+    state.screenTrack.onended = ()=>{
+      if(state.screenTrack){
+        stopScreen().catch(console.error);
+      }
+    };
+  }catch(error){
+    state.screenStream = null;
+    state.screenTrack = null;
+
+    if(error?.name !== 'NotAllowedError'){
+      console.error('Erro ao compartilhar tela:',error);
+      toast('Não foi possível iniciar o compartilhamento.');
+    }
   }
+}
+
+async function toggleScreen(){
+  openSharePicker();
 }
 
 function renderMembers(list){
@@ -1349,8 +1775,22 @@ $('#messageInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendMessage
 $('#joinVoiceBtn').addEventListener('click',joinVoice);
 $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
+$('#audioGateBtn').addEventListener('click',async()=>{
+  await unlockAllRemoteAudio();
+  $('#audioGateBtn').classList.add('hidden');
+});
 $('#cameraBtn').addEventListener('click',toggleCamera);
 $('#screenBtn').addEventListener('click',toggleScreen);
+
+$('#sharePickerClose').addEventListener('click',closeSharePicker);
+$('#sharePickerWrap').addEventListener('click',event=>{
+  if(event.target === $('#sharePickerWrap')) closeSharePicker();
+});
+document.querySelectorAll('[data-share-kind]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    startScreenShare(button.dataset.shareKind);
+  });
+});
 
 $('#videoGrid').addEventListener('click',e=>{
   const card = e.target.closest('.videoCard');
@@ -1377,16 +1817,31 @@ socket.on('online-users', users => {
 });
 
 socket.on('server-list',list=>{
-  state.servers = list;
+  state.servers = Array.isArray(list) ? list : [];
+  cacheServers(state.servers);
 
-  const requested = new URLSearchParams(location.search).get('server');
+  const params = new URLSearchParams(location.search);
+  const requested = params.get('server');
+
+  if(
+    requested &&
+    !state.inviteApplied &&
+    state.servers.some(s=>s.id===requested)
+  ){
+    state.inviteApplied = true;
+    selectServer(requested);
+    return;
+  }
+
   if(!state.serverId){
-    const chosen = list.find(s=>s.id===requested) || list[0];
+    const chosen = state.servers.find(s=>s.id===requested) || state.servers[0];
     if(chosen) selectServer(chosen.id);
   }else{
-    const still = list.find(s=>s.id===state.serverId);
-    if(!still && list[0]) selectServer(list[0].id);
-    else{
+    const still = state.servers.find(s=>s.id===state.serverId);
+
+    if(!still && state.servers[0]){
+      selectServer(state.servers[0].id);
+    }else{
       renderServers();
       renderSidebar();
     }
@@ -1433,41 +1888,43 @@ socket.on('user-joined',({id,username})=>{
 });
 
 socket.on('offer',async({from,sdp,username})=>{
-  const pc=createPeer(from,username);
+  let pc = state.peers.get(from);
+
+  if(!pc){
+    pc = createPeer(from,username,false);
+  }
 
   try{
-    if(pc.signalingState !== 'stable'){
-      try{
-        await pc.setLocalDescription({type:'rollback'});
-      }catch{}
-    }
-
     await pc.setRemoteDescription(sdp);
+
+    // Depois de ler a offer, os transceivers remotos já existem.
+    // Agora encaixamos microfone e vídeo local nos mesmos m-lines.
+    await attachLocalTracks(pc);
     await flushCandidates(from);
 
-    const answer=await pc.createAnswer();
+    const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
     socket.emit('answer',{
       target:from,
       sdp:pc.localDescription
     });
-  }catch(err){
-    console.error('Erro ao receber offer:', err);
+  }catch(error){
+    console.error('Erro ao receber offer:',error);
   }
 });
 
 socket.on('answer',async({from,sdp})=>{
-  const pc=state.peers.get(from);
-  if(!pc)return;
+  const pc = state.peers.get(from);
+  if(!pc) return;
 
   try{
-    if(pc.signalingState !== 'stable'){
+    if(pc.signalingState === 'have-local-offer'){
       await pc.setRemoteDescription(sdp);
       await flushCandidates(from);
     }
-  }catch(err){
-    console.error('Erro ao aplicar answer:', err);
+  }catch(error){
+    console.error('Erro ao aplicar answer:',error);
   }
 });
 
@@ -1496,7 +1953,19 @@ socket.on('disconnect',()=>{
 });
 
 socket.on('connect',()=>{
+  const cachedServers = getCachedServers();
+  if(cachedServers.length){
+    socket.emit('restore-servers',{servers:cachedServers});
+  }
+
+  const params = new URLSearchParams(location.search);
+  const invitedServer = decodeInviteServer(params.get('s'));
+  if(invitedServer){
+    socket.emit('restore-servers',{servers:[invitedServer]});
+  }
+
   socket.emit('get-servers');
+
   if(state.username) socket.emit('set-username',{username:state.username});
   if(state.joinedVoiceId && state.serverId && state.voiceChannelId){
     closePeers();
@@ -1528,8 +1997,20 @@ io.on('connection', socket => {
     socket.emit('server-list', publicServers());
   });
 
+  socket.on('restore-servers', ({ servers: restored }) => {
+    if (!Array.isArray(restored)) return;
+
+    for (const item of restored.slice(0, 100)) {
+      mergeRestoredServer(item);
+    }
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+  });
+
   socket.on('create-server', ({ name }) => {
     const created = makeServer(cleanName(name, 'Novo servidor'));
+    saveServersToDisk();
     io.emit('server-list', publicServers());
     socket.emit('server-created', { serverId: created.id });
   });
@@ -1542,6 +2023,7 @@ io.on('connection', socket => {
       const channel = { id: id(), name: cleanChannel(name, 'novo-chat') };
       s.textChannels.push(channel);
       s.messages.set(channel.id, []);
+      saveServersToDisk();
       io.emit('server-list', publicServers());
       socket.emit('channel-created', { serverId, type: 'text', channelId: channel.id });
       return;
@@ -1550,6 +2032,7 @@ io.on('connection', socket => {
     if (type === 'voice') {
       const channel = { id: id(), name: cleanName(name, 'Nova voz') };
       s.voiceChannels.push(channel);
+      saveServersToDisk();
       io.emit('server-list', publicServers());
       socket.emit('channel-created', { serverId, type: 'voice', channelId: channel.id });
     }
@@ -1591,6 +2074,7 @@ io.on('connection', socket => {
     history.push(message);
     while (history.length > 100) history.shift();
     s.messages.set(channelId, history);
+    saveServersToDisk();
 
     io.to(`text:${serverId}:${channelId}`).emit('chat-message', message);
   });
