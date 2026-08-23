@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -5,56 +6,80 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' },
-  pingInterval: 25000,
-  pingTimeout: 20000
-});
+const io = new Server(server);
+
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(__dirname));
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/health', (_req, res) => res.json({ ok: true }));
+const rootDir = __dirname;
+const publicDir = path.join(__dirname, 'public');
+
+app.use(express.static(rootDir));
+
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
+
+app.get('/', (req, res) => {
+  const indexRaiz = path.join(rootDir, 'index.html');
+  const indexPublic = path.join(publicDir, 'index.html');
+
+  if (fs.existsSync(indexRaiz)) {
+    return res.sendFile(indexRaiz);
+  }
+
+  if (fs.existsSync(indexPublic)) {
+    return res.sendFile(indexPublic);
+  }
+
+  res.status(500).send('index.html não encontrado');
+});
 
 io.on('connection', (socket) => {
-  socket.on('join-room', async ({ roomId, username }) => {
-    const safeRoomId = String(roomId || '').trim().toUpperCase().slice(0, 24);
-    const safeUsername = String(username || 'Usuário').trim().slice(0, 30) || 'Usuário';
-    if (!safeRoomId) return socket.emit('room-error', 'Código da sala inválido.');
 
-    if (socket.data.roomId && socket.data.roomId !== safeRoomId) {
-      socket.leave(socket.data.roomId);
-    }
+  socket.on('join-room', ({ roomId, username }) => {
+    socket.data.roomId = roomId;
+    socket.data.username = username;
 
-    const existingSockets = await io.in(safeRoomId).fetchSockets();
-    const participants = existingSockets
-      .filter((s) => s.id !== socket.id)
-      .map((s) => ({ id: s.id, username: s.data.username || 'Usuário' }));
+    socket.join(roomId);
 
-    socket.data.roomId = safeRoomId;
-    socket.data.username = safeUsername;
-    socket.join(safeRoomId);
-
-    socket.emit('room-participants', participants);
-    socket.to(safeRoomId).emit('user-joined', { id: socket.id, username: safeUsername });
+    socket.to(roomId).emit('user-joined', {
+      id: socket.id,
+      username
+    });
   });
 
   socket.on('offer', ({ target, sdp }) => {
-    io.to(target).emit('offer', { from: socket.id, sdp, username: socket.data.username || 'Usuário' });
+    io.to(target).emit('offer', {
+      from: socket.id,
+      sdp,
+      username: socket.data.username
+    });
   });
 
   socket.on('answer', ({ target, sdp }) => {
-    io.to(target).emit('answer', { from: socket.id, sdp });
+    io.to(target).emit('answer', {
+      from: socket.id,
+      sdp
+    });
   });
 
   socket.on('ice-candidate', ({ target, candidate }) => {
-    io.to(target).emit('ice-candidate', { from: socket.id, candidate });
+    io.to(target).emit('ice-candidate', {
+      from: socket.id,
+      candidate
+    });
   });
 
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId;
-    if (roomId) socket.to(roomId).emit('user-left', { id: socket.id });
+
+    if (roomId) {
+      socket.to(roomId).emit('user-left', {
+        id: socket.id
+      });
+    }
   });
+
 });
 
 server.listen(PORT, '0.0.0.0', () => {
