@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1e1f22" />
+  <title>e-cord</title>
+  <style>
+    :root{
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:#f2f3f5;background:#313338
+    }
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%;background:#313338} body{min-height:100vh}
+    button,input{font:inherit}.hidden{display:none!important}button{cursor:pointer}
+
+    .desktop{display:grid;grid-template-columns:72px 250px minmax(0,1fr) 240px;min-height:100vh}
+    .servers{background:#1e1f22;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:10px}
+    .server-btn{width:48px;height:48px;border:0;border-radius:50%;background:#313338;color:#dbdee1;font-weight:800;font-size:18px;transition:.15s}
+    .server-btn:hover,.server-btn.active{border-radius:16px;background:#5865f2;color:white}.server-btn.add{color:#23a55a;font-size:26px}.server-btn.add:hover{color:white;background:#23a55a}
+    .separator{width:32px;height:2px;background:#35363c;border-radius:4px}
+
+    .sidebar{background:#2b2d31;display:flex;flex-direction:column;min-width:0}
+    .sidebar-title{height:48px;padding:0 16px;display:flex;align-items:center;font-weight:800;border-bottom:1px solid #1f2023;box-shadow:0 1px 0 rgba(0,0,0,.2)}
+    .sidebar-content{padding:10px 8px;flex:1}.side-item{width:100%;border:0;background:transparent;color:#b5bac1;padding:10px 12px;text-align:left;border-radius:5px;margin:2px 0}.side-item:hover,.side-item.active{background:#35373c;color:#f2f3f5}
+    .channel-title{font-size:12px;text-transform:uppercase;color:#949ba4;font-weight:800;margin:18px 8px 6px}.channel{display:flex;align-items:center;gap:8px;padding:7px 10px;color:#949ba4;border-radius:5px}.channel:hover{background:#35373c;color:#dbdee1}.hash{font-size:20px;color:#80848e}.voice-dot{width:8px;height:8px;border-radius:50%;background:#23a55a}
+    .userbar{background:#232428;padding:8px;display:flex;align-items:center;gap:9px}.avatar{width:34px;height:34px;border-radius:50%;background:#5865f2;display:grid;place-items:center;font-weight:900}.user-meta{min-width:0;flex:1}.user-meta strong{display:block;font-size:13px}.user-meta span{display:block;font-size:11px;color:#b5bac1}.mini{border:0;background:transparent;color:#b5bac1;font-size:17px;padding:6px;border-radius:5px}.mini:hover{background:#35373c;color:white}
+
+    .main{min-width:0;background:#313338;position:relative;display:flex;flex-direction:column;min-height:100vh}
+    .main-header{height:48px;border-bottom:1px solid #26272b;display:flex;align-items:center;padding:0 16px;gap:10px;font-weight:700;box-shadow:0 1px 0 rgba(0,0,0,.15)}
+    .main-header .muted{font-weight:500;color:#949ba4;font-size:13px}.content{flex:1;min-height:0;position:relative}
+
+    .members{background:#2b2d31;padding:20px 10px}.members h3{margin:4px 8px 12px;color:#949ba4;text-transform:uppercase;font-size:12px}.member{display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;color:#b5bac1}.member:hover{background:#35373c;color:#f2f3f5}.member-avatar{width:32px;height:32px;border-radius:50%;background:#5865f2;display:grid;place-items:center;font-size:12px;font-weight:800;position:relative}.member-avatar:after{content:"";position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;background:#23a55a;border:3px solid #2b2d31}
+
+    .panel{width:min(480px,calc(100% - 32px));margin:0 auto;position:relative;top:7vh;padding:30px;border-radius:12px;background:#2b2d31;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+    .brand{width:56px;height:56px;border-radius:18px;background:#5865f2;display:grid;place-items:center;font-size:27px;font-weight:900}.panel h1{margin:18px 0 6px;font-size:28px}.panel p{color:#b5bac1;margin:0 0 18px;line-height:1.45}
+    label{display:grid;gap:7px;margin-top:16px;color:#b5bac1;text-transform:uppercase;font-weight:800;font-size:12px}input{width:100%;border:0;background:#1e1f22;color:#f2f3f5;border-radius:4px;padding:13px 12px;outline:none}input:focus{box-shadow:0 0 0 2px #5865f2}.room-row{display:grid;grid-template-columns:1fr auto;gap:8px}.entry-actions{display:grid;gap:9px;margin-top:20px}
+    .primary,.secondary,.control{border:0;border-radius:4px;padding:12px 14px;color:white;font-weight:700}.primary{background:#5865f2}.primary:hover{background:#4752c4}.secondary{background:#4e5058}.secondary:hover{background:#6d6f78}.full{width:100%}.error{color:#fa777c!important;font-size:12px}.hint{color:#c9cdfb!important;font-size:12px}
+
+    .call-view{height:calc(100vh - 48px);display:grid;grid-template-rows:auto 1fr auto;min-height:0}.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid #26272b;background:#313338}.topbar>div{display:grid;gap:2px}.topbar span{color:#b5bac1;font-size:12px}.small{padding:8px 10px;font-size:12px}
+    .video-grid{overflow:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;padding:14px;align-content:center}.video-card{position:relative;overflow:hidden;aspect-ratio:16/10;min-height:220px;background:#1e1f22;border-radius:8px}.video-card video{width:100%;height:100%;object-fit:cover;background:#111214}.video-card .name{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.62);padding:5px 8px;border-radius:4px;font-size:12px;font-weight:700}
+    .controls{display:flex;justify-content:center;gap:10px;padding:12px;background:#2b2d31;border-top:1px solid #26272b;flex-wrap:wrap}.control{background:#4e5058;border-radius:50px;min-width:120px}.control:hover{background:#5d5f68}.control.off{background:#3b3d43;color:#b5bac1}.control.danger{background:#da373c}.control.sharing{background:#5865f2}.control:disabled{opacity:.45;cursor:not-allowed}#callStatus{color:#c9cdfb;font-weight:700}
+
+    @media(max-width:1050px){.desktop{grid-template-columns:72px 220px minmax(0,1fr)}.members{display:none}}
+    @media(max-width:760px){.desktop{grid-template-columns:64px minmax(0,1fr)}.sidebar{display:none}.servers{padding-top:8px}.server-btn{width:44px;height:44px}.panel{top:3vh;padding:22px}.video-grid{grid-template-columns:1fr;padding:8px}.video-card{min-height:180px}.control{min-width:auto;flex:1 1 42%;font-size:12px}.topbar{align-items:flex-start}.topbar .secondary{max-width:130px}}
+  </style>
+</head>
+<body>
+  <div class="desktop">
+    <aside class="servers">
+      <button class="server-btn active" title="e-cord">e</button>
+      <div class="separator"></div>
+      <button class="server-btn" title="Amigos">👥</button>
+      <button class="server-btn" title="Sala">🎮</button>
+      <button class="server-btn add" title="Adicionar">+</button>
+    </aside>
+
+    <aside class="sidebar">
+      <div class="sidebar-title">e-cord</div>
+      <div class="sidebar-content">
+        <button class="side-item active">👥 Amigos</button>
+        <button class="side-item">💬 Mensagens</button>
+        <div class="channel-title">Canais de texto</div>
+        <div class="channel"><span class="hash">#</span> geral</div>
+        <div class="channel"><span class="hash">#</span> clips</div>
+        <div class="channel-title">Canais de voz</div>
+        <div class="channel"><span>🔊</span> Geral <span class="voice-dot"></span></div>
+        <div class="channel"><span>🔊</span> Jogos</div>
+      </div>
+      <div class="userbar">
+        <div class="avatar">e</div>
+        <div class="user-meta"><strong>Você</strong><span>Online</span></div>
+        <button class="mini" title="Microfone">🎤</button>
+        <button class="mini" title="Configurações">⚙️</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="main-header">👥 e-cord <span class="muted">• câmera, voz e tela</span></header>
+      <div class="content">
+        <section id="joinView" class="panel join-panel">
+          <div class="brand">e</div>
+          <h1>Bem-vindo ao e-cord</h1>
+          <p>Crie uma sala ou entre pelo link enviado por um amigo.</p>
+
+          <label>Seu nome
+            <input id="usernameInput" maxlength="30" placeholder="Ex.: Davi" autocomplete="name" />
+          </label>
+
+          <label>Código da sala
+            <div class="room-row">
+              <input id="roomInput" maxlength="24" placeholder="Ex.: ABC123" />
+              <button id="randomRoomBtn" class="secondary" type="button">Gerar</button>
+            </div>
+          </label>
+
+          <div class="entry-actions">
+            <button id="createRoomBtn" class="secondary full" type="button">Criar nova sala</button>
+            <button id="joinBtn" class="primary" type="button">Entrar na sala</button>
+          </div>
+          <p id="inviteHint" class="hint hidden">Você abriu um convite. Digite seu nome e entre.</p>
+          <p id="joinError" class="error" aria-live="polite"></p>
+        </section>
+
+        <section id="callView" class="call-view hidden">
+          <header class="topbar">
+            <div>
+              <strong>🔊 Geral</strong>
+              <span>Sala <b id="roomLabel"></b> · <span id="callStatus">Conectando...</span></span>
+            </div>
+            <button id="copyRoomBtn" class="secondary small" type="button">Copiar link da sala</button>
+          </header>
+
+          <div id="videoGrid" class="video-grid"></div>
+
+          <footer class="controls">
+            <button id="micBtn" class="control active" type="button">🎤 Microfone</button>
+            <button id="cameraBtn" class="control active" type="button">📷 Câmera</button>
+            <button id="screenBtn" class="control active" type="button">🖥️ Compartilhar tela</button>
+            <button id="leaveBtn" class="control danger" type="button">☎ Sair</button>
+          </footer>
+        </section>
+      </div>
+    </main>
+
+    <aside class="members">
+      <h3>Online — 3</h3>
+      <div class="member"><div class="member-avatar">V</div><span>Você</span></div>
+      <div class="member"><div class="member-avatar">A</div><span>Amigo 1</span></div>
+      <div class="member"><div class="member-avatar">A</div><span>Amigo 2</span></div>
+    </aside>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
