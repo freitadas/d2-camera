@@ -289,8 +289,7 @@ async function joinRoom() {
 
   try {
     joinBtn.disabled = true;
-    joinBtn.textContent = 'Abrindo câmera...';
-    localStream = await getLocalMedia();
+joinBtn.textContent = 'Entrando...';    localStream = await getLocalMedia();
     cameraTrack = localStream.getVideoTracks()[0] || null;
     outgoingVideoTrack = cameraTrack;
 
@@ -315,7 +314,53 @@ async function joinRoom() {
   }
 }
 
-function toggleTrack(kind, button, onText, offText) {
+async function toggleCamera() {
+  if (!localStream) return;
+
+  if (cameraTrack) {
+    cameraTrack.enabled = !cameraTrack.enabled;
+
+    cameraBtn.textContent = cameraTrack.enabled
+      ? '📷 Câmera'
+      : '📷 Ligar câmera';
+
+    return;
+  }
+
+  try {
+    const cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
+
+    cameraTrack = cameraStream.getVideoTracks()[0];
+    localStream.addTrack(cameraTrack);
+    outgoingVideoTrack = cameraTrack;
+
+    for (const [peerId, pc] of peers.entries()) {
+      pc.addTrack(cameraTrack, localStream);
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      socket.emit('offer', {
+        target: peerId,
+        sdp: pc.localDescription
+      });
+    }
+
+    updateLocalPreview(
+      localStream,
+      `${currentUsername} (você)`
+    );
+
+    cameraBtn.textContent = '📷 Câmera';
+
+  } catch (error) {
+    cameraBtn.textContent = '📷 Ligar câmera';
+    setStatus('Câmera não autorizada');
+  }
+}function toggleTrack(kind, button, onText, offText) {
   if (!localStream) return;
   const tracks = kind === 'audio' ? localStream.getAudioTracks() : localStream.getVideoTracks();
   if (!tracks.length) {
@@ -495,7 +540,7 @@ copyRoomBtn.addEventListener('click', async () => {
 });
 
 micBtn.addEventListener('click', () => toggleTrack('audio', micBtn, '🎤 Microfone', '🔇 Microfone'));
-cameraBtn.addEventListener('click', () => toggleTrack('video', cameraBtn, '📷 Câmera', '🚫 Câmera'));
+cameraBtn.addEventListener('click', toggleCamera);
 screenBtn.addEventListener('click', toggleScreenShare);
 leaveBtn.addEventListener('click', leaveCall);
 
