@@ -10,10 +10,45 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
+function publicProfile(profile) {
+  if (!profile) return null;
+
+  return {
+    id: String(profile.id || '').slice(0, 100),
+    username: String(profile.username || 'Usuário').slice(0, 30),
+    bio: String(profile.bio || '').slice(0, 160),
+    avatar: String(profile.avatar || '').slice(0, 350000)
+  };
+}
+
+function findProfileByUsername(username) {
+  const key = String(username || '').trim().toLowerCase();
+  if (!key) return null;
+
+  for (const profile of profiles.values()) {
+    if (String(profile.username || '').toLowerCase() === key) {
+      return profile;
+    }
+  }
+
+  return null;
+}
+
 function broadcastOnlineUsers() {
   const users = [...io.sockets.sockets.values()]
     .filter(s => s.data.username)
-    .map(s => ({ id: s.id, username: s.data.username }));
+    .map(s => {
+      const profile = s.data.userId ? profiles.get(s.data.userId) : null;
+
+      return {
+        socketId: s.id,
+        id: profile?.id || s.data.userId || s.id,
+        username: profile?.username || s.data.username,
+        bio: profile?.bio || '',
+        avatar: profile?.avatar || ''
+      };
+    });
+
   io.emit('online-users', users);
 }
 
@@ -21,6 +56,7 @@ const id = () => crypto.randomBytes(5).toString('hex');
 
 const DATA_FILE = process.env.ECORD_DATA_FILE || path.join(process.cwd(), 'ecord-data.json');
 const servers = new Map();
+const profiles = new Map();
 
 function normalizeChannelList(list, fallbackName) {
   if (!Array.isArray(list) || !list.length) {
@@ -36,6 +72,34 @@ function normalizeChannelList(list, fallbackName) {
     }));
 }
 
+function normalizeRoles(list) {
+  if (!Array.isArray(list)) return [];
+
+  return list
+    .filter(Boolean)
+    .slice(0, 50)
+    .map(role => {
+      const color = /^#[0-9a-f]{6}$/i.test(String(role.color || ''))
+        ? String(role.color)
+        : '#ff6b4a';
+
+      const members = Array.isArray(role.members)
+        ? [...new Set(
+            role.members
+              .map(name => String(name || '').trim().slice(0, 30))
+              .filter(Boolean)
+          )].slice(0, 100)
+        : [];
+
+      return {
+        id: String(role.id || id()).slice(0, 80),
+        name: String(role.name || 'Cargo').trim().slice(0, 30) || 'Cargo',
+        color,
+        members
+      };
+    });
+}
+
 function makeServer(name = 'e-cord', options = {}) {
   const serverId = String(options.id || id()).slice(0, 80);
 
@@ -45,6 +109,7 @@ function makeServer(name = 'e-cord', options = {}) {
 
   const textChannels = normalizeChannelList(options.textChannels, 'geral');
   const voiceChannels = normalizeChannelList(options.voiceChannels, 'Geral');
+  const roles = normalizeRoles(options.roles);
 
   const messages = new Map();
   for (const channel of textChannels) {
@@ -59,11 +124,21 @@ function makeServer(name = 'e-cord', options = {}) {
     name: String(name || 'Servidor').trim().slice(0, 30) || 'Servidor',
     textChannels,
     voiceChannels,
+    roles,
     messages
   };
 
   servers.set(serverId, data);
   return data;
+}
+
+function serializeProfiles() {
+  return [...profiles.values()].map(profile => ({
+    id: String(profile.id || '').slice(0, 100),
+    username: String(profile.username || 'Usuário').slice(0, 30),
+    bio: String(profile.bio || '').slice(0, 160),
+    avatar: String(profile.avatar || '').slice(0, 350000)
+  }));
 }
 
 function serializeServers() {
@@ -72,6 +147,7 @@ function serializeServers() {
     name: serverData.name,
     textChannels: serverData.textChannels,
     voiceChannels: serverData.voiceChannels,
+    roles: serverData.roles,
     messages: Object.fromEntries(serverData.messages)
   }));
 }
@@ -79,7 +155,15 @@ function serializeServers() {
 function saveServersToDisk() {
   try {
     const tmp = DATA_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, servers: serializeServers() }, null, 2), 'utf8');
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({
+        version: 3,
+        servers: serializeServers(),
+        profiles: serializeProfiles()
+      }, null, 2),
+      'utf8'
+    );
     fs.renameSync(tmp, DATA_FILE);
   } catch (error) {
     console.error('Não foi possível salvar os servidores:', error.message);
@@ -92,17 +176,31 @@ function loadServersFromDisk() {
 
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     const list = Array.isArray(parsed?.servers) ? parsed.servers : [];
+    const savedProfiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
+
+    for (const raw of savedProfiles.slice(0, 5000)) {
+      const profileId = String(raw?.id || '').trim().slice(0, 100);
+      if (!profileId) continue;
+
+      profiles.set(profileId, {
+        id: profileId,
+        username: cleanName(raw?.username, 'Usuário'),
+        bio: String(raw?.bio || '').trim().slice(0, 160),
+        avatar: String(raw?.avatar || '').slice(0, 350000)
+      });
+    }
 
     for (const item of list) {
       makeServer(item.name, {
         id: item.id,
         textChannels: item.textChannels,
         voiceChannels: item.voiceChannels,
+        roles: item.roles,
         messages: item.messages
       });
     }
 
-    return servers.size > 0;
+    return true;
   } catch (error) {
     console.error('Não foi possível carregar os servidores salvos:', error.message);
     return false;
@@ -119,7 +217,8 @@ function mergeRestoredServer(item) {
     return makeServer(item.name || 'Servidor', {
       id: serverId,
       textChannels: item.textChannels,
-      voiceChannels: item.voiceChannels
+      voiceChannels: item.voiceChannels,
+      roles: item.roles
     });
   }
 
@@ -146,6 +245,23 @@ function mergeRestoredServer(item) {
   mergeChannels(existing.textChannels, item.textChannels, 'chat');
   mergeChannels(existing.voiceChannels, item.voiceChannels, 'Voz');
 
+  if (Array.isArray(item.roles)) {
+    const knownRoles = new Set(existing.roles.map(role => role.id));
+
+    for (const role of normalizeRoles(item.roles)) {
+      const current = existing.roles.find(itemRole => itemRole.id === role.id);
+
+      if (current) {
+        current.name = role.name;
+        current.color = role.color;
+        current.members = [...new Set([...(current.members || []), ...(role.members || [])])].slice(0, 100);
+      } else if (!knownRoles.has(role.id)) {
+        existing.roles.push(role);
+        knownRoles.add(role.id);
+      }
+    }
+  }
+
   for (const channel of existing.textChannels) {
     if (!existing.messages.has(channel.id)) existing.messages.set(channel.id, []);
   }
@@ -154,7 +270,8 @@ function mergeRestoredServer(item) {
 }
 
 if (!loadServersFromDisk()) {
-  makeServer('e-cord');
+  // Primeira execução: começa sem criar servidor automaticamente.
+  // O usuário cria o primeiro servidor quando quiser.
   saveServersToDisk();
 }
 
@@ -163,7 +280,8 @@ function publicServers() {
     id: s.id,
     name: s.name,
     textChannels: s.textChannels,
-    voiceChannels: s.voiceChannels
+    voiceChannels: s.voiceChannels,
+    roles: s.roles
   }));
 }
 
@@ -197,7 +315,7 @@ const APP_HTML = String.raw`<!doctype html>
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:var(--bg0);color:var(--text)}
 body{overflow:hidden}
-button,input{font:inherit}
+button,input,textarea{font:inherit}
 button{cursor:pointer}
 .hidden{display:none!important}
 .app{display:grid;grid-template-columns:72px 250px minmax(0,1fr) 240px;height:100vh}
@@ -591,12 +709,16 @@ body.locked{overflow:hidden!important}
   <aside class="sidebar">
     <div class="sideHead">
       <div class="brand"><span class="brandDot"></span><span id="serverTitle" class="serverTitle">e-cord</span></div>
-      <button id="inviteBtn" class="inviteBtn">Convidar</button>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="inviteBtn" class="inviteBtn">Convidar</button>
+        <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
+      </div>
     </div>
 
     <div class="sideScroll">
       <button id="homeBtn" class="navBtn active">◐ Início</button>
       <button id="friendsBtn" class="navBtn">👥 Amigos</button>
+      <button id="rolesBtn" class="navBtn">🛡 Cargos</button>
       <button id="messagesBtn" class="navBtn">✉ Mensagens</button>
 
       <div class="groupHead">
@@ -612,10 +734,14 @@ body.locked{overflow:hidden!important}
       <div id="voiceChannels"></div>
     </div>
 
-    <div class="userbar">
+    <button id="profileBtn" class="userbar" type="button" style="width:100%;border:0;color:inherit;text-align:left;cursor:pointer;">
       <div id="userAvatar" class="avatar">V</div>
-      <div class="userMeta"><strong id="userName">Você</strong><span>● Online</span></div>
-    </div>
+      <div class="userMeta" style="flex:1;">
+        <strong id="userName">Você</strong>
+        <span id="userBioMini">● Online · Editar perfil</span>
+      </div>
+      <span style="color:var(--low);font-size:16px;">⚙</span>
+    </button>
   </aside>
 
   <main class="main">
@@ -637,6 +763,7 @@ body.locked{overflow:hidden!important}
             <button id="homeCreateServer" class="btn primary">+ Criar servidor</button>
             <button id="homeCreateText" class="btn secondary"># Criar chat</button>
             <button id="homeCreateVoice" class="btn secondary">)) Criar voz</button>
+            <button id="homeCreateRole" class="btn secondary">🛡 Criar cargo</button>
           </div>
         </div>
       </section>
@@ -653,6 +780,21 @@ body.locked{overflow:hidden!important}
 
           <div style="overflow:auto;padding:18px;">
             <div id="friendsList" style="display:grid;gap:10px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="rolesView" class="view hidden">
+        <div style="height:100%;display:grid;grid-template-rows:auto 1fr;">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div>
+              <strong>🛡 Cargos do servidor</strong>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">Crie cargos, escolha a cor e atribua aos membros.</div>
+            </div>
+            <button id="addRoleBtn" class="btn primary small">+ Criar cargo</button>
+          </div>
+          <div style="overflow:auto;padding:18px;">
+            <div id="rolesList" style="display:grid;gap:10px;"></div>
           </div>
         </div>
       </section>
@@ -738,9 +880,57 @@ body.locked{overflow:hidden!important}
     <h2 id="modalTitle">Criar</h2>
     <p id="modalText"></p>
     <input id="modalInput" maxlength="30">
+
+    <div id="roleColorWrap" class="hidden" style="margin-top:14px;">
+      <label for="roleColor" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Cor do cargo</label>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;">
+        <input id="roleColor" type="color" value="#ff6b4a" style="width:48px;height:38px;padding:2px;border:0;background:transparent;cursor:pointer;">
+        <span id="roleColorText" style="color:var(--muted);font-size:12px;">#ff6b4a</span>
+      </div>
+    </div>
+
     <div class="modalActions">
       <button id="modalCancel" class="btn secondary">Cancelar</button>
       <button id="modalOk" class="btn primary">Criar</button>
+    </div>
+  </div>
+</div>
+
+<div id="profileModalWrap" class="modalWrap hidden">
+  <div class="modal">
+    <h2>Meu perfil</h2>
+    <p>Troque sua foto, seu nome e escreva uma bio curta.</p>
+
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+      <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
+      <div style="flex:1;">
+        <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
+        <input id="profilePhotoInput" type="file" accept="image/*">
+        <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
+      </div>
+    </div>
+
+    <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
+    <input id="profileNameInput" maxlength="30" placeholder="Seu nome">
+
+    <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
+    <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+
+    <div class="modalActions">
+      <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
+      <button id="profileSaveBtn" class="btn primary">Salvar perfil</button>
+    </div>
+  </div>
+</div>
+
+<div id="incomingCallWrap" class="modalWrap hidden">
+  <div class="modal">
+    <div style="width:56px;height:56px;border-radius:18px;background:var(--mintbg);color:var(--mint);display:grid;place-items:center;font-size:23px;margin-bottom:16px;">☎</div>
+    <h2>Chamada privada</h2>
+    <p><strong id="incomingCallerName" style="color:var(--text);">Um amigo</strong> está te ligando.</p>
+    <div class="modalActions">
+      <button id="declineCallBtn" class="btn danger">Recusar</button>
+      <button id="acceptCallBtn" class="btn primary">Aceitar</button>
     </div>
   </div>
 </div>
@@ -752,8 +942,23 @@ body.locked{overflow:hidden!important}
 const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
+
+function getOrCreateUserId(){
+  let value = localStorage.getItem('ecord-user-id');
+
+  if(!value){
+    value = (crypto?.randomUUID ? crypto.randomUUID() : ('u-' + Date.now() + '-' + Math.random().toString(36).slice(2)));
+    localStorage.setItem('ecord-user-id', value);
+  }
+
+  return value;
+}
+
 const state = {
+  userId: getOrCreateUserId(),
   username: localStorage.getItem('ecord-name') || '',
+  bio: localStorage.getItem('ecord-bio') || '',
+  avatar: localStorage.getItem('ecord-avatar') || '',
   servers: [],
   serverId: null,
   textChannelId: null,
@@ -769,8 +974,15 @@ const state = {
   remoteAudio: new Map(),
   pendingCandidates: new Map(),
   modalAction: null,
+  selectedRoleId: null,
   onlineUsers: [],
-  inviteApplied: false
+  lastVoiceMembers: [],
+  inviteApplied: false,
+  restoreAttempted: false,
+  privateCallId: null,
+  privatePeerName: null,
+  incomingCall: null,
+  pendingAvatar: null
 };
 
 const rtcConfig = {
@@ -795,6 +1007,137 @@ function initials(name){
 }
 
 
+
+function profileForName(username){
+  const key = String(username || '').toLowerCase();
+
+  if(key === String(state.username || '').toLowerCase()){
+    return {
+      id:state.userId,
+      username:state.username,
+      bio:state.bio,
+      avatar:state.avatar
+    };
+  }
+
+  return state.onlineUsers.find(
+    user => String(user.username || '').toLowerCase() === key
+  ) || null;
+}
+
+function applyAvatar(el, profile, fallbackName){
+  if(!el) return;
+
+  const avatar = String(profile?.avatar || '');
+
+  if(avatar){
+    el.textContent = '';
+    el.style.backgroundImage = 'url("' + avatar.replace(/"/g,'') + '")';
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  }else{
+    el.style.backgroundImage = '';
+    el.textContent = initials(profile?.username || fallbackName || 'U');
+  }
+}
+
+function refreshOwnProfileUI(){
+  $('#userName').textContent = state.username || 'Você';
+  $('#userBioMini').textContent = state.bio
+    ? state.bio.slice(0,34)
+    : '● Online · Editar perfil';
+
+  applyAvatar(
+    $('#userAvatar'),
+    {username:state.username,avatar:state.avatar},
+    state.username
+  );
+
+  if($('#welcomeTitle')){
+    $('#welcomeTitle').textContent = 'Bem-vindo, ' + (state.username || 'você');
+  }
+}
+
+function openProfileModal(){
+  state.pendingAvatar = state.avatar || '';
+  $('#profileNameInput').value = state.username || '';
+  $('#profileBioInput').value = state.bio || '';
+  $('#profilePhotoInput').value = '';
+
+  applyAvatar(
+    $('#profileAvatarPreview'),
+    {username:state.username,avatar:state.pendingAvatar},
+    state.username
+  );
+
+  $('#profileModalWrap').classList.remove('hidden');
+}
+
+function closeProfileModal(){
+  $('#profileModalWrap').classList.add('hidden');
+  state.pendingAvatar = null;
+}
+
+function fileToAvatar(file){
+  return new Promise((resolve,reject)=>{
+    if(!file){
+      resolve('');
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onerror = ()=>reject(new Error('Não foi possível ler a imagem'));
+
+    reader.onload = ()=>{
+      const img = new Image();
+
+      img.onerror = ()=>reject(new Error('Imagem inválida'));
+
+      img.onload = ()=>{
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        const sourceSize = Math.min(img.naturalWidth,img.naturalHeight);
+        const sx = Math.max(0,(img.naturalWidth-sourceSize)/2);
+        const sy = Math.max(0,(img.naturalHeight-sourceSize)/2);
+
+        ctx.drawImage(
+          img,
+          sx,sy,sourceSize,sourceSize,
+          0,0,size,size
+        );
+
+        resolve(canvas.toDataURL('image/jpeg',0.82));
+      };
+
+      img.src = reader.result;
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function saveProfile(){
+  const username = $('#profileNameInput').value.trim().slice(0,30);
+  const bio = $('#profileBioInput').value.trim().slice(0,160);
+
+  if(!username){
+    toast('Digite um nome');
+    return;
+  }
+
+  socket.emit('set-profile',{
+    userId:state.userId,
+    username,
+    bio,
+    avatar:String(state.pendingAvatar || '').slice(0,350000)
+  });
+}
+
 function safeServerSnapshot(serverData){
   if(!serverData?.id) return null;
 
@@ -806,6 +1149,16 @@ function safeServerSnapshot(serverData){
       : [],
     voiceChannels:Array.isArray(serverData.voiceChannels)
       ? serverData.voiceChannels.map(c=>({id:String(c.id),name:String(c.name||'Voz').slice(0,30)}))
+      : [],
+    roles:Array.isArray(serverData.roles)
+      ? serverData.roles.map(role=>({
+          id:String(role.id),
+          name:String(role.name||'Cargo').slice(0,30),
+          color:/^#[0-9a-f]{6}$/i.test(String(role.color||'')) ? String(role.color) : '#ff6b4a',
+          members:Array.isArray(role.members)
+            ? role.members.map(name=>String(name||'').slice(0,30)).filter(Boolean).slice(0,100)
+            : []
+        }))
       : []
   };
 }
@@ -868,10 +1221,12 @@ function currentVoice(){
 function setView(name){
   $('#homeView').classList.toggle('hidden', name!=='home');
   $('#friendsView').classList.toggle('hidden', name!=='friends');
+  $('#rolesView').classList.toggle('hidden', name!=='roles');
   $('#chatView').classList.toggle('hidden', name!=='chat');
   $('#voiceView').classList.toggle('hidden', name!=='voice');
   $('#homeBtn').classList.toggle('active', name==='home');
   $('#friendsBtn').classList.toggle('active', name==='friends');
+  $('#rolesBtn').classList.toggle('active', name==='roles');
   $('#messagesBtn').classList.toggle('active', name==='chat');
 
   if(name==='home'){
@@ -882,6 +1237,11 @@ function setView(name){
     $('#topTitle').textContent = '👥 Amigos';
     $('#topSub').textContent = 'adicione e veja quem está online';
     renderFriends();
+  }
+  if(name==='roles'){
+    $('#topTitle').textContent = '🛡 Cargos';
+    $('#topSub').textContent = currentServer()?.name || '';
+    renderRoles();
   }
   if(name==='chat'){
     const c = currentText();
@@ -910,7 +1270,18 @@ function renderServers(){
 
 function renderSidebar(){
   const s = currentServer();
-  if(!s) return;
+
+  if(!s){
+    $('#serverTitle').textContent = 'Nenhum servidor';
+    $('#textChannels').innerHTML = '';
+    $('#voiceChannels').innerHTML = '';
+    $('#inviteBtn').disabled = true;
+    $('#deleteServerBtn').disabled = true;
+    return;
+  }
+
+  $('#inviteBtn').disabled = false;
+  $('#deleteServerBtn').disabled = false;
   $('#serverTitle').textContent = s.name;
 
   const textBox = $('#textChannels');
@@ -1006,7 +1377,30 @@ function sendMessage(){
 function getFriends(){
   try{
     const list = JSON.parse(localStorage.getItem('ecord-friends') || '[]');
-    return Array.isArray(list) ? list : [];
+
+    if(!Array.isArray(list)) return [];
+
+    return list
+      .map(friend=>{
+        if(typeof friend === 'string'){
+          return {
+            id:null,
+            username:friend.slice(0,30),
+            bio:'',
+            avatar:''
+          };
+        }
+
+        if(!friend || !friend.username) return null;
+
+        return {
+          id:friend.id ? String(friend.id) : null,
+          username:String(friend.username).slice(0,30),
+          bio:String(friend.bio || '').slice(0,160),
+          avatar:String(friend.avatar || '').slice(0,350000)
+        };
+      })
+      .filter(Boolean);
   }catch{
     return [];
   }
@@ -1018,29 +1412,69 @@ function saveFriends(list){
 
 function addFriendByName(name){
   const clean = String(name || '').trim().slice(0,30);
+
   if(!clean) return;
 
-  if(clean.toLowerCase() === state.username.toLowerCase()){
-    toast('Você não pode adicionar você mesmo');
-    return;
-  }
+  socket.emit('friend-lookup',{
+    userId:state.userId,
+    username:clean
+  });
+}
+
+function addResolvedFriend(profile){
+  if(!profile?.username) return;
 
   const friends = getFriends();
-  if(friends.some(f => f.toLowerCase() === clean.toLowerCase())){
+
+  const exists = friends.some(friend =>
+    (profile.id && friend.id && friend.id === profile.id) ||
+    String(friend.username || '').toLowerCase() === String(profile.username || '').toLowerCase()
+  );
+
+  if(exists){
     toast('Esse amigo já está na sua lista');
     return;
   }
 
-  friends.push(clean);
+  friends.push({
+    id:profile.id || null,
+    username:String(profile.username).slice(0,30),
+    bio:String(profile.bio || '').slice(0,160),
+    avatar:String(profile.avatar || '').slice(0,350000)
+  });
+
   saveFriends(friends);
   renderFriends();
   toast('Amigo adicionado');
 }
 
-function removeFriend(name){
-  const friends = getFriends().filter(f => f.toLowerCase() !== name.toLowerCase());
+function removeFriend(friend){
+  const friends = getFriends().filter(item => {
+    if(friend?.id && item.id) return item.id !== friend.id;
+    return String(item.username || '').toLowerCase() !== String(friend?.username || '').toLowerCase();
+  });
+
   saveFriends(friends);
   renderFriends();
+}
+
+function callFriend(friend){
+  const online = state.onlineUsers.find(user =>
+    (friend.id && user.id === friend.id) ||
+    String(user.username || '').toLowerCase() === String(friend.username || '').toLowerCase()
+  );
+
+  if(!online){
+    toast('Esse amigo está offline');
+    return;
+  }
+
+  socket.emit('private-call-invite',{
+    targetUserId:online.id,
+    targetUsername:online.username
+  });
+
+  toast('Chamando ' + online.username + '...');
 }
 
 function renderFriends(){
@@ -1052,49 +1486,144 @@ function renderFriends(){
 
   if(!friends.length){
     const empty = document.createElement('div');
-    empty.style.color = 'var(--low)';
-    empty.style.fontSize = '13px';
-    empty.style.padding = '18px 4px';
+    empty.style.cssText = 'padding:20px;background:var(--bg2);border:1px dashed var(--line);border-radius:14px;color:var(--low);font-size:13px;';
     empty.textContent = 'Você ainda não adicionou nenhum amigo.';
     box.appendChild(empty);
     return;
   }
 
-  friends.forEach(friendName => {
-    const online = state.onlineUsers.some(
-      u => String(u.username || '').toLowerCase() === friendName.toLowerCase()
+  friends.forEach(friend => {
+    const live = state.onlineUsers.find(user =>
+      (friend.id && user.id === friend.id) ||
+      String(user.username || '').toLowerCase() === String(friend.username || '').toLowerCase()
     );
+
+    const profile = live || friend;
+    const online = !!live;
 
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;';
 
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
-    avatar.textContent = initials(friendName);
+    avatar.style.flex = '0 0 auto';
+    applyAvatar(avatar,profile,profile.username);
 
     const meta = document.createElement('div');
-    meta.style.flex = '1';
-    meta.style.minWidth = '0';
+    meta.style.cssText = 'flex:1;min-width:0;';
 
     const strong = document.createElement('strong');
-    strong.textContent = friendName;
+    strong.textContent = profile.username;
     strong.style.display = 'block';
 
     const status = document.createElement('span');
     status.textContent = online ? '● Online' : '● Offline';
-    status.style.display = 'block';
-    status.style.fontSize = '12px';
-    status.style.marginTop = '3px';
-    status.style.color = online ? 'var(--mint)' : 'var(--low)';
+    status.style.cssText =
+      'display:block;font-size:12px;margin-top:3px;color:' +
+      (online ? 'var(--mint)' : 'var(--low)') + ';';
 
-    meta.append(strong, status);
+    meta.append(strong,status);
+
+    if(profile.bio){
+      const bio = document.createElement('span');
+      bio.textContent = profile.bio;
+      bio.style.cssText = 'display:block;font-size:11px;color:var(--low);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      meta.appendChild(bio);
+    }
+
+    const call = document.createElement('button');
+    call.className = 'btn primary small';
+    call.textContent = '☎ Ligar';
+    call.disabled = !online;
+    call.style.opacity = online ? '1' : '.45';
+    call.addEventListener('click',()=>callFriend(profile));
 
     const remove = document.createElement('button');
     remove.className = 'btn secondary small';
     remove.textContent = 'Remover';
-    remove.addEventListener('click', () => removeFriend(friendName));
+    remove.addEventListener('click',()=>removeFriend(friend));
 
-    row.append(avatar, meta, remove);
+    row.append(avatar,meta,call,remove);
+    box.appendChild(row);
+  });
+}
+
+function roleNamesForUser(username){
+  const server = currentServer();
+  if(!server || !Array.isArray(server.roles)) return [];
+
+  const key = String(username || '').toLowerCase();
+
+  return server.roles.filter(role =>
+    Array.isArray(role.members) &&
+    role.members.some(name => String(name).toLowerCase() === key)
+  );
+}
+
+function renderRoles(){
+  const box = $('#rolesList');
+  if(!box) return;
+
+  const server = currentServer();
+  const roles = Array.isArray(server?.roles) ? server.roles : [];
+  box.innerHTML = '';
+
+  if(!roles.length){
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px;background:var(--bg2);border:1px dashed var(--line);border-radius:14px;color:var(--low);font-size:13px;';
+    empty.textContent = 'Este servidor ainda não tem cargos. Clique em “Criar cargo”.';
+    box.appendChild(empty);
+    return;
+  }
+
+  roles.forEach(role => {
+    const roleColor = role.color || '#ff6b4a';
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;';
+
+    const color = document.createElement('div');
+    color.style.cssText =
+      'width:13px;height:38px;border-radius:999px;background:' + roleColor +
+      ';box-shadow:0 0 18px ' + roleColor + '33;flex:0 0 auto;';
+
+    const meta = document.createElement('div');
+    meta.style.cssText = 'flex:1;min-width:0;';
+
+    const name = document.createElement('strong');
+    name.textContent = role.name;
+    name.style.cssText = 'display:block;color:' + roleColor + ';';
+
+    const members = document.createElement('div');
+    members.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    const list = Array.isArray(role.members) ? role.members : [];
+    members.textContent = list.length
+      ? String(list.length) + ' membro' + (list.length === 1 ? '' : 's') + ' · ' + list.join(', ')
+      : 'Nenhum membro com este cargo';
+
+    meta.append(name, members);
+
+    const assign = document.createElement('button');
+    assign.className = 'btn secondary small';
+    assign.textContent = 'Atribuir';
+    assign.addEventListener('click', ()=>{
+      state.selectedRoleId = role.id;
+      openModal('assignRole');
+    });
+
+    const remove = document.createElement('button');
+    remove.className = 'btn secondary small';
+    remove.textContent = 'Excluir';
+    remove.addEventListener('click', ()=>{
+      if(confirm('Excluir o cargo "' + role.name + '"?')){
+        socket.emit('remove-role',{
+          serverId:state.serverId,
+          roleId:role.id
+        });
+      }
+    });
+
+    row.append(color, meta, assign, remove);
     box.appendChild(row);
   });
 }
@@ -1105,13 +1634,28 @@ function openModal(type){
     server:['Criar servidor','Digite o nome do novo servidor.','Ex.: Meus amigos'],
     text:['Criar chat','Digite o nome do novo canal de texto.','Ex.: memes'],
     voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos'],
-    friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no e-cord.','Ex.: Davi']
+    friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no e-cord.','Ex.: Davi'],
+    role:['Criar cargo','Escolha um nome e uma cor para o cargo.','Ex.: Moderador'],
+    assignRole:['Atribuir cargo','Digite exatamente o nome da pessoa que receberá o cargo.','Ex.: Davi']
   }[type];
 
   $('#modalTitle').textContent = cfg[0];
   $('#modalText').textContent = cfg[1];
   $('#modalInput').placeholder = cfg[2];
   $('#modalInput').value = '';
+
+  $('#roleColorWrap').classList.toggle('hidden', type !== 'role');
+
+  if(type === 'role'){
+    $('#roleColor').value = '#ff6b4a';
+    $('#roleColorText').textContent = '#ff6b4a';
+  }
+
+  $('#modalOk').textContent =
+    type === 'assignRole' ? 'Atribuir' :
+    type === 'role' ? 'Criar cargo' :
+    'Criar';
+
   $('#modalWrap').classList.remove('hidden');
   setTimeout(()=>$('#modalInput').focus(),0);
 }
@@ -1119,6 +1663,8 @@ function openModal(type){
 function closeModal(){
   $('#modalWrap').classList.add('hidden');
   state.modalAction = null;
+  $('#roleColorWrap').classList.add('hidden');
+  $('#modalOk').textContent = 'Criar';
 }
 
 function confirmModal(){
@@ -1132,8 +1678,36 @@ function confirmModal(){
     socket.emit('create-channel',{serverId:state.serverId,type:'voice',name:value});
   } else if(state.modalAction==='friend'){
     addFriendByName(value);
+  } else if(state.modalAction==='role'){
+    socket.emit('create-role',{
+      serverId:state.serverId,
+      name:value,
+      color:$('#roleColor').value
+    });
+  } else if(state.modalAction==='assignRole'){
+    socket.emit('assign-role',{
+      serverId:state.serverId,
+      roleId:state.selectedRoleId,
+      username:value
+    });
+    state.selectedRoleId = null;
   }
   closeModal();
+}
+
+function deleteCurrentServer(){
+  const server = currentServer();
+
+  if(!server){
+    toast('Nenhum servidor selecionado');
+    return;
+  }
+
+  if(!confirm('Apagar o servidor "' + server.name + '"? Esta ação não pode ser desfeita.')){
+    return;
+  }
+
+  socket.emit('delete-server',{serverId:server.id});
 }
 
 async function copyInvite(){
@@ -1254,7 +1828,17 @@ function ensureCard(peerId,name,stream,isLocal=false){
   );
   card.classList.toggle('hasVideo',hasVideo);
   card.querySelector('.videoName').textContent = name;
-  card.querySelector('.bigAvatar').textContent = initials(name);
+
+  const cardProfile = profileForName(
+    String(name || '').replace(' (você)','').replace(' — compartilhando tela','')
+  );
+
+  applyAvatar(
+    card.querySelector('.bigAvatar'),
+    cardProfile,
+    name
+  );
+
   return card;
 }
 
@@ -1450,9 +2034,59 @@ async function makeOffer(peerId, username){
   });
 }
 
+
+async function enterPrivateCall(callId,peerName){
+  try{
+    await ensureMic();
+
+    if(state.joinedVoiceId){
+      socket.emit('leave-voice');
+      closePeers();
+    }
+
+    state.privateCallId = callId;
+    state.privatePeerName = peerName || 'Amigo';
+    state.joinedVoiceId = 'private:' + callId;
+
+    setView('voice');
+
+    $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
+    $('#topTitle').textContent = '☎ Chamada privada';
+    $('#topSub').textContent = state.privatePeerName;
+    $('#voiceStatus').textContent = 'Conectando...';
+
+    $('#voiceControls').classList.remove('hidden');
+    $('#joinVoiceBtn').classList.add('hidden');
+
+    ensureCard('local',state.username+' (você)',state.localStream,true);
+
+    socket.emit('join-private-call',{
+      callId,
+      username:state.username,
+      userId:state.userId
+    });
+  }catch(error){
+    console.error(error);
+    toast('Permita o microfone para entrar na chamada');
+  }
+}
+
+function showIncomingCall(data){
+  state.incomingCall = data;
+  $('#incomingCallerName').textContent = data?.fromUsername || 'Um amigo';
+  $('#incomingCallWrap').classList.remove('hidden');
+}
+
+function closeIncomingCall(){
+  $('#incomingCallWrap').classList.add('hidden');
+}
+
 async function joinVoice(){
   const channel = currentVoice();
   if(!channel) return;
+
+  state.privateCallId = null;
+  state.privatePeerName = null;
 
   try{
     $('#joinVoiceBtn').disabled = true;
@@ -1497,6 +2131,8 @@ function closePeers(){
 }
 
 function leaveVoice(){
+  const wasPrivate = !!state.privateCallId;
+
   socket.emit('leave-voice');
   closePeers();
 
@@ -1515,6 +2151,8 @@ function leaveVoice(){
   }
 
   state.joinedVoiceId = null;
+  state.privateCallId = null;
+  state.privatePeerName = null;
   $('#voiceControls').classList.add('hidden');
   $('#audioGateBtn').classList.add('hidden');
   $('#joinVoiceBtn').classList.remove('hidden');
@@ -1523,6 +2161,10 @@ function leaveVoice(){
   $('#cameraBtn').classList.add('off');
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
+
+  if(wasPrivate){
+    setView('friends');
+  }
 }
 
 function toggleMic(){
@@ -1710,6 +2352,7 @@ async function toggleScreen(){
 }
 
 function renderMembers(list){
+  state.lastVoiceMembers = Array.isArray(list) ? list : [];
   const box = $('#members');
   box.innerHTML = '';
   if(!list?.length){
@@ -1725,9 +2368,34 @@ function renderMembers(list){
     row.className='member';
     const dot=document.createElement('span');
     dot.className='memberDot';
+    const info=document.createElement('div');
+    info.style.minWidth='0';
+
     const name=document.createElement('span');
     name.textContent=u.username;
-    row.append(dot,name);
+    name.style.display='block';
+
+    const roles = roleNamesForUser(u.username);
+
+    if(roles.length){
+      const badges=document.createElement('div');
+      badges.style.cssText='display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;';
+
+      roles.slice(0,3).forEach(role=>{
+        const badge=document.createElement('span');
+        badge.textContent=role.name;
+        badge.style.cssText =
+          'font-size:9px;font-weight:800;padding:2px 5px;border-radius:999px;color:' +
+          role.color + ';background:' + role.color + '18;border:1px solid ' + role.color + '44;';
+        badges.appendChild(badge);
+      });
+
+      info.append(name,badges);
+    }else{
+      info.appendChild(name);
+    }
+
+    row.append(dot,info);
     box.appendChild(row);
   });
 }
@@ -1737,16 +2405,21 @@ $('#loginBtn').addEventListener('click',()=>{
   if(!name) return;
   state.username = name;
   localStorage.setItem('ecord-name',name);
-  $('#userName').textContent = name;
-  $('#userAvatar').textContent = initials(name);
-  $('#welcomeTitle').textContent = 'Bem-vindo, '+name;
+  refreshOwnProfileUI();
   $('#login').classList.add('hidden');
-  socket.emit('set-username', { username: name });
+
+  socket.emit('set-profile',{
+    userId:state.userId,
+    username:state.username,
+    bio:state.bio,
+    avatar:state.avatar
+  });
 });
 
 $('#loginName').addEventListener('keydown',e=>{if(e.key==='Enter') $('#loginBtn').click()});
 if(state.username){
   $('#loginName').value=state.username;
+  refreshOwnProfileUI();
   setTimeout(()=>$('#loginBtn').click(),0);
 }
 
@@ -1761,9 +2434,77 @@ $('#modalOk').addEventListener('click',confirmModal);
 $('#modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')confirmModal();if(e.key==='Escape')closeModal()});
 $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))closeModal()});
 
+$('#profileBtn').addEventListener('click',openProfileModal);
+$('#profileCancelBtn').addEventListener('click',closeProfileModal);
+$('#profileSaveBtn').addEventListener('click',saveProfile);
+$('#removeProfilePhotoBtn').addEventListener('click',()=>{
+  state.pendingAvatar = '';
+  applyAvatar(
+    $('#profileAvatarPreview'),
+    {username:$('#profileNameInput').value || state.username,avatar:''},
+    $('#profileNameInput').value || state.username
+  );
+});
+$('#profilePhotoInput').addEventListener('change',async event=>{
+  const file = event.target.files?.[0];
+  if(!file) return;
+
+  try{
+    state.pendingAvatar = await fileToAvatar(file);
+
+    applyAvatar(
+      $('#profileAvatarPreview'),
+      {username:$('#profileNameInput').value || state.username,avatar:state.pendingAvatar},
+      $('#profileNameInput').value || state.username
+    );
+  }catch(error){
+    console.error(error);
+    toast('Não foi possível usar essa foto');
+  }
+});
+$('#profileModalWrap').addEventListener('click',event=>{
+  if(event.target === $('#profileModalWrap')) closeProfileModal();
+});
+
+$('#deleteServerBtn').addEventListener('click',deleteCurrentServer);
+
+$('#acceptCallBtn').addEventListener('click',()=>{
+  const call = state.incomingCall;
+  if(!call) return;
+
+  closeIncomingCall();
+
+  socket.emit('private-call-response',{
+    callId:call.callId,
+    callerSocketId:call.callerSocketId,
+    accept:true
+  });
+
+  enterPrivateCall(call.callId,call.fromUsername);
+  state.incomingCall = null;
+});
+
+$('#declineCallBtn').addEventListener('click',()=>{
+  const call = state.incomingCall;
+  if(!call) return;
+
+  socket.emit('private-call-response',{
+    callId:call.callId,
+    callerSocketId:call.callerSocketId,
+    accept:false
+  });
+
+  state.incomingCall = null;
+  closeIncomingCall();
+});
+
 $('#homeBtn').addEventListener('click',()=>setView('home'));
 $('#friendsBtn').addEventListener('click',()=>setView('friends'));
+$('#rolesBtn').addEventListener('click',()=>setView('roles'));
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
+$('#addRoleBtn').addEventListener('click',()=>openModal('role'));
+$('#homeCreateRole').addEventListener('click',()=>openModal('role'));
+$('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$('#roleColor').value;});
 $('#messagesBtn').addEventListener('click',()=>{
   if(state.textChannelId) selectText(state.textChannelId);
   else toast('Crie um chat primeiro');
@@ -1816,17 +2557,99 @@ socket.on('online-users', users => {
   renderFriends();
 });
 
+socket.on('profile-saved',profile=>{
+  if(!profile) return;
+
+  state.userId = profile.id || state.userId;
+  state.username = profile.username || state.username;
+  state.bio = profile.bio || '';
+  state.avatar = profile.avatar || '';
+
+  localStorage.setItem('ecord-user-id',state.userId);
+  localStorage.setItem('ecord-name',state.username);
+  localStorage.setItem('ecord-bio',state.bio);
+
+  try{
+    localStorage.setItem('ecord-avatar',state.avatar);
+  }catch{
+    localStorage.removeItem('ecord-avatar');
+  }
+
+  refreshOwnProfileUI();
+  closeProfileModal();
+  renderFriends();
+  toast('Perfil salvo');
+});
+
+socket.on('friend-lookup-result',result=>{
+  if(!result?.ok){
+    toast(result?.error || 'Essa pessoa não existe no e-cord');
+    return;
+  }
+
+  addResolvedFriend(result.profile);
+});
+
+socket.on('incoming-private-call',data=>{
+  showIncomingCall(data);
+});
+
+socket.on('private-call-accepted',data=>{
+  toast((data?.username || 'Seu amigo') + ' aceitou');
+  enterPrivateCall(data.callId,data.username || 'Amigo');
+});
+
+socket.on('private-call-declined',data=>{
+  toast((data?.username || 'Seu amigo') + ' recusou a chamada');
+});
+
+socket.on('private-call-error',data=>{
+  toast(data?.error || 'Não foi possível fazer a chamada');
+});
+
 socket.on('server-list',list=>{
-  state.servers = Array.isArray(list) ? list : [];
+  const incoming = Array.isArray(list) ? list : [];
+
+  if(!incoming.length && !state.restoreAttempted){
+    const cached = getCachedServers();
+
+    state.restoreAttempted = true;
+
+    if(cached.length){
+      socket.emit('restore-servers',{servers:cached});
+      return;
+    }
+  }
+
+  if(incoming.length){
+    state.restoreAttempted = true;
+  }
+
+  state.servers = incoming;
   cacheServers(state.servers);
 
   const params = new URLSearchParams(location.search);
   const requested = params.get('server');
 
+  if(!state.servers.length){
+    state.serverId = null;
+    state.textChannelId = null;
+    state.voiceChannelId = null;
+
+    renderServers();
+    renderSidebar();
+    renderRoles();
+    setView('home');
+
+    $('#topTitle').textContent = 'e-cord';
+    $('#topSub').textContent = 'Crie seu primeiro servidor';
+    return;
+  }
+
   if(
     requested &&
     !state.inviteApplied &&
-    state.servers.some(s=>s.id===requested)
+    state.servers.some(server=>server.id===requested)
   ){
     state.inviteApplied = true;
     selectServer(requested);
@@ -1834,23 +2657,42 @@ socket.on('server-list',list=>{
   }
 
   if(!state.serverId){
-    const chosen = state.servers.find(s=>s.id===requested) || state.servers[0];
+    const chosen = state.servers.find(server=>server.id===requested) || state.servers[0];
     if(chosen) selectServer(chosen.id);
-  }else{
-    const still = state.servers.find(s=>s.id===state.serverId);
-
-    if(!still && state.servers[0]){
-      selectServer(state.servers[0].id);
-    }else{
-      renderServers();
-      renderSidebar();
-    }
+    return;
   }
+
+  const still = state.servers.find(server=>server.id===state.serverId);
+
+  if(!still){
+    selectServer(state.servers[0].id);
+    return;
+  }
+
+  renderServers();
+  renderSidebar();
+  renderRoles();
+});
+
+socket.on('server-deleted',({serverId})=>{
+  if(state.serverId===serverId){
+    state.serverId = null;
+    state.textChannelId = null;
+    state.voiceChannelId = null;
+  }
+
+  toast('Servidor apagado');
 });
 
 socket.on('server-created',({serverId})=>{
   selectServer(serverId);
   toast('Servidor criado');
+});
+
+socket.on('role-updated',({message})=>{
+  renderRoles();
+  renderMembers(state.lastVoiceMembers || []);
+  toast(message || 'Cargos atualizados');
 });
 
 socket.on('channel-created',({serverId,type,channelId})=>{
@@ -1953,27 +2795,40 @@ socket.on('disconnect',()=>{
 });
 
 socket.on('connect',()=>{
-  const cachedServers = getCachedServers();
-  if(cachedServers.length){
-    socket.emit('restore-servers',{servers:cachedServers});
-  }
-
   const params = new URLSearchParams(location.search);
   const invitedServer = decodeInviteServer(params.get('s'));
+
   if(invitedServer){
     socket.emit('restore-servers',{servers:[invitedServer]});
   }
 
   socket.emit('get-servers');
 
-  if(state.username) socket.emit('set-username',{username:state.username});
-  if(state.joinedVoiceId && state.serverId && state.voiceChannelId){
-    closePeers();
-    socket.emit('join-voice',{
-      serverId:state.serverId,
-      channelId:state.voiceChannelId,
-      username:state.username
+  if(state.username){
+    socket.emit('set-profile',{
+      userId:state.userId,
+      username:state.username,
+      bio:state.bio,
+      avatar:state.avatar
     });
+  }
+
+  if(state.joinedVoiceId){
+    closePeers();
+
+    if(state.privateCallId){
+      socket.emit('join-private-call',{
+        callId:state.privateCallId,
+        username:state.username,
+        userId:state.userId
+      });
+    }else if(state.serverId && state.voiceChannelId){
+      socket.emit('join-voice',{
+        serverId:state.serverId,
+        channelId:state.voiceChannelId,
+        username:state.username
+      });
+    }
   }
 });
 </script>
@@ -1991,6 +2846,68 @@ io.on('connection', socket => {
   socket.on('set-username', ({ username }) => {
     socket.data.username = cleanName(username);
     broadcastOnlineUsers();
+  });
+
+  socket.on('set-profile', ({ userId, username, bio, avatar }) => {
+    const safeId = String(userId || '').trim().slice(0, 100);
+    if (!safeId) return;
+
+    const oldProfile = profiles.get(safeId);
+    const oldName = oldProfile?.username || null;
+
+    const profile = {
+      id: safeId,
+      username: cleanName(username, oldProfile?.username || 'Usuário'),
+      bio: String(bio || '').trim().slice(0, 160),
+      avatar: String(avatar || '').slice(0, 350000)
+    };
+
+    profiles.set(safeId, profile);
+
+    if (oldName && oldName.toLowerCase() !== profile.username.toLowerCase()) {
+      for (const serverData of servers.values()) {
+        for (const role of serverData.roles || []) {
+          role.members = (role.members || []).map(member =>
+            String(member).toLowerCase() === oldName.toLowerCase()
+              ? profile.username
+              : member
+          );
+        }
+      }
+    }
+
+    socket.data.userId = safeId;
+    socket.data.username = profile.username;
+
+    saveServersToDisk();
+    socket.emit('profile-saved', publicProfile(profile));
+    io.emit('server-list', publicServers());
+    broadcastOnlineUsers();
+  });
+
+  socket.on('friend-lookup', ({ userId, username }) => {
+    const profile = findProfileByUsername(username);
+
+    if (!profile) {
+      socket.emit('friend-lookup-result', {
+        ok: false,
+        error: 'Essa pessoa não existe no e-cord'
+      });
+      return;
+    }
+
+    if (String(profile.id) === String(userId || '')) {
+      socket.emit('friend-lookup-result', {
+        ok: false,
+        error: 'Você não pode adicionar você mesmo'
+      });
+      return;
+    }
+
+    socket.emit('friend-lookup-result', {
+      ok: true,
+      profile: publicProfile(profile)
+    });
   });
 
   socket.on('get-servers', () => {
@@ -2013,6 +2930,79 @@ io.on('connection', socket => {
     saveServersToDisk();
     io.emit('server-list', publicServers());
     socket.emit('server-created', { serverId: created.id });
+  });
+
+  socket.on('delete-server', ({ serverId }) => {
+    const safeId = String(serverId || '').slice(0, 80);
+    if (!safeId || !servers.has(safeId)) return;
+
+    servers.delete(safeId);
+    saveServersToDisk();
+
+    socket.emit('server-deleted', { serverId: safeId });
+    io.emit('server-list', publicServers());
+  });
+
+  socket.on('create-role', ({ serverId, name, color }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const safeName = cleanName(name, 'Cargo');
+    const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || ''))
+      ? String(color)
+      : '#ff6b4a';
+
+    if (s.roles.some(role => role.name.toLowerCase() === safeName.toLowerCase())) {
+      socket.emit('role-updated', { message: 'Já existe um cargo com esse nome' });
+      return;
+    }
+
+    s.roles.push({
+      id: id(),
+      name: safeName,
+      color: safeColor,
+      members: []
+    });
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+    socket.emit('role-updated', { message: 'Cargo criado' });
+  });
+
+  socket.on('assign-role', ({ serverId, roleId, username }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const role = s.roles.find(item => item.id === roleId);
+    if (!role) return;
+
+    const safeUsername = cleanName(username);
+    const exists = role.members.some(
+      member => member.toLowerCase() === safeUsername.toLowerCase()
+    );
+
+    if (!exists) {
+      role.members.push(safeUsername);
+      role.members = role.members.slice(0, 100);
+    }
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+    socket.emit('role-updated', { message: 'Cargo atribuído a ' + safeUsername });
+  });
+
+  socket.on('remove-role', ({ serverId, roleId }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const before = s.roles.length;
+    s.roles = s.roles.filter(role => role.id !== roleId);
+
+    if (s.roles.length !== before) {
+      saveServersToDisk();
+      io.emit('server-list', publicServers());
+      socket.emit('role-updated', { message: 'Cargo excluído' });
+    }
   });
 
   socket.on('create-channel', ({ serverId, type, name }) => {
@@ -2099,6 +3089,103 @@ io.on('connection', socket => {
     socket.data.voiceServerId = null;
     socket.data.voiceChannelId = null;
   }
+
+  socket.on('private-call-invite', ({ targetUserId, targetUsername }) => {
+    const target = [...io.sockets.sockets.values()].find(candidate => {
+      if (candidate.id === socket.id) return false;
+
+      if (targetUserId && candidate.data.userId) {
+        return String(candidate.data.userId) === String(targetUserId);
+      }
+
+      return String(candidate.data.username || '').toLowerCase() ===
+        String(targetUsername || '').toLowerCase();
+    });
+
+    if (!target) {
+      socket.emit('private-call-error', {
+        error: 'Esse amigo está offline'
+      });
+      return;
+    }
+
+    const callId = id();
+
+    target.emit('incoming-private-call', {
+      callId,
+      callerSocketId: socket.id,
+      fromUserId: socket.data.userId || null,
+      fromUsername: socket.data.username || 'Usuário'
+    });
+  });
+
+  socket.on('private-call-response', ({ callId, callerSocketId, accept }) => {
+    if (!callerSocketId || !callId) return;
+
+    if (accept) {
+      io.to(callerSocketId).emit('private-call-accepted', {
+        callId,
+        username: socket.data.username || 'Usuário',
+        userId: socket.data.userId || null
+      });
+    } else {
+      io.to(callerSocketId).emit('private-call-declined', {
+        callId,
+        username: socket.data.username || 'Usuário'
+      });
+    }
+  });
+
+  socket.on('join-private-call', ({ callId, username, userId }) => {
+    if (!callId) return;
+
+    leaveVoiceRoom();
+
+    const room = 'private:' + String(callId).slice(0, 100);
+
+    const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
+      .map(socketId => {
+        const participant = io.sockets.sockets.get(socketId);
+
+        return participant
+          ? {
+              id: socketId,
+              username: participant.data.username || 'Usuário'
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    socket.data.username = cleanName(username);
+    socket.data.userId = String(userId || socket.data.userId || '').slice(0,100);
+    socket.data.voiceRoom = room;
+    socket.data.voiceServerId = null;
+    socket.data.voiceChannelId = null;
+
+    socket.join(room);
+
+    socket.emit('voice-participants', participants);
+
+    socket.to(room).emit('user-joined', {
+      id: socket.id,
+      username: socket.data.username
+    });
+
+    const members = [...(io.sockets.adapter.rooms.get(room) || [])]
+      .map(socketId => {
+        const participant = io.sockets.sockets.get(socketId);
+
+        return participant
+          ? {
+              id: socketId,
+              username: participant.data.username || 'Usuário'
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    io.to(room).emit('voice-members', members);
+  });
 
   socket.on('join-voice', ({ serverId, channelId, username }) => {
     const s = servers.get(serverId);
