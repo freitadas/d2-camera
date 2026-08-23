@@ -645,21 +645,57 @@ setInterval(() => {
   if (!mic || mic.readyState === 'ended') recoverMicrophone('Verificação periódica do microfone.');
 }, 10000);
 
-// Clicar no vídeo para colocar em tela cheia
+// Clicar na imagem para colocar o quadro inteiro em tela cheia
 videoGrid.addEventListener('click', async (event) => {
-  const video = event.target.closest('video');
+  const card = event.target.closest('.video-card');
+
+  if (!card) return;
+
+  const video = card.querySelector('video');
 
   if (!video) return;
 
   try {
     if (!document.fullscreenElement) {
-      await video.requestFullscreen();
+
+      video.dataset.oldObjectFit =
+        getComputedStyle(video).objectFit;
+
+      card.dataset.oldBackground =
+        card.style.background || '';
+
+      video.style.objectFit = 'contain';
+      card.style.background = '#000';
+
+      await card.requestFullscreen();
+
     } else {
       await document.exitFullscreen();
     }
+
   } catch (error) {
-    if (video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen();
-    }
+    console.error('Erro ao abrir tela cheia:', error);
   }
+});
+
+document.addEventListener('fullscreenchange', () => {
+
+  if (document.fullscreenElement) return;
+
+  document.querySelectorAll('.video-card').forEach((card) => {
+
+    const video = card.querySelector('video');
+
+    if (video?.dataset.oldObjectFit) {
+      video.style.objectFit = video.dataset.oldObjectFit;
+      delete video.dataset.oldObjectFit;
+    }
+
+    if (card.dataset.oldBackground !== undefined) {
+      card.style.background = card.dataset.oldBackground;
+      delete card.dataset.oldBackground;
+    }
+
+  });
+
 });
