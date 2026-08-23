@@ -1,125 +1,172 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#1e1f22" />
-  <title>e-cord</title>
-  <style>
-    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f2f3f5;background:#313338}
-    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#313338}body{min-height:100vh}
-    button,input{font:inherit}.hidden{display:none!important}button{cursor:pointer}
-    .desktop{display:grid;grid-template-columns:72px 250px minmax(0,1fr) 240px;min-height:100vh}
-    .servers{background:#1e1f22;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:10px}
-    .server-btn{width:48px;height:48px;border:0;border-radius:50%;background:#313338;color:#dbdee1;font-weight:800;font-size:18px}.server-btn:hover,.server-btn.active{border-radius:16px;background:#5865f2;color:white}.server-btn.add{color:#23a55a;font-size:26px}
-    .separator{width:32px;height:2px;background:#35363c;border-radius:4px}
-    .sidebar{background:#2b2d31;display:flex;flex-direction:column;min-width:0}
-    .sidebar-title{height:48px;padding:0 16px;display:flex;align-items:center;font-weight:800;border-bottom:1px solid #1f2023}
-    .sidebar-content{padding:10px 8px;flex:1}.side-item{width:100%;border:0;background:transparent;color:#b5bac1;padding:10px 12px;text-align:left;border-radius:5px;margin:2px 0}.side-item:hover,.side-item.active{background:#35373c;color:#f2f3f5}
-    .channel-title{font-size:12px;text-transform:uppercase;color:#949ba4;font-weight:800;margin:18px 8px 6px}.channel{display:flex;align-items:center;gap:8px;padding:7px 10px;color:#949ba4;border-radius:5px}
-    .hash{font-size:20px}.userbar{background:#232428;padding:8px;display:flex;align-items:center;gap:9px}.avatar{width:34px;height:34px;border-radius:50%;background:#5865f2;display:grid;place-items:center;font-weight:900}.user-meta{min-width:0;flex:1}.user-meta strong{display:block;font-size:13px}.user-meta span{display:block;font-size:11px;color:#b5bac1}.mini{border:0;background:transparent;color:#b5bac1;font-size:17px;padding:6px}
-    .main{min-width:0;background:#313338;position:relative;display:flex;flex-direction:column;min-height:100vh}.main-header{height:48px;border-bottom:1px solid #26272b;display:flex;align-items:center;padding:0 16px;gap:10px;font-weight:700}.main-header .muted{font-weight:500;color:#949ba4;font-size:13px}.content{flex:1;min-height:0;position:relative}
-    .members{background:#2b2d31;padding:20px 10px}.members h3{margin:4px 8px 12px;color:#949ba4;text-transform:uppercase;font-size:12px}.member{display:flex;align-items:center;gap:10px;padding:8px;color:#b5bac1}
-    .panel{width:min(480px,calc(100% - 32px));margin:0 auto;position:relative;top:7vh;padding:30px;border-radius:12px;background:#2b2d31}.brand{width:56px;height:56px;border-radius:18px;background:#5865f2;display:grid;place-items:center;font-size:27px;font-weight:900}.panel h1{margin:18px 0 6px;font-size:28px}.panel p{color:#b5bac1}
-    label{display:grid;gap:7px;margin-top:16px;color:#b5bac1;text-transform:uppercase;font-weight:800;font-size:12px}input{width:100%;border:0;background:#1e1f22;color:#f2f3f5;border-radius:4px;padding:13px 12px;outline:none}.room-row{display:grid;grid-template-columns:1fr auto;gap:8px}.entry-actions{display:grid;gap:9px;margin-top:20px}
-    .primary,.secondary,.control{border:0;border-radius:4px;padding:12px 14px;color:white;font-weight:700}.primary{background:#5865f2}.secondary{background:#4e5058}.full{width:100%}.error{color:#fa777c!important;font-size:12px}.hint{color:#c9cdfb!important;font-size:12px}
-    .call-view{height:calc(100vh - 48px);display:grid;grid-template-rows:auto 1fr auto;min-height:0}.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid #26272b}.topbar span{color:#b5bac1;font-size:12px}.small{padding:8px 10px;font-size:12px}
-    .video-grid{overflow:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;padding:14px;align-content:center}.video-card{position:relative;overflow:hidden;aspect-ratio:16/10;min-height:220px;background:#1e1f22;border-radius:8px}.video-card video{width:100%;height:100%;object-fit:cover;background:#111214}.video-card .name{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.62);padding:5px 8px;border-radius:4px;font-size:12px;font-weight:700}
-    .controls{display:flex;justify-content:center;gap:10px;padding:12px;background:#2b2d31;border-top:1px solid #26272b;flex-wrap:wrap}.control{background:#4e5058;border-radius:50px;min-width:120px}.control.danger{background:#da373c}.control.sharing{background:#5865f2}
-    .chat-view{height:calc(100vh - 48px);display:grid;grid-template-rows:auto 1fr auto;min-height:0}.chat-header{padding:14px 18px;border-bottom:1px solid #26272b;font-weight:800}.chat-messages{overflow:auto;padding:18px;display:flex;flex-direction:column;gap:12px}.chat-message{display:flex;flex-direction:column;gap:4px;background:#2b2d31;padding:10px 12px;border-radius:8px;max-width:75%;align-self:flex-start}.chat-message.mine{align-self:flex-end;background:#404675}.chat-message strong{font-size:12px;color:#c9cdfb}.chat-message span{white-space:pre-wrap;overflow-wrap:anywhere}.chat-compose{display:grid;grid-template-columns:1fr auto;gap:8px;padding:12px 14px;background:#2b2d31;border-top:1px solid #26272b}.chat-compose input{background:#383a40}.chat-compose button{min-width:90px}
-    @media(max-width:1050px){.desktop{grid-template-columns:72px 220px minmax(0,1fr)}.members{display:none}}
-    @media(max-width:760px){.desktop{grid-template-columns:64px minmax(0,1fr)}.sidebar{display:none}.video-grid{grid-template-columns:1fr}.control{min-width:auto;flex:1 1 42%}}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#08120f">
+<title>e-cord</title>
+<style>
+:root{
+  --bg0:#08120f;--bg1:#0d1b17;--bg2:#12241e;--bg3:#183128;--line:#24473b;
+  --text:#eff8f3;--muted:#a8beb4;--low:#6f8e81;--coral:#ff6b4a;--coral2:#ff7c5f;
+  --mint:#41d99a;--mintbg:#153d2c;--danger:#df4c4c;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg0);color:var(--text)}
+body{min-height:100vh;overflow:hidden}button,input{font:inherit}button{cursor:pointer}.hidden{display:none!important}
+.app{display:grid;grid-template-columns:72px 250px minmax(0,1fr) 240px;min-height:100vh}
+.rail{background:var(--bg0);border-right:1px solid var(--line);padding:14px 0;display:flex;flex-direction:column;align-items:center;gap:10px}
+.logo,.railbtn{width:46px;height:46px;border:0;border-radius:16px;display:grid;place-items:center}
+.logo{background:var(--coral);color:#281009;font-weight:900;font-size:21px;box-shadow:0 0 0 4px rgba(255,107,74,.09)}
+.railbtn{background:var(--bg2);color:var(--muted);font-weight:700}.railbtn:hover{background:var(--bg3);color:var(--text)}.railbtn.add{color:var(--mint);font-size:22px}
+.sep{width:30px;height:1px;background:var(--line)}
+.sidebar{background:var(--bg1);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.sidehead{height:54px;padding:0 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px;font-weight:900}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(65,217,154,.12)}
+.sidecontent{padding:12px 10px;flex:1}.sideitem{width:100%;border:0;background:transparent;color:var(--muted);padding:10px 11px;border-radius:10px;text-align:left;margin:2px 0;font-weight:600}
+.sideitem:hover,.sideitem.active{background:var(--bg3);color:var(--text)}
+.label{margin:20px 10px 8px;color:var(--low);font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.channel{padding:8px 11px;border-radius:10px;color:var(--muted);display:flex;align-items:center;gap:8px;font-size:14px}.channel:hover{background:var(--bg2);color:var(--text)}
+.channel.live{background:var(--mintbg);color:var(--mint)}.hash{color:var(--low);font-weight:900}
+.userbar{border-top:1px solid var(--line);background:#0b1714;padding:10px 12px;display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:11px;background:var(--coral);color:#2a1009;display:grid;place-items:center;font-weight:900;position:relative}
+.avatar:after{content:"";position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:50%;background:var(--mint);border:2px solid #0b1714}
+.user strong,.user span{display:block}.user strong{font-size:13px}.user span{font-size:11px;color:var(--low)}
+.main{min-width:0;min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(circle at 20% 15%,rgba(65,217,154,.06),transparent 30%),radial-gradient(circle at 82% 75%,rgba(255,107,74,.07),transparent 35%),var(--bg0)}
+.mainhead{height:54px;padding:0 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;color:var(--muted);background:rgba(8,18,15,.9)}
+.mainhead strong{color:var(--text)}.vsep{width:1px;height:18px;background:var(--line)}.content{flex:1;min-height:0;position:relative}
+.panel{width:min(470px,calc(100% - 34px));position:relative;top:7vh;margin:0 auto;background:rgba(13,27,23,.96);border:1px solid var(--line);box-shadow:0 18px 60px rgba(0,0,0,.28);border-radius:20px;padding:30px}
+.mark{width:58px;height:58px;border-radius:18px;background:var(--coral);color:#281009;display:grid;place-items:center;font-weight:900;font-size:23px}
+.panel h1{margin:20px 0 6px;font-size:27px;letter-spacing:-.03em}.panel>p{color:var(--muted);margin:0 0 20px;line-height:1.5}
+label{display:grid;gap:7px;margin-top:15px;color:var(--low);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:800}
+input{width:100%;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none}input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
+.roomrow{display:grid;grid-template-columns:1fr auto;gap:8px}.actions{display:grid;gap:9px;margin-top:20px}
+.btn,.control{border:0;color:white;font-weight:800}.btn{border-radius:10px;padding:12px 14px}.primary{background:var(--coral);color:#291109}.primary:hover{background:var(--coral2)}
+.secondary{background:var(--bg3);border:1px solid var(--line);color:var(--text)}.small{padding:8px 10px;font-size:12px}.error{color:#ff8d8d!important;font-size:12px}.hint{color:var(--mint)!important;font-size:12px}
+.call{height:calc(100vh - 54px);display:grid;grid-template-rows:auto 1fr auto;min-height:0}
+.callbar{padding:11px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(13,27,23,.9)}
+.calltitle{display:grid;gap:2px}.calltitle strong{color:var(--mint)}.calltitle span{color:var(--muted);font-size:12px}#callStatus{color:var(--coral);font-weight:800}
+.video-grid{overflow:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px;padding:14px;align-content:center}
+.video-card{position:relative;overflow:hidden;aspect-ratio:16/10;min-height:220px;border-radius:14px;background:var(--bg1);border:1px solid var(--line)}
+.video-card video{width:100%;height:100%;object-fit:cover;background:#050807;display:block}.video-card .name{position:absolute;left:10px;bottom:10px;background:rgba(5,8,7,.74);padding:6px 9px;border-radius:8px;font-size:12px;font-weight:800}
+.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:rgba(13,27,23,.95)}
+.control{min-width:125px;border-radius:999px;padding:11px 15px;background:var(--bg3);border:1px solid var(--line)}.control.off{color:var(--muted);background:#1a2421}.control.sharing{background:var(--mintbg);color:var(--mint)}.control.danger{background:var(--danger);border-color:transparent}
+.chat{height:calc(100vh - 54px);display:grid;grid-template-rows:auto 1fr auto;min-height:0}.chathead{padding:14px 18px;border-bottom:1px solid var(--line);font-weight:900}.chathead span{color:var(--low);font-weight:600;font-size:12px;margin-left:8px}
+.chatmsgs{overflow:auto;padding:20px;display:flex;flex-direction:column;gap:12px}.chat-message{display:flex;flex-direction:column;gap:4px;max-width:min(72%,680px);align-self:flex-start;background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+.chat-message.mine{align-self:flex-end;background:#4b261d;border-color:rgba(255,107,74,.28)}.chat-message strong{color:var(--mint);font-size:12px}.chat-message span{overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.45}
+.compose{display:grid;grid-template-columns:1fr auto;gap:8px;padding:12px 14px;border-top:1px solid var(--line);background:var(--bg1)}
+.right{background:var(--bg1);border-left:1px solid var(--line);padding:18px 14px}.righttitle{color:var(--low);text-transform:uppercase;letter-spacing:.07em;font-size:11px;font-weight:900;margin:4px 4px 12px}
+.presence{padding:11px;border-radius:14px;background:var(--bg2);border:1px solid var(--line);display:flex;align-items:center;gap:10px}.presence .name{font-size:13px;font-weight:800}.presence .status{color:var(--mint);font-size:11px;margin-top:2px}
+.righthint{color:var(--low);font-size:12px;line-height:1.5;margin:14px 4px 0}
+@media(max-width:1080px){.app{grid-template-columns:72px 230px minmax(0,1fr)}.right{display:none}}
+@media(max-width:760px){body{overflow:auto}.app{grid-template-columns:62px minmax(0,1fr)}.sidebar{display:none}.panel{top:3vh;padding:22px}.video-grid{grid-template-columns:1fr;padding:8px}.video-card{min-height:180px}.control{min-width:auto;flex:1 1 42%;font-size:12px}.chat-message{max-width:88%}}
+</style>
 </head>
 <body>
-  <div class="desktop">
-    <aside class="servers">
-      <button class="server-btn active" title="e-cord">e</button>
-      <div class="separator"></div>
-      <button class="server-btn" title="Amigos">👥</button>
-      <button class="server-btn" title="Sala">🎮</button>
-      <button class="server-btn add" title="Adicionar">+</button>
-    </aside>
+<div class="app">
+  <aside class="rail">
+    <div class="logo">e</div>
+    <div class="sep"></div>
+    <button class="railbtn" type="button">👥</button>
+    <button class="railbtn" type="button">🎮</button>
+    <button class="railbtn add" type="button">+</button>
+  </aside>
 
-    <aside class="sidebar">
-      <div class="sidebar-title">e-cord</div>
-      <div class="sidebar-content">
-        <button id="friendsBtn" class="side-item active">👥 Chamada</button>
-        <button id="messagesBtn" class="side-item">💬 Mensagens</button>
-        <div class="channel-title">Canais de texto</div>
-        <div class="channel"><span class="hash">#</span> geral</div>
-        <div class="channel-title">Canais de voz</div>
-        <div class="channel"><span>🔊</span> Geral</div>
-      </div>
-      <div class="userbar">
-        <div class="avatar">e</div>
-        <div class="user-meta"><strong>Você</strong><span>Online</span></div>
-        <button class="mini" title="Microfone">🎤</button>
-      </div>
-    </aside>
+  <aside class="sidebar">
+    <div class="sidehead"><span class="dot"></span><span>e-cord</span></div>
+    <div class="sidecontent">
+      <button id="friendsBtn" class="sideitem active" type="button">◐ Chamada</button>
+      <button id="messagesBtn" class="sideitem" type="button">✉ Mensagens</button>
 
-    <main class="main">
-      <header class="main-header">e-cord <span class="muted">• câmera, voz, tela e chat</span></header>
-      <div class="content">
-        <section id="joinView" class="panel">
-          <div class="brand">e</div>
-          <h1>Bem-vindo ao e-cord</h1>
-          <p>Entre em uma sala para falar e mandar mensagens.</p>
+      <div class="label">Canais de texto</div>
+      <div class="channel"><span class="hash">#</span> geral</div>
+      <div class="channel"><span class="hash">#</span> clips</div>
 
-          <label>Seu nome
-            <input id="usernameInput" maxlength="30" placeholder="Ex.: Davi" />
-          </label>
+      <div class="label">Canais de voz</div>
+      <div class="channel live"><span>))</span> Geral</div>
+      <div class="channel"><span>))</span> Jogos</div>
+    </div>
 
-          <label>Código da sala
-            <div class="room-row">
-              <input id="roomInput" maxlength="24" placeholder="Ex.: ABC123" />
-              <button id="randomRoomBtn" class="secondary" type="button">Gerar</button>
-            </div>
-          </label>
+    <div class="userbar">
+      <div class="avatar">V</div>
+      <div class="user"><strong>Você</strong><span>Online</span></div>
+    </div>
+  </aside>
 
-          <div class="entry-actions">
-            <button id="createRoomBtn" class="secondary full" type="button">Criar nova sala</button>
-            <button id="joinBtn" class="primary" type="button">Entrar na sala</button>
+  <main class="main">
+    <header class="mainhead">
+      <strong>e-cord</strong>
+      <span class="vsep"></span>
+      <span>voz, câmera, tela e chat</span>
+    </header>
+
+    <div class="content">
+      <section id="joinView" class="panel">
+        <div class="mark">e</div>
+        <h1>Bem-vindo ao e-cord</h1>
+        <p>Entre em uma sala para falar, compartilhar sua tela e mandar mensagens.</p>
+
+        <label>Seu nome
+          <input id="usernameInput" maxlength="30" placeholder="Ex.: Davi" autocomplete="name">
+        </label>
+
+        <label>Código da sala
+          <div class="roomrow">
+            <input id="roomInput" maxlength="24" placeholder="Ex.: ABC123">
+            <button id="randomRoomBtn" class="btn secondary small" type="button">Gerar</button>
           </div>
-          <p id="inviteHint" class="hint hidden">Você abriu um convite. Digite seu nome e entre.</p>
-          <p id="joinError" class="error"></p>
-        </section>
+        </label>
 
-        <section id="callView" class="call-view hidden">
-          <header class="topbar">
-            <div><strong>🔊 Geral</strong><br><span>Sala <b id="roomLabel"></b> · <span id="callStatus">Conectando...</span></span></div>
-            <button id="copyRoomBtn" class="secondary small" type="button">Copiar link da sala</button>
-          </header>
+        <div class="actions">
+          <button id="createRoomBtn" class="btn secondary" type="button">Criar nova sala</button>
+          <button id="joinBtn" class="btn primary" type="button">Entrar na sala</button>
+        </div>
 
-          <div id="videoGrid" class="video-grid"></div>
+        <p id="inviteHint" class="hint hidden">Você abriu um convite. Digite seu nome e entre.</p>
+        <p id="joinError" class="error" aria-live="polite"></p>
+      </section>
 
-          <footer class="controls">
-            <button id="micBtn" class="control" type="button">🎤 Microfone</button>
-            <button id="cameraBtn" class="control" type="button">📷 Câmera</button>
-            <button id="screenBtn" class="control" type="button">🖥️ Compartilhar tela</button>
-            <button id="leaveBtn" class="control danger" type="button">☎ Sair</button>
-          </footer>
-        </section>
-
-        <section id="chatView" class="chat-view hidden">
-          <div class="chat-header">💬 Mensagens da sala</div>
-          <div id="chatMessages" class="chat-messages"></div>
-          <div class="chat-compose">
-            <input id="chatInput" maxlength="500" placeholder="Escreva uma mensagem..." />
-            <button id="sendChatBtn" class="primary" type="button">Enviar</button>
+      <section id="callView" class="call hidden">
+        <header class="callbar">
+          <div class="calltitle">
+            <strong>)) Geral</strong>
+            <span>Sala <b id="roomLabel"></b> · <span id="callStatus">Conectando...</span></span>
           </div>
-        </section>
-      </div>
-    </main>
+          <button id="copyRoomBtn" class="btn secondary small" type="button">Copiar link</button>
+        </header>
 
-    <aside class="members">
-      <h3>e-cord</h3>
-      <div class="member">🟢 Você</div>
-      <div class="member">Entre na mesma sala com seus amigos.</div>
-    </aside>
-  </div>
+        <div id="videoGrid" class="video-grid"></div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js"></script>
+        <footer class="controls">
+          <button id="micBtn" class="control" type="button">🎤 Microfone</button>
+          <button id="cameraBtn" class="control off" type="button">📷 Ligar câmera</button>
+          <button id="screenBtn" class="control" type="button">🖥️ Compartilhar tela</button>
+          <button id="leaveBtn" class="control danger" type="button">☎ Sair</button>
+        </footer>
+      </section>
+
+      <section id="chatView" class="chat hidden">
+        <div class="chathead">✉ Mensagens <span>chat da sala atual</span></div>
+        <div id="chatMessages" class="chatmsgs"></div>
+        <div class="compose">
+          <input id="chatInput" maxlength="500" placeholder="Escreva uma mensagem...">
+          <button id="sendChatBtn" class="btn primary" type="button">Enviar</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="right">
+    <div class="righttitle">Online</div>
+    <div class="presence">
+      <div class="avatar">V</div>
+      <div><div class="name">Você</div><div class="status">● Online</div></div>
+    </div>
+    <p class="righthint">Entre na mesma sala com seus amigos para conversar por voz, vídeo e chat.</p>
+  </aside>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
