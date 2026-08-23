@@ -1,37 +1,17 @@
-# D2 Camera
+# e-cord 1.1
 
-MVP de videochamada por salas usando Node.js, Express, Socket.IO e WebRTC.
+Versão com correção de estabilidade do áudio.
 
-## Rodar no Windows
+Principais ajustes:
+- mantém áudio e vídeo remotos no mesmo card sem substituir a faixa de áudio;
+- recria o microfone automaticamente se o navegador ou o sistema encerrar a faixa;
+- tenta recuperar conexões WebRTC instáveis com ICE restart;
+- reentra na sala após reconexão do Socket.IO;
+- mantém compartilhamento de tela;
+- identidade visual e título e-cord.
 
-```bash
-npm install
-npm start
-```
+## Render
+Build Command: `npm install`
+Start Command: `npm start`
 
-Abra `http://localhost:3000`.
-
-## Convites
-
-Dentro da sala, clique em **Copiar link da sala**. O endereço fica no formato:
-
-`https://SEU-ENDERECO/?room=ABC123`
-
-O amigo abre o link, informa o nome, permite câmera/microfone e entra na mesma sala.
-
-## Publicar no Render
-
-O servidor já escuta `process.env.PORT` em `0.0.0.0`, compatível com Render Web Service.
-O arquivo `render.yaml` também foi incluído.
-
-- Build: `npm install`
-- Start: `npm start`
-- Health check: `/health`
-
-## Observação WebRTC
-
-A versão atual usa servidores STUN públicos. Isso funciona em muitas redes, mas não garante conexão entre todos os tipos de NAT/firewall. Para confiabilidade de produção, configure um servidor TURN e adicione as credenciais em `rtcConfig.iceServers` no arquivo `public/app.js`.
-
-
-## Compartilhamento de tela
-Dentro da sala, clique em **Compartilhar tela** e escolha uma aba, uma janela ou a tela inteira. Enquanto a tela estiver sendo compartilhada, ela substitui temporariamente a imagem da câmera para os outros participantes. Ao clicar em **Parar tela** ou encerrar pelo seletor do navegador, a câmera volta automaticamente.
+Envie os arquivos deste pacote para a raiz do mesmo repositório no GitHub e faça um novo deploy no Render.

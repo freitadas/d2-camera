@@ -5,14 +5,15 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  pingInterval: 25000,
+  pingTimeout: 20000
+});
 const PORT = process.env.PORT || 3000;
 
-// Serve os arquivos da interface diretamente da raiz do projeto.
 app.use(express.static(__dirname));
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 io.on('connection', (socket) => {
@@ -21,11 +22,14 @@ io.on('connection', (socket) => {
     const safeUsername = String(username || 'Usuário').trim().slice(0, 30) || 'Usuário';
     if (!safeRoomId) return socket.emit('room-error', 'Código da sala inválido.');
 
+    if (socket.data.roomId && socket.data.roomId !== safeRoomId) {
+      socket.leave(socket.data.roomId);
+    }
+
     const existingSockets = await io.in(safeRoomId).fetchSockets();
-    const participants = existingSockets.map((s) => ({
-      id: s.id,
-      username: s.data.username || 'Usuário'
-    }));
+    const participants = existingSockets
+      .filter((s) => s.id !== socket.id)
+      .map((s) => ({ id: s.id, username: s.data.username || 'Usuário' }));
 
     socket.data.roomId = safeRoomId;
     socket.data.username = safeUsername;
@@ -38,12 +42,15 @@ io.on('connection', (socket) => {
   socket.on('offer', ({ target, sdp }) => {
     io.to(target).emit('offer', { from: socket.id, sdp, username: socket.data.username || 'Usuário' });
   });
+
   socket.on('answer', ({ target, sdp }) => {
     io.to(target).emit('answer', { from: socket.id, sdp });
   });
+
   socket.on('ice-candidate', ({ target, candidate }) => {
     io.to(target).emit('ice-candidate', { from: socket.id, candidate });
   });
+
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId;
     if (roomId) socket.to(roomId).emit('user-left', { id: socket.id });
@@ -51,5 +58,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`D2 Camera rodando na porta ${PORT}`);
+  console.log(`e-cord rodando na porta ${PORT}`);
 });

@@ -125,3 +125,5 @@ input:focus { border-color: #7e83ff; box-shadow: 0 0 0 3px rgba(126,131,255,.15)
 .control.sharing { background: #5a61ff; }
 .control:disabled { cursor: not-allowed; opacity: .45; }
 .video-card video[style*="contain"] { background: #05060a; }
+
+#callStatus { color: #b9bdfc; font-weight: 700; }
