@@ -1,6 +1,4 @@
-from pathlib import Path
-
-base = r"""const socket = io({ reconnection: true, reconnectionAttempts: Infinity, reconnectionDelayMax: 5000 });
+const socket = io({ reconnection: true, reconnectionAttempts: Infinity, reconnectionDelayMax: 5000 });
 
 const joinView = document.getElementById('joinView');
 const callView = document.getElementById('callView');
@@ -531,46 +529,3 @@ setInterval(() => {
   const mic = localStream.getAudioTracks()[0];
   if (!mic || mic.readyState === 'ended') recoverMicrophone('Verificação periódica do microfone.');
 }, 10000);
-
-// Clicar no vídeo para colocar em tela cheia
-videoGrid.addEventListener('click', async (event) => {
-  const video = event.target.closest('video');
-
-  if (!video) return;
-
-  try {
-    if (!document.fullscreenElement) {
-      await video.requestFullscreen();
-    } else {
-      await document.exitFullscreen();
-    }
-  } catch (error) {
-    if (video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen();
-    }
-  }
-});
-"""
-
-path = Path("/mnt/data/app.js")
-path.write_text(base, encoding="utf-8")
-print(f"Criado: {path} ({path.stat().st_size} bytes)")
-// Clicar no vídeo para colocar em tela cheia
-videoGrid.addEventListener('click', async (event) => {
-  const video = event.target.closest('video');
-
-  if (!video) return;
-
-  try {
-    if (!document.fullscreenElement) {
-      await video.requestFullscreen();
-    } else {
-      await document.exitFullscreen();
-    }
-  } catch (error) {
-    // Compatibilidade com alguns celulares
-    if (video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen();
-    }
-  }
-});
