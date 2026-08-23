@@ -10,38 +10,42 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
 
-const rootDir = __dirname;
-const publicDir = path.join(__dirname, 'public');
-
-app.use(express.static(rootDir));
-
-if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
-}
+app.use(express.static(__dirname));
 
 app.get('/', (req, res) => {
-  const indexRaiz = path.join(rootDir, 'index.html');
-  const indexPublic = path.join(publicDir, 'index.html');
-
-  if (fs.existsSync(indexRaiz)) {
-    return res.sendFile(indexRaiz);
-  }
-
-  if (fs.existsSync(indexPublic)) {
-    return res.sendFile(indexPublic);
-  }
-
-  res.status(500).send('index.html não encontrado');
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 io.on('connection', (socket) => {
 
   socket.on('join-room', ({ roomId, username }) => {
+
+    const room = io.sockets.adapter.rooms.get(roomId);
+
+    const participants = [];
+
+    if (room) {
+      for (const id of room) {
+        const user = io.sockets.sockets.get(id);
+
+        if (user) {
+          participants.push({
+            id,
+            username: user.data.username || 'Usuário'
+          });
+        }
+      }
+    }
+
     socket.data.roomId = roomId;
     socket.data.username = username;
 
     socket.join(roomId);
 
+    // envia para quem acabou de entrar
+    socket.emit('room-participants', participants);
+
+    // avisa quem já estava na sala
     socket.to(roomId).emit('user-joined', {
       id: socket.id,
       username
@@ -79,7 +83,6 @@ io.on('connection', (socket) => {
       });
     }
   });
-
 });
 
 server.listen(PORT, '0.0.0.0', () => {
