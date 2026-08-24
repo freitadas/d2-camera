@@ -1036,7 +1036,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-secure-v2';
+const CACHE='acord-app-login-fix-v3';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -1048,19 +1048,27 @@ self.addEventListener('install',event=>{
 
 self.addEventListener('activate',event=>{
   event.waitUntil(
-    caches.keys().then(keys=>Promise.all(
-      keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))
-    ))
+    Promise.all([
+      caches.keys().then(keys=>Promise.all(
+        keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))
+      )),
+      self.clients.claim()
+    ])
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET') return;
 
-  // Socket.IO e API sempre pela rede.
   const url=new URL(event.request.url);
+
   if(url.pathname.startsWith('/socket.io/')) return;
+
+  // HTML principal sempre atualizado.
+  if(event.request.mode==='navigate' || url.pathname==='/'){
+    event.respondWith(fetch(event.request,{cache:'no-store'}));
+    return;
+  }
 
   event.respondWith(
     fetch(event.request)
@@ -1069,7 +1077,7 @@ self.addEventListener('fetch',event=>{
         caches.open(CACHE).then(cache=>cache.put(event.request,clone)).catch(()=>{});
         return response;
       })
-      .catch(()=>caches.match(event.request).then(cached=>cached || caches.match('/')))
+      .catch(()=>caches.match(event.request))
   );
 });
   `);
@@ -3997,6 +4005,10 @@ const PAGE_WAS_RELOADED=pageWasReloaded();
 const state = {
   authToken:localStorage.getItem('acord-auth-token')||'',
   authMode:'login',
+  legacyUserId:localStorage.getItem('ecord-user-id')||'',
+  legacyUsername:localStorage.getItem('ecord-name')||'',
+  legacyBio:localStorage.getItem('ecord-bio')||'',
+  legacyAvatar:localStorage.getItem('ecord-avatar')||'',
   userId:'',
   username:'',
   displayName:'',
@@ -4371,6 +4383,11 @@ function submitAuthentication(){
   $('#authError').textContent='';
 
   const button=$('#loginBtn');
+
+  if(!socket.connected){
+    $('#authError').textContent='Conectando ao servidor... tente novamente em alguns segundos.';
+    return;
+  }
   button.disabled=true;
   button.textContent=state.authMode==='register'?'Criando...':'Entrando...';
 
@@ -4384,7 +4401,26 @@ function submitAuthentication(){
     if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';restoreButton();return}
     socket.emit('auth-register',{username,password});return;
   }
-  socket.emit('auth-login',{username,password});
+  socket.emit('auth-login',{
+    username,
+    password,
+    legacyUserId:state.legacyUserId,
+    legacyProfile:{
+      displayName:state.legacyUsername||username,
+      bio:state.legacyBio||'',
+      avatar:state.legacyAvatar||'',
+      banner:'',
+      status:'online'
+    }
+  });
+
+  setTimeout(()=>{
+    if(button.disabled){
+      button.disabled=false;
+      button.textContent='Entrar';
+      $('#authError').textContent='O servidor demorou para responder. Tente novamente.';
+    }
+  },8000);
 }
 function clearAccountState(){
   state.authToken='';state.userId='';state.username='';state.displayName='';
@@ -4402,6 +4438,10 @@ function applyAuthProfile(profile,token){
   state.authToken=token;state.userId=profile.id;state.username=profile.username||'';
   state.displayName=profile.displayName||profile.username||'';state.bio=profile.bio||'';
   state.avatar=profile.avatar||'';state.banner=profile.banner||'';state.status=profile.status||'online';
+  state.legacyUserId=state.userId;
+  state.legacyUsername=state.username;
+  state.legacyBio=state.bio;
+  state.legacyAvatar=state.avatar;
   state.profileReady=true;
   localStorage.setItem('acord-auth-token',token);
   localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);
@@ -9595,23 +9635,96 @@ io.on('connection', socket => {
     sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-login',({username,password})=>{
+  socket.on('auth-login',({username,password,legacyUserId,legacyProfile})=>{
     if(!allowLoginAttempt()){
-      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});return;
+      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
+      return;
     }
-    const key=usernameKey(username);
-    const account=[...accounts.values()].find(item=>item.usernameKey===key);
-    if(!account || !verifyAccountPassword(String(password||''),account)){
-      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});return;
+
+    const safeUsername=normalizeAccountUsername(username);
+    const safePassword=String(password||'');
+    const key=usernameKey(safeUsername);
+
+    let account=[...accounts.values()].find(item=>item.usernameKey===key);
+
+    // Recupera a conta após redeploy em hospedagem sem disco persistente.
+    if(!account){
+      const recoveredId=String(legacyUserId||'').trim().slice(0,100);
+
+      if(
+        recoveredId &&
+        safeUsername.length>=3 &&
+        safePassword.length>=6 &&
+        safePassword.length<=128
+      ){
+        const salt=crypto.randomBytes(16).toString('hex');
+
+        account={
+          userId:recoveredId,
+          username:safeUsername,
+          usernameKey:key,
+          salt,
+          passwordHash:passwordDigest(safePassword,salt),
+          createdAt:Date.now()
+        };
+
+        accounts.set(recoveredId,account);
+
+        if(!profiles.has(recoveredId)){
+          const incoming=legacyProfile && typeof legacyProfile==='object'
+            ? legacyProfile
+            : {};
+
+          profiles.set(recoveredId,{
+            id:recoveredId,
+            username:safeUsername,
+            displayName:String(incoming.displayName||safeUsername).trim().slice(0,40)||safeUsername,
+            bio:String(incoming.bio||'').trim().slice(0,300),
+            avatar:String(incoming.avatar||'').slice(0,350000),
+            banner:String(incoming.banner||'').slice(0,350000),
+            status:['online','away','busy','invisible'].includes(incoming.status)
+              ? incoming.status
+              : 'online',
+            createdAt:Date.now()
+          });
+        }
+
+        saveServersToDisk();
+      }
     }
-    const profile=profiles.get(account.userId);
-    if(!profile){socket.emit('auth-error',{error:'Conta inválida.'});return}
+
+    if(!account || !verifyAccountPassword(safePassword,account)){
+      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});
+      return;
+    }
+
+    let profile=profiles.get(account.userId);
+
+    if(!profile){
+      profile={
+        id:account.userId,
+        username:account.username,
+        displayName:account.username,
+        bio:'',
+        avatar:'',
+        banner:'',
+        status:'online',
+        createdAt:Date.now()
+      };
+      profiles.set(account.userId,profile);
+    }
+
     socket.data.userId=account.userId;
     socket.data.username=account.username;
+
     const token=newSession(account.userId);
     saveServersToDisk();
+
     socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);emitFriendState(account.userId);emitGroupState(account.userId);broadcastOnlineUsers();
+    sendServerList(socket);
+    emitFriendState(account.userId);
+    emitGroupState(account.userId);
+    broadcastOnlineUsers();
   });
 
   socket.on('auth-restore',({token})=>{
