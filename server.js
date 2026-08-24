@@ -424,10 +424,25 @@ button{cursor:pointer}
 .serverIcon,.addServer{width:46px;height:46px;border:0;border-radius:16px;display:grid;place-items:center;font-weight:900;flex:0 0 auto;transition:.15s}
 .serverIcon{background:var(--bg2);color:var(--muted);position:relative}
 .serverIcon:hover,.serverIcon.active{background:var(--coral);color:#281009;border-radius:13px}
+.homeHubIcon{
+  background:var(--bg3);
+  color:var(--text);
+}
+.homeHubIcon:hover,
+.homeHubIcon.active{
+  background:var(--coral);
+  color:#281009;
+}
 .serverIcon.active:before{content:"";position:absolute;left:-14px;width:4px;height:24px;background:var(--text);border-radius:0 4px 4px 0}
 .addServer{background:var(--bg2);color:var(--mint);font-size:24px}
 .addServer:hover{background:var(--mint);color:#082116}
 .railSep{width:30px;height:1px;background:var(--line);flex:0 0 auto}
+#serverRail{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
 
 .sidebar{background:var(--bg1);border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
 .sideHead{height:54px;padding:0 15px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -1154,6 +1169,13 @@ body.locked{overflow:hidden!important}
 
 <div class="app">
   <aside class="rail">
+    <button id="homeHubBtn" class="serverIcon homeHubIcon active" type="button" title="Início">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M5.3 5.8A16 16 0 0 1 9 4.5l.45.9a10.9 10.9 0 0 1 5.1 0l.45-.9a16 16 0 0 1 3.7 1.3c2.3 3.4 2.9 6.7 2.6 9.9a14.8 14.8 0 0 1-4.6 2.3l-1.1-1.5c.6-.2 1.2-.5 1.7-.8-.1.1-.3.2-.4.3a12.8 12.8 0 0 1-9.8 0l-.4-.3c.5.3 1.1.6 1.7.8L7.3 18a14.8 14.8 0 0 1-4.6-2.3c-.3-3.2.3-6.5 2.6-9.9ZM9.3 14.2c.9 0 1.6-.9 1.6-2s-.7-2-1.6-2-1.6.9-1.6 2 .7 2 1.6 2Zm5.4 0c.9 0 1.6-.9 1.6-2s-.7-2-1.6-2-1.6.9-1.6 2 .7 2 1.6 2Z"/>
+      </svg>
+    </button>
+
+    <div class="railSep"></div>
     <div id="serverRail"></div>
     <div class="railSep"></div>
     <button id="createServerBtn" class="addServer" title="Criar servidor">+</button>
@@ -1170,11 +1192,6 @@ body.locked{overflow:hidden!important}
     </div>
 
     <div class="sideScroll">
-      <button id="homeBtn" class="navBtn active">◐ Início</button>
-      <button id="friendsBtn" class="navBtn">👥 Amigos</button>
-      <button id="rolesBtn" class="navBtn">🛡 Cargos</button>
-      <button id="messagesBtn" class="navBtn">✉ Mensagens</button>
-
       <div class="groupHead">
         <span>Canais</span>
         <span style="display:flex;align-items:center;gap:3px;">
@@ -1224,7 +1241,11 @@ body.locked{overflow:hidden!important}
       <section id="friendsView" class="view hidden">
         <div class="friendsHome">
           <div class="friendsHomeTop">
-            <strong style="margin-right:6px;">👥 Amigos</strong>
+            <strong style="margin-right:8px;">e-cord</strong>
+            <button id="hubFriendsBtn" class="friendTab active" type="button">👥 Amigos</button>
+            <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens</button>
+            <button id="hubRolesBtn" class="friendTab" type="button">🛡 Cargos</button>
+            <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
@@ -1848,10 +1869,16 @@ function setView(name){
   $('#serverSettingsView').classList.toggle('hidden', name!=='settings');
   $('#chatView').classList.toggle('hidden', name!=='chat');
   $('#voiceView').classList.toggle('hidden', name!=='voice');
-  $('#homeBtn').classList.toggle('active', name==='home');
-  $('#friendsBtn').classList.toggle('active', name==='friends');
-  $('#rolesBtn').classList.toggle('active', name==='roles');
-  $('#messagesBtn').classList.toggle('active', name==='chat');
+
+  const inHomeHub = name==='friends' || name==='roles';
+  $('#homeHubBtn')?.classList.toggle('active', inHomeHub);
+
+  document.querySelectorAll('#serverRail .serverIcon').forEach(btn=>{
+    if(inHomeHub) btn.classList.remove('active');
+  });
+
+  $('#hubFriendsBtn')?.classList.toggle('active', name==='friends');
+  $('#hubRolesBtn')?.classList.toggle('active', name==='roles');
 
   if(name==='home'){
     $('#topTitle').textContent = currentServer()?.name || 'e-cord';
@@ -1889,7 +1916,8 @@ function renderServers(){
   rail.innerHTML = '';
   state.servers.forEach(s=>{
     const b = document.createElement('button');
-    b.className = 'serverIcon' + (s.id===state.serverId ? ' active' : '');
+    const hubVisible = !$('#friendsView')?.classList.contains('hidden') || !$('#rolesView')?.classList.contains('hidden');
+    b.className = 'serverIcon' + (s.id===state.serverId && !hubVisible ? ' active' : '');
     b.title = s.name;
 
     if(s.icon){
@@ -2399,7 +2427,19 @@ function selectServer(serverId){
   state.voiceChannelId = s?.voiceChannels[0]?.id || null;
   renderServers();
   renderSidebar();
-  setView('home');
+
+  // Ao clicar no servidor, entra nele.
+  // Se existir chat, abre o primeiro chat. Caso contrário, abre a tela inicial do servidor.
+  const firstText = s?.textChannels?.[0]?.id || null;
+
+  if(firstText){
+    selectText(firstText);
+  }else{
+    setView('home');
+  }
+
+  $('#homeHubBtn')?.classList.remove('active');
+
   const url = new URL(location.href);
   url.searchParams.set('server', serverId);
   history.replaceState(null,'',url);
@@ -3754,8 +3794,48 @@ $('#declineCallBtn').addEventListener('click',()=>{
   closeIncomingCall();
 });
 
-$('#homeBtn').addEventListener('click',()=>setView('home'));
-$('#friendsBtn').addEventListener('click',()=>setView('friends'));
+$('#homeHubBtn').addEventListener('click',()=>{
+  setView('friends');
+  renderFriends();
+
+  $('#topTitle').textContent = '👥 Amigos';
+  $('#topSub').textContent = 'seus amigos e chamadas';
+
+  const url = new URL(location.href);
+  url.searchParams.delete('server');
+  history.replaceState(null,'',url);
+});
+
+$('#hubFriendsBtn').addEventListener('click',()=>{
+  setView('friends');
+  renderFriends();
+});
+
+$('#hubRolesBtn').addEventListener('click',()=>{
+  if(!currentServer()){
+    toast('Selecione um servidor para ver os cargos');
+    return;
+  }
+  setView('roles');
+});
+
+$('#hubMessagesBtn').addEventListener('click',()=>{
+  const server = currentServer();
+
+  if(!server){
+    toast('Selecione um servidor para abrir as mensagens');
+    return;
+  }
+
+  const channelId = state.textChannelId || server.textChannels?.[0]?.id;
+
+  if(channelId){
+    selectText(channelId);
+  }else{
+    toast('Esse servidor ainda não tem chat');
+  }
+});
+
 $('#friendsOnlineTab').addEventListener('click',()=>{
   state.friendsFilter='online';
   renderFriends();
@@ -3765,15 +3845,11 @@ $('#friendsAllTab').addEventListener('click',()=>{
   renderFriends();
 });
 $('#friendsSearch').addEventListener('input',renderFriends);
-$('#rolesBtn').addEventListener('click',()=>setView('roles'));
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#addRoleBtn').addEventListener('click',()=>openModal('role'));
 $('#homeCreateRole').addEventListener('click',()=>openModal('role'));
 $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$('#roleColor').value;});
-$('#messagesBtn').addEventListener('click',()=>{
-  if(state.textChannelId) selectText(state.textChannelId);
-  else toast('Crie um chat primeiro');
-});
+
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
