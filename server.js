@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-server-manager-v16';
+const CACHE='acord-login-theme-fix-v17';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3919,6 +3919,132 @@ html[data-palette="candy"]{
   font-size:12px;
 }
 
+
+/* ===== COR PRINCIPAL TAMBÉM NA COLUNA "ATIVO AGORA" ===== */
+.rightbar{
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb,var(--coral) 7%,var(--bg1)),
+      color-mix(in srgb,var(--coral) 3%,var(--bg1))
+    )!important;
+  border-left:1px solid color-mix(
+    in srgb,
+    var(--coral) 42%,
+    var(--line)
+  )!important;
+}
+
+.rightTitle{
+  color:var(--coral)!important;
+}
+
+#members{
+  color:color-mix(in srgb,var(--coral) 24%,var(--muted))!important;
+}
+
+#members > div[style]{
+  color:color-mix(
+    in srgb,
+    var(--coral) 22%,
+    var(--muted)
+  )!important;
+}
+
+.activeFriendCard,
+.serverPresenceSection,
+.serverMemberRow{
+  border-color:color-mix(
+    in srgb,
+    var(--coral) 32%,
+    var(--line)
+  )!important;
+}
+
+.activeFriendCard{
+  background:color-mix(
+    in srgb,
+    var(--coral) 7%,
+    var(--bg2)
+  )!important;
+}
+
+.serverMemberRow:hover{
+  background:color-mix(
+    in srgb,
+    var(--coral) 8%,
+    var(--bg3)
+  )!important;
+}
+
+/* Bordas estruturais acompanham a cor principal escolhida. */
+.rail,
+.sidebar,
+.topbar,
+.sideHead,
+.friendsHomeTop,
+.friendsSearchWrap input,
+.friendSearch,
+.settingsMenu,
+.settingsCard,
+.profileTabs,
+.modal,
+.messageContextMenu,
+.notificationPanel,
+.categoryAddMenu,
+.serverManagerModal,
+.serverManagerRow,
+.callSettingsPanel,
+.localMusicShell,
+.videoCard,
+.memberVolume button{
+  border-color:color-mix(
+    in srgb,
+    var(--coral) 36%,
+    var(--line)
+  )!important;
+}
+
+.rail{
+  border-right-color:color-mix(
+    in srgb,
+    var(--coral) 38%,
+    var(--line)
+  )!important;
+}
+
+.sidebar{
+  border-right-color:color-mix(
+    in srgb,
+    var(--coral) 38%,
+    var(--line)
+  )!important;
+}
+
+.topbar,
+.sideHead,
+.friendsHomeTop{
+  border-bottom-color:color-mix(
+    in srgb,
+    var(--coral) 34%,
+    var(--line)
+  )!important;
+}
+
+.friendRow,
+.friendsSectionTitle{
+  border-bottom-color:color-mix(
+    in srgb,
+    var(--coral) 24%,
+    var(--line)
+  )!important;
+}
+
+.memberDot,
+.serverMemberStatusDot{
+  background:var(--coral)!important;
+}
+
 </style>
 </head>
 <body>
@@ -5366,7 +5492,9 @@ function applyAuthProfile(profile,token){
   state.legacyAvatar=state.avatar;
   state.profileReady=true;
   localStorage.setItem('acord-auth-token',token);
-  localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);
+  localStorage.setItem('ecord-user-id',state.userId);
+  localStorage.setItem('ecord-name',state.username);
+  localStorage.setItem('acord-remember-login','1');
   localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{}
   $('#login').classList.add('hidden');$('#appShell').classList.remove('hidden');
   refreshOwnProfileUI();
@@ -5814,6 +5942,16 @@ function applyCustomColor(hex){
 
   root.style.setProperty('--accent-border',dark);
   root.style.setProperty('--accent-soft',soft);
+
+  // Mantém indicadores e detalhes visuais coerentes com a cor escolhida.
+  root.style.setProperty(
+    '--low',
+    'color-mix(in srgb, '+safe+' 28%, #7f8f89)'
+  );
+  root.style.setProperty(
+    '--muted',
+    'color-mix(in srgb, '+safe+' 20%, #b6c2bd)'
+  );
 }
 function updateCustomColorUI(hex){
   const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
@@ -10543,7 +10681,12 @@ socket.on('auth-error',payload=>{
   $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
   $('#authError').textContent=payload?.error||'Não foi possível entrar.';
 });
-socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord-auth-token');$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')});
+socket.on('auth-required',()=>{
+  state.authToken='';
+  localStorage.removeItem('acord-auth-token');
+  $('#login').classList.remove('hidden');
+  $('#appShell').classList.add('hidden');
+});
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
 socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
@@ -11300,7 +11443,13 @@ socket.on('disconnect',reason=>{
 
 socket.on('connect',()=>{
   if(state.authToken){
-    socket.emit('auth-restore',{token:state.authToken});
+    // Mantém o login após F5 e também recupera a sessão caso o processo
+    // do servidor tenha reiniciado e perdido apenas a sessão em memória.
+    socket.emit('auth-restore',{
+      token:state.authToken,
+      legacyUserId:state.legacyUserId,
+      legacyUsername:state.legacyUsername
+    });
   }else{
     $('#login').classList.remove('hidden');
     $('#appShell').classList.add('hidden');
@@ -11507,14 +11656,59 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
-  socket.on('auth-restore',({token})=>{
-    const userId=sessionUserId(token);
+  socket.on('auth-restore',({token,legacyUserId,legacyUsername})=>{
+    let userId=sessionUserId(token);
+    let restoredToken=String(token||'');
+
+    // Fallback de "lembrar login":
+    // se a sessão temporária sumiu após reinício do Render, tenta recuperar
+    // a mesma conta que este navegador já tinha salvo.
+    if(!userId){
+      const safeLegacyId=String(legacyUserId||'').slice(0,100);
+      const safeLegacyUsername=normalizeAccountUsername(legacyUsername);
+
+      let account=safeLegacyId ? accounts.get(safeLegacyId) : null;
+
+      if(
+        account &&
+        safeLegacyUsername &&
+        usernameKey(account.username)!==usernameKey(safeLegacyUsername)
+      ){
+        account=null;
+      }
+
+      if(!account && safeLegacyUsername){
+        account=[...accounts.values()].find(
+          item=>usernameKey(item.username)===usernameKey(safeLegacyUsername)
+        ) || null;
+      }
+
+      if(account){
+        userId=account.userId;
+        restoredToken=newSession(userId);
+        saveServersToDisk();
+      }
+    }
+
     const profile=userId?profiles.get(userId):null;
-    if(!userId || !profile){socket.emit('auth-required');return}
+
+    if(!userId || !profile){
+      socket.emit('auth-required');
+      return;
+    }
+
     socket.data.userId=userId;
     socket.data.username=profile.username;
-    socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
+
+    socket.emit('auth-success',{
+      token:restoredToken,
+      profile:publicProfile(profile)
+    });
+
+    sendServerList(socket);
+    emitFriendState(userId);
+    emitGroupState(userId);
+    broadcastOnlineUsers();
   });
 
   socket.on('auth-logout',({token})=>{
