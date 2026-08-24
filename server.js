@@ -1333,6 +1333,36 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 }
 .shareChoice strong{display:block;margin-bottom:6px;font-size:14px}
 .shareChoice span{display:block;color:var(--muted);font-size:12px;line-height:1.45}
+.sharePickerQuality{
+  padding:0 18px 18px;
+}
+.sharePickerQualityTitle{
+  color:var(--text);
+  font-size:12px;
+  font-weight:900;
+  margin-bottom:8px;
+}
+.shareQualityChoices{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+}
+.shareQualityBtn{
+  border:1px solid var(--line);
+  background:var(--bg2);
+  color:var(--muted);
+  border-radius:10px;
+  padding:10px 8px;
+  font-weight:800;
+}
+.shareQualityBtn:hover{background:var(--bg3);color:var(--text)}
+.shareQualityBtn.active{
+  border-color:var(--coral);
+  color:var(--text);
+  box-shadow:0 0 0 2px rgba(255,107,74,.08);
+}
+.shareQualityBtn strong{display:block;font-size:12px}
+.shareQualityBtn span{display:block;font-size:10px;color:var(--low);margin-top:3px}
 .sharePickerFoot{
   padding:0 18px 18px;color:var(--low);
   font-size:11px;line-height:1.5;
@@ -2156,8 +2186,26 @@ body.locked{overflow:hidden!important}
       </button>
     </div>
 
+    <div class="sharePickerQuality">
+      <div class="sharePickerQualityTitle">Qualidade da transmissão</div>
+      <div class="shareQualityChoices">
+        <button type="button" class="shareQualityBtn" data-share-quality="720p">
+          <strong>HD 720p</strong>
+          <span>Mais leve</span>
+        </button>
+        <button type="button" class="shareQualityBtn active" data-share-quality="1080p">
+          <strong>Full HD 1080p</strong>
+          <span>Recomendado</span>
+        </button>
+        <button type="button" class="shareQualityBtn" data-share-quality="1080p60">
+          <strong>1080p 60 FPS</strong>
+          <span>Mais fluido</span>
+        </button>
+      </div>
+    </div>
+
     <div class="sharePickerFoot">
-      O seletor final de tela, janela ou aba é uma área de segurança do navegador e não pode receber o tema do Coca-Corde.
+      A qualidade final também depende do navegador, da resolução da tela e da conexão dos participantes.
     </div>
   </div>
 </div>
@@ -2434,6 +2482,8 @@ const state = {
   cameraTrack: null,
   screenTrack: null,
   screenStream: null,
+  screenShareQuality: localStorage.getItem('ecord-screen-quality') || '1080p',
+  pendingShareKind: null,
   peers: new Map(),
   peerNames: new Map(),
   remoteStreams: new Map(),
@@ -4942,6 +4992,18 @@ async function attachLocalTracks(pc){
     audioTx.sender.replaceTrack(micTrack),
     videoTx.sender.replaceTrack(activeVideoTrack)
   ]);
+
+  if(state.screenTrack && activeVideoTrack === state.screenTrack){
+    const preset = screenSharePreset(state.screenShareQuality);
+
+    try{
+      const params = videoTx.sender.getParameters();
+      params.encodings = params.encodings?.length ? params.encodings : [{}];
+      params.encodings[0].maxBitrate = preset.maxBitrate;
+      params.encodings[0].maxFramerate = preset.frameRate.max || preset.frameRate.ideal || 30;
+      await videoTx.sender.setParameters(params);
+    }catch{}
+  }
 }
 
 function ensureCard(peerId,name,stream,isLocal=false){
@@ -5639,6 +5701,74 @@ async function stopScreen(){
   if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
 }
 
+
+function screenSharePreset(quality){
+  if(quality === '720p'){
+    return {
+      width:{ideal:1280,max:1280},
+      height:{ideal:720,max:720},
+      frameRate:{ideal:30,max:30},
+      maxBitrate:2500000
+    };
+  }
+
+  if(quality === '1080p60'){
+    return {
+      width:{ideal:1920,max:1920},
+      height:{ideal:1080,max:1080},
+      frameRate:{ideal:60,max:60},
+      maxBitrate:8000000
+    };
+  }
+
+  return {
+    width:{ideal:1920,max:1920},
+    height:{ideal:1080,max:1080},
+    frameRate:{ideal:30,max:30},
+    maxBitrate:5000000
+  };
+}
+
+function updateShareQualityButtons(){
+  document.querySelectorAll('[data-share-quality]').forEach(button=>{
+    button.classList.toggle(
+      'active',
+      button.dataset.shareQuality === state.screenShareQuality
+    );
+  });
+}
+
+async function applyScreenSenderQuality(track,quality){
+  const preset = screenSharePreset(quality);
+
+  try{
+    await track.applyConstraints({
+      width:preset.width,
+      height:preset.height,
+      frameRate:preset.frameRate
+    });
+  }catch(error){
+    console.warn('O navegador não aplicou todas as restrições de tela:',error);
+  }
+
+  for(const pc of state.peers.values()){
+    const tx = getTransceiverByKind(pc,'video');
+    const sender = tx?.sender;
+
+    if(!sender || !sender.track) continue;
+
+    try{
+      const params = sender.getParameters();
+      params.encodings = params.encodings?.length ? params.encodings : [{}];
+      params.encodings[0].maxBitrate = preset.maxBitrate;
+      params.encodings[0].maxFramerate = preset.frameRate.max || preset.frameRate.ideal || 30;
+      await sender.setParameters(params);
+    }catch(error){
+      console.warn('Não foi possível aplicar bitrate da tela:',error);
+    }
+  }
+}
+
 function openSharePicker(){
   if(!state.joinedVoiceId){
     toast('Entre em um canal de voz primeiro');
@@ -5650,6 +5780,7 @@ function openSharePicker(){
     return;
   }
 
+  updateShareQualityButtons();
   $('#sharePickerWrap').classList.remove('hidden');
 }
 
@@ -5661,8 +5792,12 @@ async function startScreenShare(displaySurface){
   closeSharePicker();
 
   try{
+    const preset = screenSharePreset(state.screenShareQuality);
+
     const videoOptions = {
-      frameRate:{ideal:30,max:60}
+      width:preset.width,
+      height:preset.height,
+      frameRate:preset.frameRate
     };
 
     if(displaySurface){
@@ -5687,6 +5822,7 @@ async function startScreenShare(displaySurface){
     }catch{}
 
     await replaceVideoForAll(state.screenTrack);
+    await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality);
 
     const preview = new MediaStream([state.screenTrack]);
     ensureCard(
@@ -5699,7 +5835,16 @@ async function startScreenShare(displaySurface){
     $('#screenBtn').textContent = '⏹ Parar tela';
     $('#screenBtn').classList.add('sharing');
     $('#cameraBtn').disabled = true;
-    $('#voiceStatus').textContent = 'Compartilhando tela';
+    const qualityLabel =
+      state.screenShareQuality === '720p'
+        ? '720p'
+        : (
+            state.screenShareQuality === '1080p60'
+              ? '1080p 60 FPS'
+              : '1080p'
+          );
+
+    $('#voiceStatus').textContent = 'Compartilhando tela · ' + qualityLabel;
 
     state.screenTrack.onended = ()=>{
       if(state.screenTrack){
@@ -6145,6 +6290,14 @@ $('#sharePickerClose').addEventListener('click',closeSharePicker);
 $('#sharePickerWrap').addEventListener('click',event=>{
   if(event.target === $('#sharePickerWrap')) closeSharePicker();
 });
+document.querySelectorAll('[data-share-quality]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    state.screenShareQuality = button.dataset.shareQuality || '1080p';
+    localStorage.setItem('ecord-screen-quality',state.screenShareQuality);
+    updateShareQualityButtons();
+  });
+});
+
 document.querySelectorAll('[data-share-kind]').forEach(button=>{
   button.addEventListener('click',()=>{
     startScreenShare(button.dataset.shareKind);
