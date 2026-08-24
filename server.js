@@ -6,9 +6,106 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
-const io = new Server(server);
+
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://d2-camera.onrender.com',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+];
+
+const ALLOWED_ORIGINS = new Set(
+  String(process.env.ALLOWED_ORIGINS || DEFAULT_ALLOWED_ORIGINS.join(','))
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+);
+
+function originAllowed(origin){
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.has(origin);
+}
+
+const io = new Server(server, {
+  maxHttpBufferSize: 512 * 1024,
+  perMessageDeflate: false,
+  cors: {
+    origin(origin, callback){
+      callback(null, originAllowed(origin));
+    },
+    methods: ['GET','POST'],
+    credentials: false
+  },
+  allowRequest(req, callback){
+    callback(null, originAllowed(req.headers.origin));
+  }
+});
+
 const PORT = process.env.PORT || 3000;
+
+const httpRate = new Map();
+
+app.use((req,res,next)=>{
+  const now = Date.now();
+  const key = String(req.ip || req.socket.remoteAddress || 'unknown');
+  const previous = httpRate.get(key) || {start:now,count:0};
+
+  if(now - previous.start > 60000){
+    previous.start = now;
+    previous.count = 0;
+  }
+
+  previous.count += 1;
+  httpRate.set(key,previous);
+
+  if(previous.count > 240){
+    res.status(429).type('text').send('Muitas requisições. Tente novamente em instantes.');
+    return;
+  }
+
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('X-Frame-Options','DENY');
+  res.setHeader('Referrer-Policy','no-referrer');
+  res.setHeader('Cross-Origin-Opener-Policy','same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()'
+  );
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob:; " +
+    "media-src 'self' blob:; " +
+    "connect-src 'self' ws: wss:; " +
+    "font-src 'self' data:; " +
+    "object-src 'none'; " +
+    "base-uri 'self'; " +
+    "frame-ancestors 'none'; " +
+    "form-action 'self';"
+  );
+
+  const proto = String(req.headers['x-forwarded-proto'] || '');
+  if(req.secure || proto === 'https'){
+    res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+  }
+
+  next();
+});
+
+setInterval(()=>{
+  const cutoff = Date.now() - 120000;
+  for(const [key,value] of httpRate){
+    if(value.start < cutoff) httpRate.delete(key);
+  }
+},60000).unref();
+
+
 
 function publicProfile(profile) {
   if (!profile) return null;
@@ -781,7 +878,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='ecord-app-v1';
+const CACHE='acord-app-secure-v2';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -985,7 +1082,25 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .placeholder .bigAvatar{width:82px;height:82px;border-radius:28px;background:var(--coral);color:#281009;display:grid;place-items:center;font-size:30px;font-weight:900}
 .videoCard.hasVideo .placeholder{display:none}
 .videoName{position:absolute;left:10px;bottom:10px;background:rgba(5,8,7,.76);padding:6px 9px;border-radius:8px;font-size:12px;font-weight:800}
-.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:var(--bg1)}
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:9px;
+  flex-wrap:wrap;
+  padding:12px;
+  border-top:1px solid var(--line);
+  background:var(--bg1);
+  position:sticky;
+  bottom:0;
+  z-index:120;
+  flex-shrink:0;
+  min-height:64px;
+}
+#voiceControls:not(.hidden){
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
 .control{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:999px;padding:11px 15px;font-weight:800;min-width:120px}
 .control:hover{background:var(--bg4)}.control.off{background:#18211e;color:var(--muted)}.control.sharing{background:var(--mintbg);color:var(--mint)}.control.danger{background:var(--danger);border-color:transparent}
 
@@ -1725,7 +1840,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   .settingsGrid{grid-template-columns:1fr}
 }
 
-.fakeFullscreen{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:999999!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
+.fakeFullscreen{position:fixed!important;inset:0 0 76px 0!important;width:100%!important;height:auto!important;z-index:100!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
 .fakeFullscreen video{object-fit:contain!important}
 body.locked{overflow:hidden!important}
 
@@ -3007,6 +3122,44 @@ function setAppMode(mode){
 }
 
 
+
+function syncVoiceControlsUI(){
+  const controls = $('#voiceControls');
+  const joinBtn = $('#joinVoiceBtn');
+  if(!controls || !joinBtn) return;
+
+  const inCall = !!state.joinedVoiceId;
+
+  if(!inCall){
+    controls.classList.add('hidden');
+    joinBtn.classList.remove('hidden');
+    joinBtn.textContent = 'Entrar na voz';
+    return;
+  }
+
+  // Se o usuário está na tela de voz e existe uma chamada ativa,
+  // os controles nunca devem desaparecer por causa de re-renderizações.
+  if(state.currentView === 'voice'){
+    controls.classList.remove('hidden');
+
+    const viewingActiveChannel =
+      !!state.privateCallId ||
+      (
+        state.activeVoiceServerId === state.serverId &&
+        state.activeVoiceChannelId === state.voiceChannelId
+      );
+
+    if(viewingActiveChannel){
+      joinBtn.classList.add('hidden');
+    }else{
+      joinBtn.classList.remove('hidden');
+      joinBtn.textContent = 'Trocar para este canal';
+    }
+  }else{
+    controls.classList.add('hidden');
+  }
+}
+
 function updateCallDock(){
   const dock = $('#activeCallDock');
   if(!dock) return;
@@ -3066,6 +3219,7 @@ function returnToActiveCall(){
   }
 
   $('#voiceStatus').textContent = 'Conectado';
+  syncVoiceControlsUI();
   updateCallDock();
 }
 
@@ -3140,6 +3294,8 @@ function setView(name){
     $('#topSub').textContent = currentServer()?.name || '';
   }
 
+  syncVoiceControlsUI();
+
   updateCallDock();
 }
 
@@ -3210,10 +3366,23 @@ function restoreCurrentView(){
 
     if(channel){
       $('#voiceTitle').textContent=channel.name;
-      $('#voiceControls').classList.add('hidden');
-      $('#joinVoiceBtn').classList.remove('hidden');
-      $('#joinVoiceBtn').textContent='Entrar na voz';
-      $('#voiceStatus').textContent='Fora da chamada';
+
+      if(state.joinedVoiceId){
+        const activeHere =
+          !!state.privateCallId ||
+          (
+            state.activeVoiceServerId === state.serverId &&
+            state.activeVoiceChannelId === channel.id
+          );
+
+        $('#voiceStatus').textContent = activeHere
+          ? 'Conectado'
+          : 'Você já está em outra call';
+      }else{
+        $('#voiceStatus').textContent='Fora da chamada';
+      }
+
+      syncVoiceControlsUI();
     }
 
     return;
@@ -3867,21 +4036,15 @@ function selectVoice(channelId){
     state.activeVoiceChannelId === channelId;
 
   if(isActiveChannel){
-    $('#voiceControls').classList.remove('hidden');
-    $('#joinVoiceBtn').classList.add('hidden');
     $('#voiceStatus').textContent = 'Conectado';
   }else if(state.joinedVoiceId){
-    // Você continua na call antiga enquanto apenas visualiza outro canal.
-    $('#voiceControls').classList.add('hidden');
-    $('#joinVoiceBtn').classList.remove('hidden');
-    $('#joinVoiceBtn').textContent = 'Trocar para este canal';
+    // A call antiga continua ativa. Os controles permanecem visíveis.
     $('#voiceStatus').textContent = 'Você já está em outra call';
   }else{
-    $('#voiceControls').classList.add('hidden');
-    $('#joinVoiceBtn').classList.remove('hidden');
-    $('#joinVoiceBtn').textContent = 'Entrar na voz';
+    $('#voiceStatus').textContent = 'Fora da chamada';
   }
 
+  syncVoiceControlsUI();
   updateCallDock();
 }
 
@@ -5421,8 +5584,7 @@ async function enterPrivateCall(callId,peerName){
     $('#topSub').textContent = state.privatePeerName;
     $('#voiceStatus').textContent = 'Conectando...';
 
-    $('#voiceControls').classList.remove('hidden');
-    $('#joinVoiceBtn').classList.add('hidden');
+    syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
 
@@ -5521,9 +5683,8 @@ async function joinVoice(){
     state.activeVoiceChannelId = channel.id;
     state.activeVoiceName = channel.name || 'Canal de voz';
 
-    $('#voiceControls').classList.remove('hidden');
-    $('#joinVoiceBtn').classList.add('hidden');
     $('#voiceStatus').textContent = 'Conectando...';
+    syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
 
@@ -5592,10 +5753,9 @@ function leaveVoice(){
   state.activeVoiceName = '';
   state.privateCallId = null;
   state.privatePeerName = null;
-  $('#voiceControls').classList.add('hidden');
   $('#audioGateBtn').classList.add('hidden');
-  $('#joinVoiceBtn').classList.remove('hidden');
   $('#voiceStatus').textContent = 'Fora da chamada';
+  syncVoiceControlsUI();
   $('#cameraBtn').textContent = '📷 Ligar câmera';
   $('#cameraBtn').classList.add('off');
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
@@ -6327,6 +6487,13 @@ $('#dmSendBtn').addEventListener('click',sendDm);
 $('#dmInput').addEventListener('keydown',event=>{
   if(event.key==='Enter') sendDm();
 });
+
+setInterval(()=>{
+  if(state.currentView === 'voice'){
+    syncVoiceControlsUI();
+  }
+},1000);
+
 $('#joinVoiceBtn').addEventListener('click',joinVoice);
 $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
 $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
@@ -6936,10 +7103,55 @@ socket.on('connect',()=>{
 </html>`;
 
 app.get('/', (req, res) => {
+  res.setHeader('Cache-Control','no-store');
   res.type('html').send(APP_HTML);
 });
 
 io.on('connection', socket => {
+  const eventRate = {
+    windowStart: Date.now(),
+    total: 0,
+    messages: 0
+  };
+
+  socket.use((packet,next)=>{
+    const now = Date.now();
+
+    if(now - eventRate.windowStart > 10000){
+      eventRate.windowStart = now;
+      eventRate.total = 0;
+      eventRate.messages = 0;
+    }
+
+    eventRate.total += 1;
+
+    const eventName = String(packet?.[0] || '');
+    if(
+      eventName.includes('message') ||
+      eventName.includes('request') ||
+      eventName.includes('create')
+    ){
+      eventRate.messages += 1;
+    }
+
+    if(eventRate.total > 400 || eventRate.messages > 80){
+      socket.emit('security-warning',{
+        error:'Muitas ações em pouco tempo. Aguarde alguns segundos.'
+      });
+      return;
+    }
+
+    next();
+  });
+
+  function canSignalPeer(targetId){
+    const target = io.sockets.sockets.get(String(targetId || ''));
+    if(!target) return false;
+
+    const room = socket.data.voiceRoom;
+    return !!room && room === target.data.voiceRoom;
+  }
+
   broadcastOnlineUsers();
 
   socket.on('set-username', ({ username }) => {
@@ -7906,7 +8118,10 @@ io.on('connection', socket => {
   });
 
   socket.on('private-call-response', ({ callId, callerSocketId, accept }) => {
-    if (!callerSocketId || !callId) return;
+    if (!callerSocketId || !callId || !socket.data.userId) return;
+
+    const caller = io.sockets.sockets.get(String(callerSocketId));
+    if(!caller?.data?.userId || !areFriends(socket.data.userId,caller.data.userId)) return;
 
     if (accept) {
       io.to(callerSocketId).emit('private-call-accepted', {
@@ -7942,8 +8157,8 @@ io.on('connection', socket => {
       })
       .filter(Boolean);
 
-    socket.data.username = cleanName(username);
-    socket.data.userId = String(userId || socket.data.userId || '').slice(0,100);
+    socket.data.username = socket.data.username || cleanName(username);
+    if(!socket.data.userId) return;
     socket.data.voiceRoom = room;
     socket.data.voiceServerId = null;
     socket.data.voiceChannelId = null;
@@ -8013,6 +8228,8 @@ io.on('connection', socket => {
   socket.on('leave-voice', leaveVoiceRoom);
 
   socket.on('offer', ({ target, sdp }) => {
+    if(!canSignalPeer(target) || !sdp) return;
+
     io.to(target).emit('offer', {
       from: socket.id,
       sdp,
@@ -8021,10 +8238,12 @@ io.on('connection', socket => {
   });
 
   socket.on('answer', ({ target, sdp }) => {
+    if(!canSignalPeer(target) || !sdp) return;
     io.to(target).emit('answer', { from: socket.id, sdp });
   });
 
   socket.on('ice-candidate', ({ target, candidate }) => {
+    if(!canSignalPeer(target) || !candidate) return;
     io.to(target).emit('ice-candidate', { from: socket.id, candidate });
   });
 
