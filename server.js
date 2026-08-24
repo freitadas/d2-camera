@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-create-immediate-v12';
+const CACHE='acord-create-button-fix-v13';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4048,6 +4048,24 @@ html[data-palette="candy"]{
   opacity:1!important;
 }
 
+
+#createTextQuickBtn,
+#createVoiceQuickBtn,
+#createStageQuickBtn,
+#createCategoryQuickBtn{
+  position:relative!important;
+  z-index:20!important;
+  pointer-events:auto!important;
+  cursor:pointer!important;
+}
+
+#createTextQuickBtn:active,
+#createVoiceQuickBtn:active,
+#createStageQuickBtn:active,
+#createCategoryQuickBtn:active{
+  transform:translateY(1px)!important;
+}
+
 </style>
 </head>
 <body>
@@ -4182,12 +4200,12 @@ html[data-palette="candy"]{
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
-        <button id="createTextQuickBtn" class="btn secondary small" type="button">+ Chat</button>
-        <button id="createVoiceQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
-        <button id="createStageQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
+        <button id="createTextQuickBtn" class="btn secondary small" type="button" onclick="quickCreateTextChannel()">+ Chat</button>
+        <button id="createVoiceQuickBtn" class="btn secondary small" type="button" onclick="quickCreateVoiceChannel('voice')"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
+        <button id="createStageQuickBtn" class="btn secondary small" type="button" onclick="quickCreateVoiceChannel('stage')"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
       </div>
 
-      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button">+ Categoria</button>
+      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button" onclick="quickCreateCategory()">+ Categoria</button>
 
       <div id="channelTree"></div>
     </div>
@@ -6265,6 +6283,116 @@ function createLocalId(prefix){
   return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
 }
 
+
+function quickCreateCategory(){
+  const server=currentServer();
+
+  if(!server){
+    toast('Abra um servidor primeiro');
+    return;
+  }
+
+  const name=prompt('Nome da categoria:','Nova categoria');
+  if(name===null) return;
+
+  const safeName=String(name||'').trim();
+  if(!safeName){
+    toast('Digite um nome para a categoria');
+    return;
+  }
+
+  const target=currentServerWritePayload();
+  const category=optimisticCreateCategory(safeName);
+
+  if(!category){
+    toast('Não foi possível criar a categoria');
+    return;
+  }
+
+  socket.emit('create-category',{
+    ...target,
+    name:safeName,
+    categoryId:category.id
+  });
+
+  renderSidebar();
+  toast('Categoria criada');
+}
+
+function quickCreateTextChannel(categoryId=null){
+  const server=currentServer();
+
+  if(!server){
+    toast('Abra um servidor primeiro');
+    return;
+  }
+
+  const name=prompt('Nome do chat:','novo-chat');
+  if(name===null) return;
+
+  const safeName=String(name||'').trim();
+  if(!safeName){
+    toast('Digite um nome para o chat');
+    return;
+  }
+
+  const target=currentServerWritePayload();
+  const channel=optimisticCreateChannel('text',safeName,categoryId);
+
+  if(!channel){
+    toast('Não foi possível criar o chat');
+    return;
+  }
+
+  socket.emit('create-channel',{
+    ...target,
+    type:'text',
+    name:safeName,
+    categoryId:channel.categoryId,
+    channelId:channel.id
+  });
+
+  renderSidebar();
+  selectText(channel.id);
+  toast('Chat criado');
+}
+
+function quickCreateVoiceChannel(type='voice',categoryId=null){
+  const server=currentServer();
+
+  if(!server){
+    toast('Abra um servidor primeiro');
+    return;
+  }
+
+  const isStage=type==='stage';
+  const name=prompt(
+    isStage ? 'Nome do palco:' : 'Nome do canal de voz:',
+    isStage ? 'Palco' : 'Nova voz'
+  );
+
+  if(name===null) return;
+
+  const safeName=String(name||'').trim();
+  if(!safeName) return;
+
+  const target=currentServerWritePayload();
+  const channel=optimisticCreateChannel(type,safeName,categoryId);
+
+  if(!channel) return;
+
+  socket.emit('create-channel',{
+    ...target,
+    type,
+    name:safeName,
+    categoryId:channel.categoryId,
+    channelId:channel.id
+  });
+
+  renderSidebar();
+  toast(isStage ? 'Palco criado' : 'Canal de voz criado');
+}
+
 function optimisticCreateCategory(name){
   const server=currentServer();
   if(!server) return null;
@@ -7029,7 +7157,7 @@ function renderSidebar(){
 
       add.addEventListener('click',event=>{
         event.stopPropagation();
-        createAddMenu(category.id,add);
+        quickCreateTextChannel(category.id);
       });
 
       const more=document.createElement('button');
@@ -7083,8 +7211,7 @@ function renderSidebar(){
 
       if(canManageChannels()){
         empty.addEventListener('click',()=>{
-          state.pendingChannelCategoryId=category.id;
-          openModal('text');
+          quickCreateTextChannel(category.id);
         });
       }else{
         empty.disabled=true;
@@ -10198,10 +10325,6 @@ $('#createServerBtn').addEventListener('click',()=>openModal('server'));
 $('#homeCreateServer').addEventListener('click',()=>openModal('server'));
 $('#serverRolesBtn').addEventListener('click',()=>setView('roles'));
 
-$('#createCategoryQuickBtn').addEventListener('click',()=>openModal('category'));
-$('#createTextQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('text')});
-$('#createVoiceQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('voice')});
-$('#createStageQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('stage')});
 
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
 $('#homeCreateVoice').addEventListener('click',()=>openModal('voice'));
