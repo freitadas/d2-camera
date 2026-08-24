@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-create-button-fix-v13';
+const CACHE='acord-create-menu-fix-v14';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4066,6 +4066,89 @@ html[data-palette="candy"]{
   transform:translateY(1px)!important;
 }
 
+
+.sidebar{
+  position:relative!important;
+  z-index:40!important;
+}
+
+.sideScroll{
+  position:relative!important;
+  z-index:50!important;
+  pointer-events:auto!important;
+}
+
+.sidebarCreateArea{
+  position:relative!important;
+  z-index:1000!important;
+  display:block!important;
+  width:100%!important;
+  margin:2px 0 12px!important;
+  pointer-events:auto!important;
+}
+
+.sidebarCreateBtn{
+  position:relative!important;
+  z-index:1001!important;
+  width:100%!important;
+  min-height:38px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border:1px solid var(--coral)!important;
+  border-radius:8px!important;
+  background:color-mix(in srgb,var(--coral) 12%,var(--bg2))!important;
+  color:var(--text)!important;
+  font-size:12px!important;
+  font-weight:900!important;
+  cursor:pointer!important;
+  pointer-events:auto!important;
+  user-select:none!important;
+}
+
+.sidebarCreateBtn:hover,
+.sidebarCreateBtn.active{
+  background:color-mix(in srgb,var(--coral) 22%,var(--bg2))!important;
+}
+
+.sidebarCreateMenu{
+  position:relative!important;
+  z-index:1002!important;
+  width:100%!important;
+  display:grid!important;
+  gap:4px!important;
+  margin-top:6px!important;
+  padding:6px!important;
+  border:1px solid color-mix(in srgb,var(--coral) 45%,var(--line))!important;
+  border-radius:8px!important;
+  background:var(--bg1)!important;
+  pointer-events:auto!important;
+}
+
+.sidebarCreateMenu.hidden{
+  display:none!important;
+}
+
+.sidebarCreateMenu button{
+  width:100%!important;
+  min-height:34px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  border:0!important;
+  border-radius:6px!important;
+  background:transparent!important;
+  color:var(--text)!important;
+  padding:7px 9px!important;
+  font-size:11px!important;
+  cursor:pointer!important;
+  pointer-events:auto!important;
+}
+
+.sidebarCreateMenu button:hover{
+  background:color-mix(in srgb,var(--coral) 13%,var(--bg3))!important;
+}
+
 </style>
 </head>
 <body>
@@ -4199,13 +4282,19 @@ html[data-palette="candy"]{
         <span>Canais</span>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
-        <button id="createTextQuickBtn" class="btn secondary small" type="button" onclick="quickCreateTextChannel()">+ Chat</button>
-        <button id="createVoiceQuickBtn" class="btn secondary small" type="button" onclick="quickCreateVoiceChannel('voice')"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
-        <button id="createStageQuickBtn" class="btn secondary small" type="button" onclick="quickCreateVoiceChannel('stage')"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
-      </div>
+      <div id="sidebarCreateArea" class="sidebarCreateArea">
+        <button id="sidebarCreateBtn" class="sidebarCreateBtn" type="button"
+         >
+          + Criar
+        </button>
 
-      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button" onclick="quickCreateCategory()">+ Categoria</button>
+        <div id="sidebarCreateMenu" class="sidebarCreateMenu hidden">
+          <button type="button" onclick="quickCreateCategory()">Categoria</button>
+          <button type="button" onclick="quickCreateTextChannel()">Chat de texto</button>
+          <button type="button" onclick="quickCreateVoiceChannel('voice')">Canal de voz</button>
+          <button type="button" onclick="quickCreateVoiceChannel('stage')">Palco</button>
+        </div>
+      </div>
 
       <div id="channelTree"></div>
     </div>
@@ -6284,7 +6373,27 @@ function createLocalId(prefix){
 }
 
 
+
+function toggleSidebarCreateMenu(event){
+  if(event){
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const menu=document.getElementById('sidebarCreateMenu');
+  const button=document.getElementById('sidebarCreateBtn');
+
+  if(!menu || !button) return false;
+
+  menu.classList.toggle('hidden');
+  button.classList.toggle('active',!menu.classList.contains('hidden'));
+
+  return false;
+}
+
 function quickCreateCategory(){
+  document.getElementById('sidebarCreateMenu')?.classList.add('hidden');
+
   const server=currentServer();
 
   if(!server){
@@ -6320,6 +6429,8 @@ function quickCreateCategory(){
 }
 
 function quickCreateTextChannel(categoryId=null){
+  document.getElementById('sidebarCreateMenu')?.classList.add('hidden');
+
   const server=currentServer();
 
   if(!server){
@@ -6358,6 +6469,8 @@ function quickCreateTextChannel(categoryId=null){
 }
 
 function quickCreateVoiceChannel(type='voice',categoryId=null){
+  document.getElementById('sidebarCreateMenu')?.classList.add('hidden');
+
   const server=currentServer();
 
   if(!server){
@@ -10313,6 +10426,17 @@ if($('#addFriendBtn')){
   $('#addFriendBtn').textContent='Adicionar amigo';
 }
 
+
+
+document.addEventListener('pointerdown',event=>{
+  const createButton=event.target.closest?.('#sidebarCreateBtn');
+
+  if(createButton){
+    event.preventDefault();
+    event.stopPropagation();
+    toggleSidebarCreateMenu(event);
+  }
+},true);
 
 $('#showAuthPasswordBtn').addEventListener('click',()=>{
   togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
