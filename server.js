@@ -992,6 +992,30 @@ function permissionDenied(socket) {
   });
 }
 
+function canManageChannelsCompat(serverData,socket){
+  if(!serverData || !socket.data.userId) return false;
+
+  if(hasServerPermission(serverData,socket,'manageChannels')) return true;
+
+  // Compatibilidade com servidores antigos:
+  // se o antigo ownerId ficou órfão após a migração de contas e o usuário atual
+  // já consta como membro, ele assume a propriedade para não perder o servidor.
+  const ownerStillExists =
+    !!profiles.get(serverData.ownerId) ||
+    !!accounts.get(serverData.ownerId);
+
+  if(
+    !ownerStillExists &&
+    (serverData.members || []).includes(socket.data.userId)
+  ){
+    serverData.ownerId=socket.data.userId;
+    saveServersToDisk();
+    return true;
+  }
+
+  return false;
+}
+
 
 function cleanName(value, fallback = 'Usuário') {
   return String(value || fallback).trim().slice(0, 30) || fallback;
@@ -1038,7 +1062,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-channels-discord-v8';
+const CACHE='acord-create-channels-fix-v9';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3795,6 +3819,28 @@ html[data-palette="candy"]{
   background:var(--bg3)!important;
 }
 
+
+.createCategoryMainBtn{
+  width:100%!important;
+  min-height:34px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  padding:7px 9px!important;
+  margin:2px 0 8px!important;
+  border:1px dashed color-mix(in srgb,var(--coral) 30%,var(--line))!important;
+  border-radius:7px!important;
+  background:color-mix(in srgb,var(--coral) 5%,transparent)!important;
+  color:var(--muted)!important;
+  font-size:11px!important;
+  font-weight:800!important;
+}
+.createCategoryMainBtn:hover{
+  border-color:var(--coral)!important;
+  color:var(--text)!important;
+  background:color-mix(in srgb,var(--coral) 10%,transparent)!important;
+}
+
 </style>
 </head>
 <body>
@@ -3934,7 +3980,7 @@ html[data-palette="candy"]{
         <button id="createStageQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
       </div>
 
-      <button id="createCategoryQuickBtn" class="navBtn" type="button" style="font-size:12px;">▣ Criar categoria</button>
+      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button">+ Criar categoria</button>
 
       <div id="channelTree"></div>
     </div>
@@ -8344,7 +8390,6 @@ function openModal(type){
 function closeModal(){
   $('#modalWrap').classList.add('hidden');
   state.modalAction = null;
-  state.pendingChannelCategoryId = null;
   $('#roleColorWrap').classList.add('hidden');
   $('#rolePermissionsWrap').classList.add('hidden');
   $('#modalOk').textContent = 'Criar';
@@ -8414,6 +8459,8 @@ function confirmModal(){
     });
     state.selectedRoleId = null;
   }
+
+  state.pendingChannelCategoryId=null;
   closeModal();
 }
 
@@ -10829,6 +10876,18 @@ socket.on('category-updated',({message})=>{
   toast(message || 'Canais atualizados');
 });
 
+
+socket.on('category-created',payload=>{
+  if(payload?.serverId!==state.serverId) return;
+
+  toast('Categoria criada');
+  socket.emit('get-servers');
+
+  setTimeout(()=>{
+    renderSidebar();
+  },120);
+});
+
 socket.on('channel-created',({serverId,type,channelId})=>{
   if(serverId!==state.serverId) return;
   if(type==='text'){
@@ -10840,7 +10899,9 @@ socket.on('channel-created',({serverId,type,channelId})=>{
     setTimeout(()=>selectVoice(channelId),50);
     toast('Canal de voz criado');
   }
+  socket.emit('get-servers');
 });
+
 
 socket.on('text-history',history=>showMessages(history));
 socket.on('chat-message',m=>{
@@ -11929,32 +11990,52 @@ io.on('connection', socket => {
   });
 
   socket.on('create-category', ({ serverId, name }) => {
-    const s = servers.get(serverId);
-    if (!s || !requireServerAccess(s,socket)) return;
+    const s=servers.get(String(serverId||''));
 
-    if (!hasServerPermission(s,socket,'manageChannels')) {
+    if(!s){
+      socket.emit('permission-error',{error:'Servidor não encontrado'});
+      return;
+    }
+
+    if(!requireServerAccess(s,socket)){
+      socket.emit('permission-error',{error:'Você não faz parte deste servidor'});
+      return;
+    }
+
+    if(!canManageChannelsCompat(s,socket)){
       permissionDenied(socket);
       return;
     }
 
-    const category = {
-      id: id(),
-      name: cleanName(name, 'Categoria'),
-      order: s.categories.length
+    const safeName=cleanName(name,'Categoria');
+
+    const category={
+      id:id(),
+      name:safeName,
+      order:s.categories.length
     };
 
     s.categories.push(category);
     saveServersToDisk();
 
     broadcastServerLists();
-    socket.emit('category-updated', { message: 'Categoria criada' });
+    broadcastServerUpdate(s);
+
+    socket.emit('category-created',{
+      serverId:s.id,
+      category
+    });
+
+    socket.emit('category-updated',{
+      message:'Categoria criada'
+    });
   });
 
   socket.on('delete-category', ({ serverId, categoryId }) => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!hasServerPermission(s,socket,'manageChannels')) {
+    if (!canManageChannelsCompat(s,socket)) {
       permissionDenied(socket);
       return;
     }
@@ -11980,7 +12061,7 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!hasServerPermission(s,socket,'manageChannels')) {
+    if (!canManageChannelsCompat(s,socket)) {
       permissionDenied(socket);
       return;
     }
@@ -12005,7 +12086,7 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!hasServerPermission(s,socket,'manageChannels')) {
+    if (!canManageChannelsCompat(s,socket)) {
       permissionDenied(socket);
       return;
     }
@@ -12051,10 +12132,18 @@ io.on('connection', socket => {
   });
 
   socket.on('create-channel', ({ serverId, type, name, categoryId }) => {
-    const s = servers.get(serverId);
-    if (!s || !requireServerAccess(s,socket)) return;
+    const s=servers.get(String(serverId||''));
+    if(!s){
+      socket.emit('permission-error',{error:'Servidor não encontrado'});
+      return;
+    }
 
-    if (!hasServerPermission(s,socket,'manageChannels')) {
+    if(!requireServerAccess(s,socket)){
+      socket.emit('permission-error',{error:'Você não faz parte deste servidor'});
+      return;
+    }
+
+    if (!canManageChannelsCompat(s,socket)) {
       permissionDenied(socket);
       return;
     }
@@ -12076,7 +12165,14 @@ io.on('connection', socket => {
       s.messages.set(channel.id, []);
       saveServersToDisk();
       broadcastServerLists();
-      socket.emit('channel-created', { serverId, type: 'text', channelId: channel.id });
+      broadcastServerUpdate(s);
+
+      socket.emit('channel-created',{
+        serverId:s.id,
+        type:'text',
+        channelId:channel.id,
+        categoryId:channel.categoryId
+      });
       return;
     }
 
@@ -12094,10 +12190,13 @@ io.on('connection', socket => {
       s.voiceChannels.push(channel);
       saveServersToDisk();
       broadcastServerLists();
-      socket.emit('channel-created', {
-        serverId,
-        type: isStage ? 'stage' : 'voice',
-        channelId: channel.id
+      broadcastServerUpdate(s);
+
+      socket.emit('channel-created',{
+        serverId:s.id,
+        type:isStage ? 'stage' : 'voice',
+        channelId:channel.id,
+        categoryId:channel.categoryId
       });
     }
   });
