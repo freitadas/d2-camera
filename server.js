@@ -3146,6 +3146,25 @@ body{
   .sidebar{width:240px}
 }
 
+
+.uiIcon{
+  width:16px;
+  height:16px;
+  display:inline-block;
+  flex:0 0 auto;
+  fill:currentColor;
+  vertical-align:-3px;
+}
+.btn .uiIcon,.inviteBtn .uiIcon,.friendTab .uiIcon,.settingsNavBtn .uiIcon,.control .uiIcon{
+  margin-right:6px;
+}
+.iconOnly .uiIcon{margin-right:0}
+.passwordToggle .uiIcon{width:17px;height:17px;margin:0}
+.friendsAccountGear .uiIcon{width:17px;height:17px}
+*{
+  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Segoe UI Symbol","Segoe UI Emoji",sans-serif;
+}
+
 </style>
 </head>
 <body>
@@ -3211,7 +3230,7 @@ body{
         <label class="loginLabel" for="authPassword">Senha</label>
         <div class="passwordField">
           <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
-          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Zm10 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg></button>
         </div>
       </div>
 
@@ -3219,7 +3238,7 @@ body{
         <label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label>
         <div class="passwordField">
           <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
-          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Zm10 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg></button>
         </div>
       </div>
 
@@ -3267,8 +3286,8 @@ body{
       <div class="brand"><span class="brandDot"></span><span id="serverTitle" class="serverTitle">Acord</span></div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="inviteBtn" class="inviteBtn">Convidar</button>
-        <button id="serverSettingsBtn" class="inviteBtn" title="Configurações do servidor">⚙</button>
-        <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
+        <button id="serverSettingsBtn" class="inviteBtn iconOnly" title="Configurações do servidor"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></button>
+        <button id="deleteServerBtn" class="inviteBtn iconOnly" title="Apagar servidor"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10l-.8 11H7.8L7 8Zm2-3h6l1 2H8l1-2Zm-3 2h12v2H6V7Z"/></svg></button>
       </div>
     </div>
 
@@ -3281,8 +3300,8 @@ body{
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
         <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
-        <button id="createVoiceQuickBtn" class="btn secondary small" type="button">🔊 Voz</button>
-        <button id="createStageQuickBtn" class="btn secondary small" type="button">◉ Palco</button>
+        <button id="createVoiceQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
+        <button id="createStageQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
       </div>
 
       <button id="createCategoryQuickBtn" class="navBtn" type="button" style="font-size:12px;">▣ Criar categoria</button>
@@ -3296,7 +3315,7 @@ body{
         <strong id="userName">Você</strong>
         <span id="userBioMini">● Online · Editar perfil</span>
       </div>
-      <span style="color:var(--low);font-size:16px;">⚙</span>
+      <span style="color:var(--low);font-size:16px;"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></span>
     </button>
   </aside>
 
@@ -3328,7 +3347,7 @@ body{
         <div class="friendsHome">
           <div class="friendsHomeTop">
             <strong style="margin-right:8px;">Acord</strong>
-            <button id="hubFriendsBtn" class="friendTab active" type="button">👥 Amigos</button>
+            <button id="hubFriendsBtn" class="friendTab active" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7H2Zm13-7c4 0 7 2.6 7 6h-4.2c-.3-2.2-1.3-4.1-2.8-5.5V13Z"/></svg>Amigos</button>
             <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens privadas</button>
             <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
@@ -3354,7 +3373,7 @@ body{
               <strong id="friendsAccountName">Você</strong>
               <span id="friendsAccountStatus">● Online · Editar perfil</span>
             </div>
-            <span class="friendsAccountGear">⚙</span>
+            <span class="friendsAccountGear"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></span>
           </button>
         </div>
       </section>
@@ -3391,18 +3410,18 @@ body{
           <aside class="settingsMenu">
             <div id="settingsServerName" class="settingsServerName">Servidor</div>
 
-            <button class="settingsNavBtn active" data-settings-page="profile">⚙ Perfil do servidor</button>
+            <button class="settingsNavBtn active" data-settings-page="profile"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg>Perfil do servidor</button>
 
             <div class="settingsGroup">Pessoas</div>
-            <button class="settingsNavBtn" data-settings-page="members">👥 Membros</button>
+            <button class="settingsNavBtn" data-settings-page="members"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7H2Zm13-7c4 0 7 2.6 7 6h-4.2c-.3-2.2-1.3-4.1-2.8-5.5V13Z"/></svg>Membros</button>
             <button class="settingsNavBtn" data-settings-page="roles">🛡 Cargos</button>
             <button class="settingsNavBtn" data-settings-page="invites">✉ Convites</button>
 
             <div class="settingsGroup">Moderação</div>
-            <button class="settingsNavBtn" data-settings-page="security">🔒 Segurança</button>
+            <button class="settingsNavBtn" data-settings-page="security"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2h2v11H5V10h2Zm2 0h6V8a3 3 0 0 0-6 0v2Z"/></svg>Segurança</button>
 
             <div class="settingsGroup">Servidor</div>
-            <button class="settingsNavBtn danger" data-settings-page="delete">🗑 Excluir servidor</button>
+            <button class="settingsNavBtn danger" data-settings-page="delete"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10l-.8 11H7.8L7 8Zm2-3h6l1 2H8l1-2Zm-3 2h12v2H6V7Z"/></svg>Excluir servidor</button>
           </aside>
 
           <div class="settingsBody">
@@ -3548,7 +3567,7 @@ body{
         </div>
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
         <div class="compose" style="grid-template-columns:auto 1fr auto;">
-          <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
+          <button id="chatImageBtn" class="btn secondary iconOnly" type="button" title="Anexar imagem"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 6.7-6.7a4 4 0 1 1 5.6 5.6l-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2 1.4 1.4-9.2 9.2a4 4 0 0 0 5.7 5.7l8.9-8.9A2 2 0 0 0 16.6 7l-6.7 6.7a1.5 1.5 0 1 0 2.1 2.1l5.3-5.3 1.4 1.4-5.3 5.3a3.5 3.5 0 0 1-5-5Z"/></svg></button>
           <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem...">
           <button id="sendBtn" class="btn primary">Enviar</button>
         </div>
@@ -3566,7 +3585,7 @@ body{
         <div id="localMusicPanel" class="localMusicPanel hidden">
           <div class="localMusicShell">
             <div class="localMusicHead">
-              <div class="localMusicTitle">🎵 Minha música</div>
+              <div class="localMusicTitle"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v11.2A3.5 3.5 0 1 0 11 18V8h7v7.2A3.5 3.5 0 1 0 20 18V4H9Z"/></svg> Minha música</div>
               <div class="localMusicOnly">SÓ VOCÊ OUVE</div>
             </div>
 
@@ -3622,7 +3641,7 @@ body{
           <button id="micBtn" class="control">Microfone</button>
           <button id="musicBtn" class="control">Música</button>
           <button id="deafenBtn" class="control">Áudio</button>
-          <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
+          <button id="audioGateBtn" class="control audioGate hidden"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Ativar áudio</button>
           <button id="cameraBtn" class="control off">Câmera</button>
           <button id="screenBtn" class="control">Compartilhar</button>
           <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
@@ -4507,9 +4526,9 @@ function togglePasswordVisibility(inputSelector,buttonSelector){
 
   const showing=input.type==='text';
   input.type=showing?'password':'text';
-  button.textContent=showing?'◉':'◎';
   button.title=showing?'Mostrar senha':'Ocultar senha';
   button.setAttribute('aria-label',button.title);
+  button.classList.toggle('showing',!showing);
 }
 
 let messageContextTarget=null;
@@ -5122,7 +5141,7 @@ function returnToActiveCall(){
   if(state.privateCallId){
     setView('voice');
     $('#voiceTitle').textContent = 'Chamada com ' + (state.privatePeerName || 'Amigo');
-    $('#topTitle').textContent = '☎ Chamada privada';
+    $('#topTitle').textContent = 'Chamada privada';
     $('#topSub').textContent = state.privatePeerName || '';
     updateCallDock();
     return;
@@ -5195,7 +5214,7 @@ function setView(name){
   }
 
   if(name==='friends'){
-    $('#topTitle').textContent = '👥 Amigos';
+    $('#topTitle').textContent = 'Amigos';
     $('#topSub').textContent = 'seus amigos e chamadas';
     renderFriends();
   }
@@ -6503,7 +6522,7 @@ function renderActiveFriends(){
     const call = document.createElement('button');
     call.className = 'btn primary small';
     call.style.cssText = 'width:100%;margin-top:10px;';
-    call.textContent = '☎ Ligar';
+    call.textContent = 'Ligar';
     call.addEventListener('click',()=>callFriend(friend));
 
     card.append(top,call);
@@ -6721,7 +6740,7 @@ function renderFriends(){
 
     const call = document.createElement('button');
     call.className = 'btn primary small';
-    call.textContent = '☎';
+    call.textContent = 'Ligar';
     call.title = 'Ligar';
     call.disabled = !online;
     call.style.opacity = online ? '1' : '.4';
@@ -6899,7 +6918,7 @@ function renderDmContacts(){
       const icon=document.createElement('div');
       icon.className='avatar';
       icon.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;background:var(--mintbg);color:var(--mint);';
-      icon.textContent='👥';
+      icon.textContent='';
 
       const meta=document.createElement('div');
       meta.style.cssText='min-width:0;flex:1;text-align:left;';
@@ -7778,7 +7797,7 @@ async function enterPrivateCall(callId,peerName){
     setView('voice');
 
     $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
-    $('#topTitle').textContent = '☎ Chamada privada';
+    $('#topTitle').textContent = 'Chamada privada';
     $('#topSub').textContent = state.privatePeerName;
     $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Conectando...' : 'Conectando...';
 
@@ -8030,7 +8049,7 @@ async function toggleCamera(){
       }
     }
 
-    $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : 'Câmera';
+    $('#cameraBtn').textContent = 'Câmera';
     $('#cameraBtn').classList.toggle('off',!state.cameraTrack.enabled);
     ensureCard('local',state.username+' (você)',state.localStream,true);
     return;
@@ -8075,7 +8094,7 @@ async function toggleCamera(){
     await applyCameraSenderQuality();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
-    $('#cameraBtn').textContent = '📷 Câmera';
+    $('#cameraBtn').textContent = 'Câmera';
     $('#cameraBtn').classList.remove('off');
   }catch(err){
     console.error(err);
@@ -8661,7 +8680,7 @@ $('#homeHubBtn').addEventListener('click',()=>{
   setView('friends');
   renderFriends();
 
-  $('#topTitle').textContent = '👥 Amigos';
+  $('#topTitle').textContent = 'Amigos';
   $('#topSub').textContent = 'seus amigos e chamadas';
 
   const url = new URL(location.href);
