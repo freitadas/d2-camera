@@ -722,14 +722,6 @@ function hasServerPermission(serverData, socket, permission) {
   return roles.some(role => !!role.permissions?.[permission]);
 }
 
-function isServerAdmin(serverData,socket) {
-  if (!serverData || !socket?.data?.userId) return false;
-  if (serverData.ownerId === socket.data.userId) return true;
-
-  return userRoles(serverData,socket)
-    .some(role => !!role.permissions?.administrator);
-}
-
 function requireServerAccess(serverData, socket) {
   if (!serverData || !socket.data.userId) return false;
 
@@ -1881,7 +1873,7 @@ body.locked{overflow:hidden!important}
 
         <div id="voiceControls" class="controls hidden">
           <button id="micBtn" class="control">🎤 Microfone</button>
-          <button id="muteAllBtn" class="control hidden">🔇 Mutar todos</button>
+          <button id="deafenBtn" class="control">🔊 Áudio</button>
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
           <button id="screenBtn" class="control">🖥️ Compartilhar tela</button>
@@ -2124,6 +2116,7 @@ const state = {
   peerVolumes: new Map(),
   peerAudioNodes: new Map(),
   audioContext: null,
+  deafened: false,
   pendingCandidates: new Map(),
   modalAction: null,
   selectedRoleId: null,
@@ -2368,12 +2361,24 @@ function safeServerSnapshot(serverData){
 }
 
 function getCachedServers(){
-  try{
-    const parsed = JSON.parse(localStorage.getItem('ecord-server-cache') || '[]');
-    return Array.isArray(parsed) ? parsed.map(safeServerSnapshot).filter(Boolean) : [];
-  }catch{
-    return [];
+  const parseCache = value => {
+    try{
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed)
+        ? parsed.map(safeServerSnapshot).filter(Boolean)
+        : [];
+    }catch{
+      return [];
+    }
+  };
+
+  const primary = parseCache(localStorage.getItem('ecord-server-cache'));
+
+  if(primary.length){
+    return primary;
   }
+
+  return parseCache(localStorage.getItem('ecord-server-backup'));
 }
 
 function cacheServers(list){
@@ -2381,7 +2386,14 @@ function cacheServers(list){
     const safe = (Array.isArray(list) ? list : [])
       .map(safeServerSnapshot)
       .filter(Boolean);
-    localStorage.setItem('ecord-server-cache', JSON.stringify(safe));
+
+    const payload = JSON.stringify(safe);
+
+    localStorage.setItem('ecord-server-cache',payload);
+
+    if(safe.length){
+      localStorage.setItem('ecord-server-backup',payload);
+    }
   }catch{}
 }
 
@@ -3225,9 +3237,21 @@ function selectServer(serverId){
   state.serverId = serverId;
   localStorage.setItem('ecord-last-server-id',serverId);
   localStorage.setItem('ecord-last-view','chat');
+
   const s = currentServer();
-  state.textChannelId = s?.textChannels[0]?.id || null;
-  state.voiceChannelId = s?.voiceChannels[0]?.id || null;
+
+  const savedText = localStorage.getItem('ecord-server-' + serverId + '-text');
+  const savedVoice = localStorage.getItem('ecord-server-' + serverId + '-voice');
+
+  state.textChannelId =
+    s?.textChannels?.some(channel=>channel.id===savedText)
+      ? savedText
+      : (s?.textChannels?.[0]?.id || null);
+
+  state.voiceChannelId =
+    s?.voiceChannels?.some(channel=>channel.id===savedVoice)
+      ? savedVoice
+      : (s?.voiceChannels?.[0]?.id || null);
   renderServers();
   renderSidebar();
 
@@ -3253,6 +3277,11 @@ function selectText(channelId){
   setAppMode('server');
   state.textChannelId = channelId;
   localStorage.setItem('ecord-last-text-channel-id',channelId);
+
+  if(state.serverId){
+    localStorage.setItem('ecord-server-' + state.serverId + '-text',channelId);
+  }
+
   renderSidebar();
   const c = currentText();
   $('#chatTitle').textContent = c?.name || 'chat';
@@ -3266,6 +3295,11 @@ function selectVoice(channelId){
   setAppMode('server');
   state.voiceChannelId = channelId;
   localStorage.setItem('ecord-last-voice-channel-id',channelId);
+
+  if(state.serverId){
+    localStorage.setItem('ecord-server-' + state.serverId + '-voice',channelId);
+  }
+
   renderSidebar();
 
   const c = currentVoice();
@@ -4447,7 +4481,7 @@ async function setupPeerAudioGain(peerId,stream){
   const existing = state.peerAudioNodes.get(peerId);
 
   if(existing?.stream === stream){
-    existing.gain.gain.value = getPeerVolume(peerId);
+    existing.gain.gain.value = state.deafened ? 0 : getPeerVolume(peerId);
 
     try{
       if(context.state === 'suspended') await context.resume();
@@ -4462,7 +4496,7 @@ async function setupPeerAudioGain(peerId,stream){
     const source = context.createMediaStreamSource(stream);
     const gain = context.createGain();
 
-    gain.gain.value = getPeerVolume(peerId);
+    gain.gain.value = state.deafened ? 0 : getPeerVolume(peerId);
 
     source.connect(gain);
     gain.connect(context.destination);
@@ -4491,7 +4525,7 @@ function setPeerVolume(peerId,value){
 
   const node = state.peerAudioNodes.get(peerId);
   if(node?.gain){
-    node.gain.gain.value = volume;
+    node.gain.gain.value = state.deafened ? 0 : volume;
   }
 
   const audio = state.remoteAudio.get(peerId);
@@ -4572,7 +4606,7 @@ function ensureRemoteAudio(peerId, track, sourceStream = null){
     }
 
     // Fallback comum: controle individual até 100%.
-    audio.muted = false;
+    audio.muted = !!state.deafened;
     audio.volume = Math.min(1,volume);
 
     try{
@@ -4609,12 +4643,12 @@ async function unlockAllRemoteAudio(){
     const node = state.peerAudioNodes.get(peerId);
 
     if(node && context?.state === 'running'){
-      node.gain.gain.value = getPeerVolume(peerId);
+      node.gain.gain.value = state.deafened ? 0 : getPeerVolume(peerId);
       audio.muted = true;
       continue;
     }
 
-    audio.muted = false;
+    audio.muted = !!state.deafened;
     audio.volume = Math.min(1,getPeerVolume(peerId));
 
     try{
@@ -4790,46 +4824,41 @@ function closeIncomingCall(){
 }
 
 
-function currentUserIsServerAdmin(){
-  const server=state.servers.find(item=>item.id===state.activeVoiceServerId);
-  if(!server || state.privateCallId) return false;
+function applyDeafenState(){
+  const muted = !!state.deafened;
 
-  if(server.ownerId===state.userId) return true;
+  for(const [peerId,audio] of state.remoteAudio.entries()){
+    const node = state.peerAudioNodes.get(peerId);
 
-  const username=String(state.username || '').toLowerCase();
+    if(node?.gain){
+      node.gain.gain.value = muted ? 0 : getPeerVolume(peerId);
+      audio.muted = true;
+    }else{
+      audio.muted = muted;
 
-  return (server.roles || []).some(role =>
-    !!role.permissions?.administrator &&
-    (role.members || []).some(member =>
-      String(member || '').toLowerCase()===username
-    )
-  );
-}
-
-function updateMuteAllButton(){
-  const button=$('#muteAllBtn');
-  if(!button) return;
-
-  const visible=
-    !!state.joinedVoiceId &&
-    !state.privateCallId &&
-    !!state.activeVoiceServerId &&
-    !!state.activeVoiceChannelId &&
-    currentUserIsServerAdmin();
-
-  button.classList.toggle('hidden',!visible);
-}
-
-function muteEveryone(){
-  if(!currentUserIsServerAdmin()){
-    toast('Apenas o dono ou um Administrador pode mutar todos');
-    return;
+      if(!muted){
+        audio.volume = Math.min(1,getPeerVolume(peerId));
+      }
+    }
   }
 
-  socket.emit('admin-mute-all',{
-    serverId:state.activeVoiceServerId,
-    channelId:state.activeVoiceChannelId
-  });
+  const button = $('#deafenBtn');
+
+  if(button){
+    button.textContent = muted ? '🔇 Áudio mutado' : '🔊 Áudio';
+    button.classList.toggle('off',muted);
+  }
+}
+
+function toggleDeafen(){
+  state.deafened = !state.deafened;
+  applyDeafenState();
+
+  toast(
+    state.deafened
+      ? 'Você não está ouvindo ninguém'
+      : 'Áudio da call ativado'
+  );
 }
 
 async function joinVoice(){
@@ -4881,7 +4910,6 @@ async function joinVoice(){
     });
 
     updateCallDock();
-    updateMuteAllButton();
   }catch(err){
     console.error(err);
     toast('Permita o microfone para entrar na voz');
@@ -4931,6 +4959,8 @@ function leaveVoice(){
 
   state.joinedVoiceId = null;
   state.peerVolumes.clear();
+  state.deafened = false;
+  applyDeafenState();
   state.activeVoiceServerId = null;
   state.activeVoiceChannelId = null;
   state.activeVoiceName = '';
@@ -4945,7 +4975,6 @@ function leaveVoice(){
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
   updateCallDock();
-  updateMuteAllButton();
 
   if(wasPrivate){
     setView('friends');
@@ -5399,7 +5428,11 @@ $('#homeHubBtn').addEventListener('click',()=>{
   $('#topSub').textContent = 'seus amigos e chamadas';
 
   const url = new URL(location.href);
-  url.searchParams.delete('server');
+
+  if(state.serverId){
+    url.searchParams.set('server',state.serverId);
+  }
+
   history.replaceState(null,'',url);
 });
 
@@ -5452,7 +5485,7 @@ $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
 $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
 $('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
-$('#muteAllBtn').addEventListener('click',muteEveryone);
+$('#deafenBtn').addEventListener('click',toggleDeafen);
 $('#audioGateBtn').addEventListener('click',async()=>{
   await unlockAllRemoteAudio();
   $('#audioGateBtn').classList.add('hidden');
@@ -5699,8 +5732,55 @@ socket.on('server-list',list=>{
     params.get('server') ||
     localStorage.getItem('ecord-last-server-id');
 
-  // Nenhum servidor disponível.
+  // Nenhum servidor recebido nesta atualização.
   if(!state.servers.length){
+    const cached = getCachedServers();
+
+    // Uma atualização vazia não pode apagar/resetar servidores já conhecidos.
+    if(cached.length){
+      state.servers = cached;
+
+      state.serverId =
+        cached.some(server=>server.id===previousServerId)
+          ? previousServerId
+          : (
+              cached.some(server=>server.id===requested)
+                ? requested
+                : cached[0].id
+            );
+
+      const selected = state.servers.find(server=>server.id===state.serverId);
+
+      if(selected){
+        const lastText = localStorage.getItem(
+          'ecord-server-' + state.serverId + '-text'
+        );
+
+        const lastVoice = localStorage.getItem(
+          'ecord-server-' + state.serverId + '-voice'
+        );
+
+        state.textChannelId =
+          selected.textChannels?.some(channel=>channel.id===lastText)
+            ? lastText
+            : (selected.textChannels?.[0]?.id || null);
+
+        state.voiceChannelId =
+          selected.voiceChannels?.some(channel=>channel.id===lastVoice)
+            ? lastVoice
+            : (selected.voiceChannels?.[0]?.id || null);
+      }
+
+      renderServers();
+      renderSidebar();
+      renderRoles();
+
+      state.currentView = previousView;
+      state.appInitialized = true;
+      restoreCurrentView();
+      return;
+    }
+
     state.serverId = null;
     state.textChannelId = null;
     state.voiceChannelId = null;
@@ -5709,14 +5789,14 @@ socket.on('server-list',list=>{
     renderSidebar();
     renderRoles();
 
-    // Só sai da tela atual se ela dependia de um servidor que deixou de existir.
+    state.appInitialized = true;
+
     if(isServerView(previousView)){
       setView('friends');
     }else{
       restoreCurrentView();
     }
 
-    state.appInitialized = true;
     return;
   }
 
@@ -5821,7 +5901,6 @@ socket.on('role-updated',({message})=>{
   renderSidebar();
   renderRoles();
   renderMembers(state.lastVoiceMembers || []);
-  updateMuteAllButton();
   restoreCurrentView();
   toast(message || 'Cargos atualizados');
 });
@@ -5861,24 +5940,9 @@ socket.on('voice-participants',async participants=>{
 
 socket.on('voice-members',members=>{
   renderMembers(members);
-  updateMuteAllButton();
 });
 
-socket.on('force-mute',({by})=>{
-  const track=state.localStream?.getAudioTracks()[0];
 
-  if(track){
-    track.enabled=false;
-    $('#micBtn').textContent='🔇 Microfone';
-    $('#micBtn').classList.add('off');
-  }
-
-  toast('Seu microfone foi mutado por ' + (by || 'um administrador'));
-});
-
-socket.on('mute-all-complete',()=>{
-  toast('Todos os outros participantes foram mutados');
-});
 
 socket.on('user-joined',({id,username})=>{
   state.peerNames.set(id,username);
@@ -6997,37 +7061,7 @@ io.on('connection', socket => {
     io.to(room).emit('voice-members', members);
   });
 
-  socket.on('admin-mute-all', ({ serverId, channelId }) => {
-    const serverData=servers.get(String(serverId || '').slice(0,80));
 
-    if (
-      !serverData ||
-      !requireServerAccess(serverData,socket) ||
-      !isServerAdmin(serverData,socket)
-    ) {
-      permissionDenied(socket);
-      return;
-    }
-
-    const channel=serverData.voiceChannels.find(
-      item=>item.id===String(channelId || '').slice(0,80)
-    );
-
-    if(!channel) return;
-
-    const expectedRoom='voice:' + serverData.id + ':' + channel.id;
-
-    if(socket.data.voiceRoom!==expectedRoom){
-      socket.emit('permission-error',{error:'Entre nesse canal de voz primeiro'});
-      return;
-    }
-
-    socket.to(expectedRoom).emit('force-mute',{
-      by:socket.data.username || 'Administrador'
-    });
-
-    socket.emit('mute-all-complete');
-  });
 
   socket.on('leave-voice', leaveVoiceRoom);
 
