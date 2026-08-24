@@ -285,7 +285,8 @@ function normalizeChannelList(list, fallbackName) {
         : null,
       order: Number.isFinite(Number(channel.order))
         ? Number(channel.order)
-        : index
+        : index,
+      mode: channel.mode === 'stage' ? 'stage' : 'voice'
     }))
     .sort((a,b) => a.order - b.order);
 }
@@ -745,9 +746,27 @@ if (!loadServersFromDisk()) {
 }
 
 function publicServer(serverData) {
+  const memberIds = [...new Set([
+    serverData.ownerId,
+    ...(serverData.members || [])
+  ].filter(Boolean))];
+
+  const memberProfiles = memberIds.map(memberId => {
+    const profile = profiles.get(memberId);
+
+    return {
+      id:String(memberId).slice(0,100),
+      username:profile?.username || 'Membro',
+      bio:profile?.bio || '',
+      avatar:profile?.avatar || ''
+    };
+  });
+
   return {
     id: serverData.id,
     ownerId: serverData.ownerId,
+    members: serverData.members,
+    memberProfiles,
     inviteToken: serverData.inviteToken,
     name: serverData.name,
     icon: serverData.icon,
@@ -1724,6 +1743,60 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   letter-spacing:-2px;
   margin-right:1px;
 }
+.channelBtn.stage{min-height:52px;align-items:flex-start;padding-top:8px;padding-bottom:8px}
+.channelBtn.stage .stageIcon{
+  width:20px;height:20px;border:1px solid var(--muted);border-radius:50%;
+  display:grid;place-items:center;font-size:10px;flex:0 0 auto;margin-top:1px
+}
+.channelBtn.stage .stageText{min-width:0;flex:1}
+.channelBtn.stage .stageText strong{
+  display:block;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px
+}
+.channelBtn.stage .stageText small{
+  display:block;color:var(--low);font-size:9px;line-height:1.3;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.serverPresenceSection{margin:6px 0 14px}
+.serverPresenceTitle{
+  color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding:5px 8px
+}
+.serverMemberRow{
+  display:flex;align-items:center;gap:9px;padding:8px;border-radius:10px;cursor:pointer;color:var(--muted)
+}
+.serverMemberRow:hover{background:var(--bg2);color:var(--text)}
+.serverMemberRow.offline{opacity:.58}
+.serverMemberAvatar{position:relative;flex:0 0 auto}
+.serverMemberStatusDot{
+  position:absolute;width:10px;height:10px;right:-2px;bottom:-2px;border-radius:50%;
+  border:2px solid var(--bg1);background:var(--mint)
+}
+.serverMemberRow.offline .serverMemberStatusDot{background:var(--low)}
+.serverMemberMeta{min-width:0;flex:1}
+.serverMemberMeta strong{
+  display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.serverMemberMeta span{display:block;color:var(--low);font-size:10px;margin-top:2px}
+.memberProfileCardTop{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.memberProfileAvatar{
+  width:72px!important;height:72px!important;border-radius:24px!important;font-size:24px!important;flex:0 0 auto
+}
+.memberProfileStatus{font-size:11px;color:var(--muted);margin-top:4px}
+.memberProfileBio{
+  border:1px solid var(--line);background:var(--bg2);border-radius:12px;padding:12px;
+  color:var(--muted);font-size:12px;line-height:1.5;min-height:54px
+}
+.memberProfileRoles{margin-top:14px}
+.memberProfileRolesTitle{
+  color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px
+}
+.memberRoleToggle{
+  display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid var(--line);
+  border-radius:10px;background:var(--bg2);margin-bottom:6px
+}
+.memberRoleColor{width:12px;height:12px;border-radius:50%;flex:0 0 auto}
+.memberRoleToggle span{min-width:0;flex:1;font-size:12px;font-weight:800}
+.memberRoleToggle input{width:auto;margin:0}
+
 .friendsHome{
   height:100%;
   display:grid;
@@ -2149,9 +2222,10 @@ body.locked{overflow:hidden!important}
         <span>Canais</span>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 2px 9px;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
         <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
         <button id="createVoiceQuickBtn" class="btn secondary small" type="button">🔊 Voz</button>
+        <button id="createStageQuickBtn" class="btn secondary small" type="button">◉ Palco</button>
       </div>
 
       <button id="createCategoryQuickBtn" class="navBtn" type="button" style="font-size:12px;">▣ Criar categoria</button>
@@ -2204,6 +2278,7 @@ body.locked{overflow:hidden!important}
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
             <button id="createPrivateGroupBtn" class="friendTab" type="button">👥 Criar grupo</button>
+            <button id="friendsProfileBtn" class="friendTab" type="button">👤 Perfil</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -2337,7 +2412,7 @@ body.locked{overflow:hidden!important}
 
             <div id="settingsMembersPage" class="settingsPanel hidden">
               <h2>Membros</h2>
-              <p>Pessoas que estão online no Acord agora.</p>
+              <p>Veja membros online e offline. Clique em uma pessoa para abrir o perfil e gerenciar cargos.</p>
               <div id="settingsMembersList"></div>
             </div>
 
@@ -2704,6 +2779,27 @@ body.locked{overflow:hidden!important}
   </div>
 </div>
 
+<div id="memberProfileModalWrap" class="modalWrap hidden">
+  <div class="modal">
+    <div class="memberProfileCardTop">
+      <div id="memberProfileAvatar" class="avatar memberProfileAvatar">U</div>
+      <div style="min-width:0;flex:1;">
+        <h2 id="memberProfileName" style="margin:0;">Membro</h2>
+        <div id="memberProfileStatus" class="memberProfileStatus">Offline</div>
+      </div>
+    </div>
+    <div id="memberProfileBio" class="memberProfileBio">Sem bio.</div>
+    <div class="memberProfileRoles">
+      <div class="memberProfileRolesTitle">Cargos neste servidor</div>
+      <div id="memberProfileRolesList"></div>
+      <div id="memberProfileRolesHint" style="color:var(--low);font-size:10px;line-height:1.4;margin-top:8px;"></div>
+    </div>
+    <div class="modalActions">
+      <button id="memberProfileCloseBtn" class="btn primary" type="button">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div id="incomingCallWrap" class="modalWrap hidden">
   <div class="modal">
     <div style="width:56px;height:56px;border-radius:18px;background:var(--mintbg);color:var(--mint);display:grid;place-items:center;font-size:23px;margin-bottom:16px;">☎</div>
@@ -2843,6 +2939,7 @@ const state = {
   privatePeerName: null,
   incomingCall: null,
   pendingAvatar: null,
+  selectedServerMemberId: null,
   serverSettingsIcon: null,
   serverSettingsAccent: '#ff6b4a',
   friendsFilter: 'online',
@@ -3490,7 +3587,8 @@ function safeServerSnapshot(serverData){
           id:String(c.id),
           name:String(c.name||'Voz').slice(0,30),
           categoryId:c.categoryId ? String(c.categoryId) : null,
-          order:Number.isFinite(Number(c.order)) ? Number(c.order) : 0
+          order:Number.isFinite(Number(c.order)) ? Number(c.order) : 0,
+          mode:c.mode === 'stage' ? 'stage' : 'voice'
         }))
       : [],
     categories:Array.isArray(serverData.categories)
@@ -3780,8 +3878,17 @@ function setView(name){
 
   if(name==='voice'){
     const c = currentVoice();
-    $('#topTitle').textContent = c ? ')) '+c.name : ')) voz';
-    $('#topSub').textContent = currentServer()?.name || '';
+    const isStage = c?.mode === 'stage';
+
+    $('#topTitle').textContent = c
+      ? (isStage ? '◉ ' : ')) ') + c.name
+      : ')) voz';
+
+    $('#topSub').textContent = isStage
+      ? 'Palco · ' + (currentServer()?.name || '')
+      : (currentServer()?.name || '');
+  }else if(isServerView(name)){
+    renderServerPresence();
   }
 
   syncVoiceControlsUI();
@@ -3981,10 +4088,13 @@ function renderSidebar(){
   }
 
   function makeChannelButton(channel,type){
+    const isStage = type === 'voice' && channel.mode === 'stage';
+
     const b = document.createElement('button');
     b.className =
       'channelBtn' +
       (type==='voice' ? ' voice' : '') +
+      (isStage ? ' stage' : '') +
       (
         (type==='text' && channel.id===state.textChannelId) ||
         (type==='voice' && channel.id===state.voiceChannelId)
@@ -4001,14 +4111,33 @@ function renderSidebar(){
     grip.textContent = '⠿';
 
     const icon = document.createElement('span');
-    icon.className = type==='text' ? 'hash' : '';
-    icon.textContent = type==='text' ? '#' : '))';
 
-    const label = document.createElement('span');
-    label.textContent = channel.name;
-    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+    if(isStage){
+      icon.className = 'stageIcon';
+      icon.textContent = '◉';
+    }else{
+      icon.className = type==='text' ? 'hash' : '';
+      icon.textContent = type==='text' ? '#' : '))';
+    }
 
-    b.append(grip,icon,label);
+    if(isStage){
+      const stageText = document.createElement('span');
+      stageText.className = 'stageText';
+
+      const title = document.createElement('strong');
+      title.textContent = channel.name;
+
+      const subtitle = document.createElement('small');
+      subtitle.textContent = 'Eventos, painéis e conversas para uma plateia';
+
+      stageText.append(title,subtitle);
+      b.append(grip,icon,stageText);
+    }else{
+      const label = document.createElement('span');
+      label.textContent = channel.name;
+      label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+      b.append(grip,icon,label);
+    }
 
     b.addEventListener('click',()=>{
       if(type==='text') selectText(channel.id);
@@ -4197,6 +4326,203 @@ function renderSidebar(){
 }
 
 
+
+function serverMemberProfiles(server = currentServer()){
+  if(!server) return [];
+
+  const ids = [...new Set([
+    server.ownerId,
+    ...(server.members || [])
+  ].filter(Boolean))];
+
+  const byId = new Map((server.memberProfiles || []).map(profile=>[profile.id,profile]));
+
+  return ids.map(memberId=>{
+    const online = state.onlineUsers.find(user=>user.id===memberId);
+    const cached = byId.get(memberId);
+
+    return {
+      id:memberId,
+      username:online?.username || cached?.username || 'Membro',
+      bio:online?.bio ?? cached?.bio ?? '',
+      avatar:online?.avatar || cached?.avatar || '',
+      online:!!online
+    };
+  });
+}
+
+function canManageRolesLocally(server = currentServer()){
+  if(!server) return false;
+  if(server.ownerId === state.userId) return true;
+
+  const username = String(state.username || '').toLowerCase();
+
+  return (server.roles || []).some(role=>{
+    const hasRole = (role.members || []).some(
+      member=>String(member || '').toLowerCase() === username
+    );
+
+    return hasRole && (
+      role.permissions?.administrator ||
+      role.permissions?.manageRoles
+    );
+  });
+}
+
+function renderServerPresence(){
+  const server = currentServer();
+  const box = $('#members');
+  if(!server || !box) return;
+
+  $('#rightTitle').textContent = 'Membros';
+
+  const profiles = serverMemberProfiles(server);
+  const online = profiles.filter(profile=>profile.online);
+  const offline = profiles.filter(profile=>!profile.online);
+
+  box.innerHTML = '';
+
+  function section(title,items,isOffline){
+    const wrap = document.createElement('div');
+    wrap.className = 'serverPresenceSection';
+
+    const heading = document.createElement('div');
+    heading.className = 'serverPresenceTitle';
+    heading.textContent = title + ' — ' + items.length;
+    wrap.appendChild(heading);
+
+    if(!items.length){
+      const empty = document.createElement('div');
+      empty.style.cssText='color:var(--low);font-size:10px;padding:6px 8px;';
+      empty.textContent = isOffline ? 'Ninguém offline.' : 'Ninguém ativo agora.';
+      wrap.appendChild(empty);
+    }
+
+    items.forEach(profile=>{
+      const row = document.createElement('div');
+      row.className = 'serverMemberRow' + (isOffline ? ' offline' : '');
+
+      const avatarWrap = document.createElement('div');
+      avatarWrap.className = 'serverMemberAvatar';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      applyAvatar(avatar,profile,profile.username);
+
+      const dot = document.createElement('span');
+      dot.className = 'serverMemberStatusDot';
+      avatarWrap.append(avatar,dot);
+
+      const meta = document.createElement('div');
+      meta.className = 'serverMemberMeta';
+
+      const name = document.createElement('strong');
+      name.textContent = profile.username;
+
+      const primary = primaryRoleForUser(profile.username);
+      if(primary) name.style.color = primary.color;
+
+      const status = document.createElement('span');
+      status.textContent =
+        profile.id === server.ownerId
+          ? (isOffline ? 'Dono · Offline' : 'Dono · Online')
+          : (isOffline ? 'Offline' : 'Online');
+
+      meta.append(name,status);
+      row.append(avatarWrap,meta);
+      row.addEventListener('click',()=>openServerMemberProfile(profile.id));
+      wrap.appendChild(row);
+    });
+
+    box.appendChild(wrap);
+  }
+
+  section('Ativos agora',online,false);
+  section('Offline',offline,true);
+}
+
+function openServerMemberProfile(userId){
+  const server = currentServer();
+  if(!server) return;
+
+  const profile = serverMemberProfiles(server).find(item=>item.id===userId);
+  if(!profile) return;
+
+  state.selectedServerMemberId = profile.id;
+  $('#memberProfileName').textContent = profile.username;
+  $('#memberProfileStatus').textContent =
+    profile.online
+      ? (profile.id === server.ownerId ? '● Online · Dono do servidor' : '● Online')
+      : (profile.id === server.ownerId ? 'Offline · Dono do servidor' : 'Offline');
+
+  $('#memberProfileStatus').style.color = profile.online ? 'var(--mint)' : 'var(--low)';
+  $('#memberProfileBio').textContent = profile.bio || 'Sem bio.';
+  applyAvatar($('#memberProfileAvatar'),profile,profile.username);
+  renderMemberProfileRoles(profile);
+  $('#memberProfileModalWrap').classList.remove('hidden');
+}
+
+function closeServerMemberProfile(){
+  state.selectedServerMemberId = null;
+  $('#memberProfileModalWrap').classList.add('hidden');
+}
+
+function renderMemberProfileRoles(profile){
+  const server = currentServer();
+  const box = $('#memberProfileRolesList');
+  const hint = $('#memberProfileRolesHint');
+  box.innerHTML = '';
+
+  if(!server) return;
+
+  const canEdit = canManageRolesLocally(server);
+  const roles = Array.isArray(server.roles) ? server.roles : [];
+
+  if(!roles.length){
+    const empty = document.createElement('div');
+    empty.style.cssText='color:var(--low);font-size:11px;padding:8px 0;';
+    empty.textContent='Este servidor ainda não possui cargos.';
+    box.appendChild(empty);
+    hint.textContent = canEdit ? 'Crie cargos na área Cargos do servidor.' : '';
+    return;
+  }
+
+  roles.forEach(role=>{
+    const row = document.createElement('label');
+    row.className = 'memberRoleToggle';
+
+    const color = document.createElement('span');
+    color.className = 'memberRoleColor';
+    color.style.background = role.color || '#ff6b4a';
+
+    const name = document.createElement('span');
+    name.textContent = role.name;
+
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = (role.members || []).some(
+      member=>String(member || '').toLowerCase() === String(profile.username || '').toLowerCase()
+    );
+    check.disabled = !canEdit;
+
+    check.addEventListener('change',()=>{
+      socket.emit('set-member-role',{
+        serverId:server.id,
+        roleId:role.id,
+        userId:profile.id,
+        enabled:check.checked
+      });
+    });
+
+    row.append(color,name,check);
+    box.appendChild(row);
+  });
+
+  hint.textContent = canEdit
+    ? 'Marque ou desmarque os cargos para alterar este membro.'
+    : 'Você pode ver os cargos, mas não tem permissão para alterá-los.';
+}
+
 function setServerSettingsPage(page){
   const pages = ['profile','members','roles','invites','security','delete'];
 
@@ -4300,78 +4626,60 @@ function renderSettingsMembers(){
   box.innerHTML = '';
 
   const server = currentServer();
-  if(!server){
-    return;
-  }
+  if(!server) return;
 
-  const memberIds = new Set([
-    server.ownerId,
-    ...(server.members || [])
-  ].filter(Boolean));
+  const profiles = serverMemberProfiles(server);
 
-  const knownProfiles = [];
-
-  for(const user of state.onlineUsers){
-    if(memberIds.has(user.id)){
-      knownProfiles.push(user);
-    }
-  }
-
-  const ownProfile = {
-    id:state.userId,
-    username:state.username,
-    bio:state.bio,
-    avatar:state.avatar
-  };
-
-  if(memberIds.has(state.userId) && !knownProfiles.some(item=>item.id===state.userId)){
-    knownProfiles.unshift(ownProfile);
-  }
-
-  if(!knownProfiles.length){
+  if(!profiles.length){
     const empty = document.createElement('div');
     empty.className='settingsCard';
     empty.style.color='var(--low)';
-    empty.textContent='Os membros aparecerão aqui quando estiverem online.';
+    empty.textContent='Nenhum membro encontrado.';
     box.appendChild(empty);
     return;
   }
 
-  knownProfiles.forEach(user=>{
-    const row=document.createElement('div');
-    row.className='settingsMember';
+  profiles
+    .sort((a,b)=>Number(b.online)-Number(a.online) || a.username.localeCompare(b.username))
+    .forEach(user=>{
+      const row=document.createElement('div');
+      row.className='settingsMember';
+      row.style.cursor='pointer';
+      row.style.opacity=user.online ? '1' : '.62';
 
-    const avatar=document.createElement('div');
-    avatar.className='avatar';
-    applyAvatar(avatar,user,user.username);
+      const avatar=document.createElement('div');
+      avatar.className='avatar';
+      applyAvatar(avatar,user,user.username);
 
-    const meta=document.createElement('div');
-    meta.style.flex='1';
+      const meta=document.createElement('div');
+      meta.style.flex='1';
 
-    const role=primaryRoleForUser(user.username);
+      const role=primaryRoleForUser(user.username);
+      const name=document.createElement('strong');
+      name.textContent=user.username;
 
-    const name=document.createElement('strong');
-    name.textContent=user.username;
+      if(role){
+        name.style.color=role.color;
+        const roleLine=document.createElement('div');
+        roleLine.textContent='[' + role.name + ']';
+        roleLine.style.cssText='font-size:10px;font-weight:900;color:' + role.color + ';margin-bottom:2px;';
+        meta.append(roleLine,name);
+      }else{
+        meta.appendChild(name);
+      }
 
-    if(role){
-      name.style.color=role.color;
+      const status=document.createElement('div');
+      status.style.cssText='font-size:11px;margin-top:2px;color:' + (user.online ? 'var(--mint)' : 'var(--low)') + ';';
+      status.textContent =
+        user.id===server.ownerId
+          ? (user.online ? 'Dono do servidor · Online' : 'Dono do servidor · Offline')
+          : (user.online ? '● Online' : 'Offline');
 
-      const roleLine=document.createElement('div');
-      roleLine.textContent='[' + role.name + ']';
-      roleLine.style.cssText='font-size:10px;font-weight:900;color:' + role.color + ';margin-bottom:2px;';
-      meta.append(roleLine,name);
-    }else{
-      meta.appendChild(name);
-    }
-
-    const status=document.createElement('div');
-    status.style.cssText='font-size:11px;color:var(--mint);margin-top:2px;';
-    status.textContent=user.id===server.ownerId ? 'Dono do servidor' : '● Online';
-    meta.appendChild(status);
-
-    row.append(avatar,meta);
-    box.appendChild(row);
-  });
+      meta.appendChild(status);
+      row.append(avatar,meta);
+      row.addEventListener('click',()=>openServerMemberProfile(user.id));
+      box.appendChild(row);
+    });
 }
 
 
@@ -4516,7 +4824,10 @@ function selectVoice(channelId){
   renderSidebar();
 
   const c = currentVoice();
-  $('#voiceTitle').textContent = c?.name || 'Voz';
+  $('#voiceTitle').textContent =
+    c?.mode === 'stage'
+      ? '◉ ' + (c.name || 'Palco')
+      : (c?.name || 'Voz');
   setView('voice');
 
   const isActiveChannel =
@@ -5440,6 +5751,7 @@ function openModal(type){
     server:['Criar servidor','Digite o nome do novo servidor.','Ex.: Meus amigos'],
     text:['Criar chat','Digite o nome do novo canal de texto.','Ex.: memes'],
     voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos'],
+    stage:['Criar Palco','Crie uma chamada de Palco para eventos, painéis e apresentações.','Ex.: Palco principal'],
     category:['Criar categoria','Digite o nome da nova categoria.','Ex.: Jogos'],
     friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no Acord.','Ex.: Davi'],
     role:['Criar cargo','Escolha nome, cor e permissões do cargo.','Ex.: Moderador'],
@@ -5506,6 +5818,8 @@ function confirmModal(){
     socket.emit('create-channel',{serverId:state.serverId,type:'text',name:value});
   } else if(state.modalAction==='voice'){
     socket.emit('create-channel',{serverId:state.serverId,type:'voice',name:value});
+  } else if(state.modalAction==='stage'){
+    socket.emit('create-channel',{serverId:state.serverId,type:'stage',name:value});
   } else if(state.modalAction==='category'){
     socket.emit('create-category',{serverId:state.serverId,name:value});
   } else if(state.modalAction==='friend'){
@@ -6762,6 +7076,7 @@ $('#serverRolesBtn').addEventListener('click',()=>setView('roles'));
 $('#createCategoryQuickBtn').addEventListener('click',()=>openModal('category'));
 $('#createTextQuickBtn').addEventListener('click',()=>openModal('text'));
 $('#createVoiceQuickBtn').addEventListener('click',()=>openModal('voice'));
+$('#createStageQuickBtn').addEventListener('click',()=>openModal('stage'));
 
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
 $('#homeCreateVoice').addEventListener('click',()=>openModal('voice'));
@@ -6771,6 +7086,7 @@ $('#modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')confirmModal(
 $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))closeModal()});
 
 $('#profileBtn').addEventListener('click',openProfileModal);
+$('#friendsProfileBtn').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
 
@@ -6860,6 +7176,11 @@ $('#profilePhotoInput').addEventListener('change',async event=>{
 });
 $('#profileModalWrap').addEventListener('click',event=>{
   if(event.target === $('#profileModalWrap')) closeProfileModal();
+});
+
+$('#memberProfileCloseBtn').addEventListener('click',closeServerMemberProfile);
+$('#memberProfileModalWrap').addEventListener('click',event=>{
+  if(event.target === $('#memberProfileModalWrap')) closeServerMemberProfile();
 });
 
 $('#serverSettingsBtn').addEventListener('click',()=>{
@@ -7143,6 +7464,14 @@ socket.on('online-users', users => {
 
   if(!$('#friendsView').classList.contains('hidden')){
     renderActiveFriends();
+  }
+
+  if(currentServer() && state.currentView !== 'voice'){
+    renderServerPresence();
+  }
+
+  if(!$('#settingsMembersPage').classList.contains('hidden')){
+    renderSettingsMembers();
   }
 });
 
@@ -8368,6 +8697,56 @@ io.on('connection', socket => {
     socket.emit('role-updated', { message: 'Cargo atribuído a ' + safeUsername });
   });
 
+  socket.on('set-member-role', ({ serverId, roleId, userId, enabled }) => {
+    const s = servers.get(serverId);
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageRoles')) {
+      permissionDenied(socket);
+      return;
+    }
+
+    const role = s.roles.find(item => item.id === String(roleId || ''));
+    if (!role) return;
+
+    const safeUserId = String(userId || '').slice(0,100);
+    const targetProfile = profiles.get(safeUserId);
+
+    if (!targetProfile) {
+      socket.emit('permission-error',{error:'Esse usuário não existe no Acord'});
+      return;
+    }
+
+    if (
+      safeUserId !== s.ownerId &&
+      !(s.members || []).includes(safeUserId)
+    ) {
+      socket.emit('permission-error',{error:'Essa pessoa não faz parte deste servidor'});
+      return;
+    }
+
+    const targetName = targetProfile.username;
+    const lowerName = targetName.toLowerCase();
+
+    role.members = (role.members || []).filter(
+      member => String(member || '').toLowerCase() !== lowerName
+    );
+
+    if(enabled){
+      role.members.push(targetName);
+      role.members = [...new Set(role.members)].slice(0,100);
+    }
+
+    saveServersToDisk();
+    broadcastServerUpdate(s);
+
+    socket.emit('role-updated',{
+      message: enabled
+        ? 'Cargo atribuído a ' + targetName
+        : 'Cargo removido de ' + targetName
+    });
+  });
+
   socket.on('remove-role', ({ serverId, roleId }) => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
@@ -8533,17 +8912,25 @@ io.on('connection', socket => {
       return;
     }
 
-    if (type === 'voice') {
+    if (type === 'voice' || type === 'stage') {
+      const isStage = type === 'stage';
+
       const channel = {
         id: id(),
-        name: cleanName(name, 'Nova voz'),
+        name: cleanName(name, isStage ? 'Palco' : 'Nova voz'),
         categoryId: null,
-        order: s.voiceChannels.length
+        order: s.voiceChannels.length,
+        mode: isStage ? 'stage' : 'voice'
       };
+
       s.voiceChannels.push(channel);
       saveServersToDisk();
       broadcastServerLists();
-      socket.emit('channel-created', { serverId, type: 'voice', channelId: channel.id });
+      socket.emit('channel-created', {
+        serverId,
+        type: isStage ? 'stage' : 'voice',
+        channelId: channel.id
+      });
     }
   });
 
