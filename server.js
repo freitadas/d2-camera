@@ -308,7 +308,7 @@ function newSession(userId){
   sessions.set(tokenHash(token),{
     userId,
     createdAt:Date.now(),
-    expiresAt:Date.now()+1000*60*60*24*30
+    expiresAt:Date.now()+1000*60*60*24*365
   });
   return token;
 }
@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-power-pack-v18';
+const CACHE='acord-login-delete-theme-v19';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4236,6 +4236,291 @@ html[data-palette="candy"]{
   background:var(--coral);
 }
 
+
+/* ===== APARÊNCIA GLOBAL CORRIGIDA ===== */
+:root{
+  --theme-soft-1:color-mix(in srgb,var(--coral) 8%,var(--bg0));
+  --theme-soft-2:color-mix(in srgb,var(--coral) 12%,var(--bg1));
+  --theme-soft-3:color-mix(in srgb,var(--coral) 16%,var(--bg2));
+  --theme-soft-4:color-mix(in srgb,var(--coral) 22%,var(--bg3));
+  --theme-line:color-mix(in srgb,var(--coral) 28%,var(--line));
+  --theme-line-strong:color-mix(in srgb,var(--coral) 42%,var(--line));
+  --theme-glow:0 0 24px color-mix(in srgb,var(--coral) 20%,transparent);
+}
+
+.rail,
+.sidebar,
+.main,
+.rightbar,
+.topbar,
+.sideHead,
+.friendsHomeTop,
+.friendsSearchWrap,
+.userbar,
+.authCard,
+.homeCard,
+.settingsMenu,
+.settingsCard,
+.settingsPanel,
+.voiceHead,
+.chatHead,
+.compose,
+.profileSidebar,
+.profilePanel{
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease,color .18s ease;
+}
+
+.rail{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 8%,var(--bg0)),var(--bg0)) !important;
+  border-right:1px solid var(--theme-line) !important;
+}
+
+.sidebar{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 6%,var(--bg0)),color-mix(in srgb,var(--coral) 2%,var(--bg0))) !important;
+  border-right:1px solid var(--theme-line) !important;
+}
+
+.sideHead,
+.topbar,
+.friendsHomeTop,
+.userbar{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 9%,var(--bg1)),color-mix(in srgb,var(--coral) 3%,var(--bg1))) !important;
+}
+
+.sideHead,
+.topbar,
+.friendsHomeTop{
+  border-bottom:1px solid var(--theme-line) !important;
+}
+
+.userbar{
+  border-top:1px solid var(--theme-line) !important;
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--coral) 10%,transparent);
+}
+
+.rightbar{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg0)),var(--bg0)) !important;
+  border-left:1px solid var(--theme-line) !important;
+}
+
+.serverIcon,
+.homeHubIcon,
+.addServer{
+  background:linear-gradient(180deg,var(--theme-soft-3),var(--theme-soft-2)) !important;
+  border:1px solid var(--theme-line) !important;
+}
+
+.serverIcon:hover,
+.homeHubIcon:hover,
+.addServer:hover{
+  border-color:var(--theme-line-strong) !important;
+  box-shadow:var(--theme-glow) !important;
+}
+
+.serverIcon.active,
+.homeHubIcon.active{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 22%,var(--bg2)),color-mix(in srgb,var(--coral) 14%,var(--bg1))) !important;
+  border-color:var(--coral) !important;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 42%,transparent),var(--theme-glow) !important;
+}
+
+.addServer{
+  color:var(--coral) !important;
+}
+
+.addServer:hover{
+  background:var(--coral) !important;
+  color:var(--accent-contrast, #111) !important;
+}
+
+.inviteBtn,
+.btn.secondary,
+.friendTab:not(.add),
+.navBtn,
+.channelBtn,
+#notificationBtn,
+#quickInviteBtn{
+  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
+  border:1px solid var(--theme-line) !important;
+  color:var(--text) !important;
+}
+
+.inviteBtn:hover,
+.btn.secondary:hover,
+.friendTab:hover:not(.add),
+.navBtn:hover,
+.channelBtn:hover,
+#notificationBtn:hover,
+#quickInviteBtn:hover{
+  background:linear-gradient(180deg,var(--theme-soft-4),var(--theme-soft-3)) !important;
+  border-color:var(--theme-line-strong) !important;
+}
+
+.friendTab.active,
+.navBtn.active,
+.channelBtn.active{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 18%,var(--bg2)),color-mix(in srgb,var(--coral) 10%,var(--bg1))) !important;
+  border-color:var(--coral) !important;
+  color:var(--coral) !important;
+  box-shadow:inset 0 -2px 0 var(--coral), 0 0 0 1px color-mix(in srgb,var(--coral) 16%,transparent) !important;
+}
+
+.friendTab.add,
+.btn.primary{
+  box-shadow:0 8px 24px color-mix(in srgb,var(--coral) 24%,transparent) !important;
+}
+
+.friendsSearchWrap,
+.friendSearch,
+.friendsSearchWrap input,
+#friendsSearchInput,
+#chatSearchInput{
+  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
+  border-color:var(--theme-line) !important;
+}
+
+#activeNowPanel,
+.activeNow,
+.rightPanelCard,
+.rightbarCard{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg1)),color-mix(in srgb,var(--coral) 2%,var(--bg1))) !important;
+  border-color:var(--theme-line) !important;
+}
+
+#appShell .brandDot,
+#appShell .avatar,
+#appShell .homeMark{
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--coral) 15%,transparent);
+}
+
+#serverRail,
+.railSep{
+  border-color:var(--theme-line) !important;
+}
+
+.railSep{
+  background:var(--theme-line) !important;
+}
+
+#appShell *:focus-visible{
+  outline:2px solid var(--coral) !important;
+  outline-offset:2px !important;
+}
+
+/* partes específicas mostradas nas imagens */
+#profileBtn,
+#notificationBtn,
+#quickInviteBtn,
+#inviteBtn,
+#serverSettingsBtn,
+#deleteServerBtn{
+  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
+  border:1px solid var(--theme-line) !important;
+}
+
+#profileBtn:hover,
+#notificationBtn:hover,
+#quickInviteBtn:hover,
+#inviteBtn:hover,
+#serverSettingsBtn:hover,
+#deleteServerBtn:hover{
+  border-color:var(--theme-line-strong) !important;
+  box-shadow:var(--theme-glow) !important;
+}
+
+#friendsHomeView,
+#friendsHome,
+.friendsHome{
+  background:
+    radial-gradient(circle at 18% 12%,color-mix(in srgb,var(--coral) 8%,transparent),transparent 28%),
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
+}
+
+
+/* ===== LOGIN/TELA INICIAL SEGUE A COR DA APARÊNCIA ===== */
+.login{
+  background:
+    radial-gradient(circle at 18% 14%,color-mix(in srgb,var(--coral) 13%,transparent),transparent 30%),
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
+}
+
+.loginShell{
+  background:transparent!important;
+}
+
+.loginBrandPanel{
+  background:
+    radial-gradient(circle at 15% 12%,color-mix(in srgb,var(--coral) 10%,transparent),transparent 28%),
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
+  border-right:1px solid color-mix(in srgb,var(--coral) 28%,var(--line))!important;
+}
+
+.loginMark{
+  background:var(--coral)!important;
+  color:var(--accent-contrast,#111)!important;
+  box-shadow:0 10px 32px color-mix(in srgb,var(--coral) 28%,transparent)!important;
+}
+
+.loginBrandName{
+  color:var(--coral)!important;
+}
+
+.loginBadge{
+  color:var(--coral)!important;
+  border-color:color-mix(in srgb,var(--coral) 55%,var(--line))!important;
+  background:color-mix(in srgb,var(--coral) 8%,transparent)!important;
+}
+
+.loginHero h1{
+  color:var(--text)!important;
+}
+
+.loginHero p,
+.loginSignature{
+  color:color-mix(in srgb,var(--coral) 14%,var(--muted))!important;
+}
+
+.loginFeature{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 9%,var(--bg2)),color-mix(in srgb,var(--coral) 4%,var(--bg1)))!important;
+  border:1px solid color-mix(in srgb,var(--coral) 34%,var(--line))!important;
+  color:var(--text)!important;
+  box-shadow:0 10px 30px color-mix(in srgb,var(--coral) 8%,transparent)!important;
+}
+
+.loginFeature strong{
+  color:var(--coral)!important;
+}
+
+.loginCard{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg1)),color-mix(in srgb,var(--coral) 3%,var(--bg1)))!important;
+  border:1px solid color-mix(in srgb,var(--coral) 30%,var(--line))!important;
+}
+
+.authSwitch{
+  border-color:color-mix(in srgb,var(--coral) 30%,var(--line))!important;
+}
+
+.authTab.active{
+  color:var(--coral)!important;
+  background:color-mix(in srgb,var(--coral) 12%,var(--bg3))!important;
+}
+
+.loginCard input{
+  border-color:color-mix(in srgb,var(--coral) 28%,var(--line))!important;
+  background:color-mix(in srgb,var(--coral) 4%,var(--bg2))!important;
+}
+
+.loginCard input:focus{
+  border-color:var(--coral)!important;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--coral) 14%,transparent)!important;
+}
+
 </style>
 </head>
 <body>
@@ -5298,6 +5583,8 @@ const state = {
   appInitialized: false,
   restoringReload: PAGE_WAS_RELOADED,
   profileReady: false,
+  authRestoreAttempts:0,
+  authRestoreTimer:null,
   voiceReconnectPending:false,
   voiceReconnectTimer:null,
   voiceReconnectAttempts:0,
@@ -5760,6 +6047,22 @@ function applyAuthProfile(profile,token){
   localStorage.setItem('ecord-user-id',state.userId);
   localStorage.setItem('ecord-name',state.username);
   localStorage.setItem('acord-remember-login','1');
+
+  try{
+    localStorage.setItem(
+      'acord-login-profile',
+      JSON.stringify({
+        id:state.userId,
+        username:state.username,
+        displayName:state.displayName,
+        bio:state.bio,
+        avatar:state.avatar,
+        banner:state.banner,
+        status:state.status
+      })
+    );
+  }catch{}
+
   localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{}
   $('#login').classList.add('hidden');$('#appShell').classList.remove('hidden');
   refreshOwnProfileUI();
@@ -9327,47 +9630,51 @@ function closeServerManager(){
 }
 
 function deleteAllOwnedServers(){
-  const owned=state.servers.filter(server=>server.ownerId===state.userId);
+  const visibleServers=[...state.servers];
 
-  if(!owned.length){
-    toast('Você não possui servidores para apagar');
+  if(!visibleServers.length){
+    toast('Você não possui servidores para remover');
     return;
   }
 
   if(!confirm(
-    'Apagar TODOS os seus '+owned.length+' servidor(es)? Esta ação não pode ser desfeita.'
+    'Remover TODOS os '+visibleServers.length+' servidor(es) da sua conta?'
   )){
     return;
   }
 
-  if(!confirm('Tem certeza? Todos os seus servidores serão apagados.')){
+  if(!confirm('Tem certeza? Os servidores que são seus serão apagados e você sairá dos demais.')){
     return;
   }
 
-  const ownedIds=new Set(owned.map(server=>server.id));
+  // Limpa imediatamente o navegador, evitando que o cache recupere um servidor antigo.
+  state.servers=[];
+  state.serverId=null;
+  state.textChannelId=null;
+  state.voiceChannelId=null;
+  state.restoreAttempted=true;
 
-  state.servers=state.servers.filter(server=>!ownedIds.has(server.id));
+  try{
+    localStorage.setItem('ecord-server-cache','[]');
+    localStorage.setItem('ecord-servers-cache','[]');
+    localStorage.removeItem('ecord-last-server-id');
+    localStorage.removeItem('ecord-last-text-channel-id');
+    localStorage.removeItem('ecord-last-voice-channel-id');
+  }catch{}
 
-  if(ownedIds.has(state.serverId)){
-    state.serverId=state.servers[0]?.id||null;
-    state.textChannelId=null;
-    state.voiceChannelId=null;
-  }
-
-  cacheServers(state.servers);
   renderServers();
   renderSidebar();
   renderServerManager();
 
-  owned.forEach(server=>{
-    socket.emit('delete-server',{
-      serverId:server.id,
-      serverSnapshot:safeServerSnapshot(server),
-      legacyUserId:state.legacyUserId
-    });
+  if(isServerView(state.currentView)){
+    setView('friends');
+  }
+
+  socket.emit('delete-all-user-servers',{
+    legacyUserId:state.legacyUserId
   });
 
-  toast('Todos os seus servidores foram apagados');
+  toast('Todos os servidores foram removidos da sua conta');
 }
 
 function deleteCurrentServer(){
@@ -11356,6 +11663,12 @@ socket.on('auth-success',payload=>{
 
   const hadActiveCall=!!state.joinedVoiceId;
 
+  state.authRestoreAttempts=0;
+  if(state.authRestoreTimer){
+    clearTimeout(state.authRestoreTimer);
+    state.authRestoreTimer=null;
+  }
+
   applyAuthProfile(payload?.profile,payload?.token);
   requestNotifications();
 
@@ -11370,6 +11683,37 @@ socket.on('auth-error',payload=>{
   $('#authError').textContent=payload?.error||'Não foi possível entrar.';
 });
 socket.on('auth-required',()=>{
+  state.authRestoreAttempts=(state.authRestoreAttempts||0)+1;
+
+  // Não derruba a conta por uma falha momentânea do servidor.
+  if(
+    state.authToken &&
+    state.authRestoreAttempts<=3
+  ){
+    if(state.authRestoreTimer){
+      clearTimeout(state.authRestoreTimer);
+    }
+
+    state.authRestoreTimer=setTimeout(()=>{
+      let recoveryProfile=null;
+
+      try{
+        recoveryProfile=JSON.parse(
+          localStorage.getItem('acord-login-profile')||'null'
+        );
+      }catch{}
+
+      socket.emit('auth-restore',{
+        token:state.authToken,
+        legacyUserId:state.legacyUserId,
+        legacyUsername:state.legacyUsername,
+        legacyProfile:recoveryProfile
+      });
+    },900*state.authRestoreAttempts);
+
+    return;
+  }
+
   state.authToken='';
   localStorage.removeItem('acord-auth-token');
   $('#login').classList.remove('hidden');
@@ -11688,7 +12032,7 @@ socket.on('server-list',list=>{
 
   // Nenhum servidor recebido nesta atualização.
   if(!state.servers.length){
-    const cached = getCachedServers();
+    const cached = state.restoreAttempted ? [] : getCachedServers();
 
     // Uma atualização vazia não pode apagar/resetar servidores já conhecidos.
     if(cached.length){
@@ -11844,6 +12188,31 @@ socket.on('server-settings-updated',({serverId,message})=>{
   }
 
   toast(message || 'Servidor atualizado');
+});
+
+
+socket.on('all-user-servers-deleted',()=>{
+  state.servers=[];
+  state.serverId=null;
+  state.textChannelId=null;
+  state.voiceChannelId=null;
+  state.restoreAttempted=true;
+
+  try{
+    localStorage.setItem('ecord-server-cache','[]');
+    localStorage.setItem('ecord-servers-cache','[]');
+    localStorage.removeItem('ecord-last-server-id');
+    localStorage.removeItem('ecord-last-text-channel-id');
+    localStorage.removeItem('ecord-last-voice-channel-id');
+  }catch{}
+
+  renderServers();
+  renderSidebar();
+  renderServerManager();
+
+  if(isServerView(state.currentView)){
+    setView('friends');
+  }
 });
 
 socket.on('server-deleted',({serverId})=>{
@@ -12137,10 +12506,17 @@ socket.on('connect',()=>{
   if(state.authToken){
     // Mantém o login após F5 e também recupera a sessão caso o processo
     // do servidor tenha reiniciado e perdido apenas a sessão em memória.
+    let recoveryProfile=null;
+
+    try{
+      recoveryProfile=JSON.parse(localStorage.getItem('acord-login-profile')||'null');
+    }catch{}
+
     socket.emit('auth-restore',{
       token:state.authToken,
       legacyUserId:state.legacyUserId,
-      legacyUsername:state.legacyUsername
+      legacyUsername:state.legacyUsername,
+      legacyProfile:recoveryProfile
     });
   }else{
     $('#login').classList.remove('hidden');
@@ -12348,7 +12724,7 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
-  socket.on('auth-restore',({token,legacyUserId,legacyUsername})=>{
+  socket.on('auth-restore',({token,legacyUserId,legacyUsername,legacyProfile})=>{
     let userId=sessionUserId(token);
     let restoredToken=String(token||'');
 
@@ -12379,14 +12755,64 @@ io.on('connection', socket => {
         userId=account.userId;
         restoredToken=newSession(userId);
         saveServersToDisk();
+      }else if(
+        safeLegacyId &&
+        safeLegacyUsername.length>=3 &&
+        legacyProfile &&
+        typeof legacyProfile==='object'
+      ){
+        // Recuperação de sessão no mesmo navegador após reinício completo
+        // do ambiente sem disco persistente.
+        const salt=crypto.randomBytes(16).toString('hex');
+        const temporaryPassword=crypto.randomBytes(32).toString('hex');
+
+        account={
+          userId:safeLegacyId,
+          username:safeLegacyUsername,
+          usernameKey:usernameKey(safeLegacyUsername),
+          salt,
+          passwordHash:passwordDigest(temporaryPassword,salt),
+          createdAt:Number(legacyProfile.createdAt||Date.now())
+        };
+
+        accounts.set(safeLegacyId,account);
+
+        profiles.set(safeLegacyId,{
+          id:safeLegacyId,
+          username:safeLegacyUsername,
+          displayName:String(
+            legacyProfile.displayName||safeLegacyUsername
+          ).trim().slice(0,40)||safeLegacyUsername,
+          bio:String(legacyProfile.bio||'').trim().slice(0,300),
+          avatar:String(legacyProfile.avatar||'').slice(0,350000),
+          banner:String(legacyProfile.banner||'').slice(0,350000),
+          status:['online','away','busy','invisible'].includes(legacyProfile.status)
+            ? legacyProfile.status
+            : 'online',
+          createdAt:Number(legacyProfile.createdAt||Date.now())
+        });
+
+        userId=safeLegacyId;
+        restoredToken=newSession(userId);
+        saveServersToDisk();
       }
     }
 
-    const profile=userId?profiles.get(userId):null;
+    let profile=userId?profiles.get(userId):null;
 
     if(!userId || !profile){
       socket.emit('auth-required');
       return;
+    }
+
+    // Renova a sessão para mais 365 dias quando o usuário volta.
+    if(restoredToken){
+      const currentSession=sessions.get(tokenHash(restoredToken));
+
+      if(currentSession){
+        currentSession.expiresAt=Date.now()+1000*60*60*24*365;
+        saveServersToDisk();
+      }
     }
 
     socket.data.userId=userId;
@@ -12974,6 +13400,45 @@ io.on('connection', socket => {
       serverId:safeId,
       message:'Configurações salvas'
     });
+  });
+
+
+  socket.on('delete-all-user-servers', () => {
+    const userId=socket.data.userId;
+    if(!userId) return;
+
+    const username=String(socket.data.username||'').toLowerCase();
+    const affectedIds=[];
+
+    for(const [serverId,serverData] of [...servers.entries()]){
+      const owns=serverData.ownerId===userId;
+      const member=(serverData.members||[]).includes(userId);
+
+      if(!owns && !member) continue;
+
+      affectedIds.push(serverId);
+
+      if(owns){
+        servers.delete(serverId);
+        continue;
+      }
+
+      serverData.members=(serverData.members||[]).filter(id=>id!==userId);
+
+      for(const role of serverData.roles||[]){
+        role.members=(role.members||[]).filter(
+          memberName=>String(memberName||'').toLowerCase()!==username
+        );
+      }
+    }
+
+    saveServersToDisk();
+
+    socket.emit('all-user-servers-deleted',{
+      serverIds:affectedIds
+    });
+
+    broadcastServerLists();
   });
 
   socket.on('delete-server', ({ serverId, serverSnapshot, legacyUserId }) => {
