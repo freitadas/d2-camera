@@ -1046,6 +1046,16 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   .profilePaletteChoices{grid-template-columns:repeat(2,1fr)}
 }
 
+.customColorBox{margin-top:18px;padding:14px;border:1px solid var(--line);background:var(--bg2);border-radius:14px}
+.customColorTop{display:grid;grid-template-columns:46px 58px 1fr;align-items:center;gap:10px}
+#customColorPicker{width:58px;height:42px;border:0;padding:0;background:transparent;cursor:pointer}
+.customColorPreview{width:42px;height:42px;border-radius:50%;border:2px solid var(--line)}
+.rgbFields{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.rgbField label{display:block;text-align:center;color:var(--muted);font-size:10px;margin-top:5px}
+.rgbField input{text-align:center;padding:9px 6px}
+.customColorActions{display:flex;gap:8px;margin-top:12px}
+.customColorActions .btn{flex:1}
+
 .login{
   position:fixed;inset:0;z-index:2000000;
   background:
@@ -2184,6 +2194,30 @@ body.locked{overflow:hidden!important}
           Candy
         </button>
       </div>
+
+      <div class="customColorBox">
+        <div style="color:var(--text);font-size:13px;font-weight:900;margin-bottom:8px;">Cor personalizada</div>
+        <div style="color:var(--muted);font-size:11px;line-height:1.45;margin-bottom:10px;">
+          Escolha qualquer cor e ajuste pelos valores RGB.
+        </div>
+
+        <div class="customColorTop">
+          <div id="customColorPreview" class="customColorPreview"></div>
+          <input id="customColorPicker" type="color" value="#ff6b4a" aria-label="Escolher cor">
+          <input id="customColorHex" maxlength="7" value="#ff6b4a" aria-label="Cor hexadecimal">
+        </div>
+
+        <div class="rgbFields">
+          <div class="rgbField"><input id="customColorR" type="number" min="0" max="255" value="255"><label for="customColorR">R</label></div>
+          <div class="rgbField"><input id="customColorG" type="number" min="0" max="255" value="107"><label for="customColorG">G</label></div>
+          <div class="rgbField"><input id="customColorB" type="number" min="0" max="255" value="74"><label for="customColorB">B</label></div>
+        </div>
+
+        <div class="customColorActions">
+          <button id="applyCustomColorBtn" type="button" class="btn primary small">Aplicar cor</button>
+          <button id="resetCustomColorBtn" type="button" class="btn secondary small">Remover</button>
+        </div>
+      </div>
     </div>
 
     <div class="modalActions">
@@ -2293,6 +2327,8 @@ const state = {
   pendingTheme: null,
   palette: localStorage.getItem('ecord-palette') || 'default',
   pendingPalette: null,
+  customColor: localStorage.getItem('ecord-custom-color') || '',
+  pendingCustomColor: null,
   servers: [],
   serverId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-server-id') || null) : null,
   textChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-text-channel-id') || null) : null,
@@ -2473,6 +2509,58 @@ function previewProfilePalette(palette){
 
 applyProfilePalette(state.palette);
 
+
+function clampRgb(value){
+  const n=Number(value);
+  return Number.isFinite(n) ? Math.max(0,Math.min(255,Math.round(n))) : 0;
+}
+function rgbToHex(r,g,b){
+  return '#' + [r,g,b].map(v=>clampRgb(v).toString(16).padStart(2,'0')).join('');
+}
+function hexToRgb(hex){
+  const m=/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex||'').trim());
+  return m ? {r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)} : null;
+}
+function applyCustomColor(hex){
+  const rgb=hexToRgb(hex);
+  if(!rgb){
+    document.documentElement.style.removeProperty('--coral');
+    document.documentElement.style.removeProperty('--coral2');
+    return;
+  }
+  const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
+  const lighter=rgbToHex(Math.min(255,rgb.r+24),Math.min(255,rgb.g+24),Math.min(255,rgb.b+24));
+  document.documentElement.style.setProperty('--coral',safe);
+  document.documentElement.style.setProperty('--coral2',lighter);
+}
+function updateCustomColorUI(hex){
+  const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
+  const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
+  $('#customColorPicker').value=safe;
+  $('#customColorHex').value=safe;
+  $('#customColorR').value=rgb.r;
+  $('#customColorG').value=rgb.g;
+  $('#customColorB').value=rgb.b;
+  $('#customColorPreview').style.background=safe;
+}
+function previewCustomColor(hex){
+  const rgb=hexToRgb(hex);
+  if(!rgb) return;
+  const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
+  state.pendingCustomColor=safe;
+  updateCustomColorUI(safe);
+  applyCustomColor(safe);
+}
+function updateCustomColorFromRgb(){
+  previewCustomColor(rgbToHex($('#customColorR').value,$('#customColorG').value,$('#customColorB').value));
+}
+function updateCustomColorFromHex(){
+  const value=$('#customColorHex').value.trim();
+  if(/^#[0-9a-f]{6}$/i.test(value)) previewCustomColor(value);
+}
+
+applyCustomColor(state.customColor);
+
 function refreshOwnProfileUI(){
   $('#userName').textContent = state.username || 'Você';
   $('#userBioMini').textContent = state.bio
@@ -2505,6 +2593,7 @@ function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
   state.pendingTheme = normalizeProfileTheme(state.theme);
   state.pendingPalette = normalizeProfilePalette(state.palette);
+  state.pendingCustomColor = state.customColor || '';
   $('#profileNameInput').value = state.username || '';
   $('#profileBioInput').value = state.bio || '';
   $('#profilePhotoInput').value = '';
@@ -2517,6 +2606,7 @@ function openProfileModal(){
 
   updateProfileThemeButtons();
   updateProfilePaletteButtons();
+  updateCustomColorUI(state.pendingCustomColor || '#ff6b4a');
   setProfileTab('profile');
   $('#profileModalWrap').classList.remove('hidden');
 }
@@ -2532,9 +2622,14 @@ function closeProfileModal(){
     applyProfilePalette(state.palette);
   }
 
+  if(state.pendingCustomColor !== null){
+    applyCustomColor(state.customColor);
+  }
+
   state.pendingAvatar = null;
   state.pendingTheme = null;
   state.pendingPalette = null;
+  state.pendingCustomColor = null;
 }
 
 function fileToAvatar(file){
@@ -2598,6 +2693,15 @@ function saveProfile(){
   localStorage.setItem('ecord-palette',state.palette);
   applyProfilePalette(state.palette);
   state.pendingPalette = null;
+
+  state.customColor = state.pendingCustomColor || '';
+  if(state.customColor){
+    localStorage.setItem('ecord-custom-color',state.customColor);
+  }else{
+    localStorage.removeItem('ecord-custom-color');
+  }
+  applyCustomColor(state.customColor);
+  state.pendingCustomColor = null;
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -5687,6 +5791,24 @@ document.querySelectorAll('[data-profile-palette]').forEach(button=>{
   button.addEventListener('click',()=>{
     previewProfilePalette(button.dataset.profilePalette);
   });
+});
+
+$('#customColorPicker').addEventListener('input',event=>previewCustomColor(event.target.value));
+$('#customColorHex').addEventListener('input',updateCustomColorFromHex);
+$('#customColorR').addEventListener('input',updateCustomColorFromRgb);
+$('#customColorG').addEventListener('input',updateCustomColorFromRgb);
+$('#customColorB').addEventListener('input',updateCustomColorFromRgb);
+
+$('#applyCustomColorBtn').addEventListener('click',()=>{
+  updateCustomColorFromRgb();
+  toast('Cor personalizada aplicada');
+});
+
+$('#resetCustomColorBtn').addEventListener('click',()=>{
+  state.pendingCustomColor='';
+  applyCustomColor('');
+  updateCustomColorUI('#ff6b4a');
+  toast('Cor personalizada removida');
 });
 $('#removeProfilePhotoBtn').addEventListener('click',()=>{
   state.pendingAvatar = '';
