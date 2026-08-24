@@ -1036,7 +1036,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-login-fix-v3';
+const CACHE='acord-layout-icons-fix-v4';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -1186,10 +1186,6 @@ button{cursor:pointer}
   transform:scale(1.02);
 }
 
-  object-fit:cover;
-  display:block;
-  border-radius:inherit;
-}
 .serverIcon.active:before{content:"";position:absolute;left:-14px;width:4px;height:24px;background:var(--text);border-radius:0 4px 4px 0}
 .addServer{background:var(--bg2);color:var(--mint);font-size:24px}
 .addServer:hover{background:var(--mint);color:#082116}
@@ -3165,6 +3161,323 @@ body{
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Segoe UI Symbol","Segoe UI Emoji",sans-serif;
 }
 
+
+/* ===== ACORD — REPARO DE LAYOUT E ÍCONES ===== */
+:root{
+  --accent-contrast:#07110e;
+}
+
+html[data-theme="black"]{
+  --accent-contrast:#07110e;
+}
+html[data-theme="white"],
+html[data-theme="blue"],
+html[data-theme="purple"]{
+  --accent-contrast:#ffffff;
+}
+html[data-palette="sunset"],
+html[data-palette="forest"]{
+  --accent-contrast:#07110e;
+}
+html[data-palette="ocean"],
+html[data-palette="candy"]{
+  --accent-contrast:#ffffff;
+}
+
+/* O grid precisa usar as mesmas larguras reais das colunas. */
+.app{
+  width:100vw!important;
+  height:100vh!important;
+  min-width:0!important;
+  overflow:hidden!important;
+}
+
+.app.hubMode{
+  grid-template-columns:76px minmax(0,1fr) 280px!important;
+}
+
+.app.serverMode{
+  grid-template-columns:76px 300px minmax(0,1fr) 280px!important;
+}
+
+.rail{
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+  padding:12px 10px!important;
+  overflow-x:hidden!important;
+}
+
+.sidebar{
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+}
+
+.main{
+  width:auto!important;
+  min-width:0!important;
+  overflow:hidden!important;
+}
+
+.rightbar{
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+}
+
+/* Não usar background shorthand nos servidores:
+   ele apagava a imagem do servidor. */
+.serverIcon{
+  overflow:hidden!important;
+  padding:0!important;
+  background-color:var(--bg2)!important;
+  background-image:none!important;
+}
+
+.serverIcon:hover{
+  background-color:color-mix(in srgb,var(--coral) 15%,var(--bg2))!important;
+}
+
+.serverIcon.active{
+  background-color:color-mix(in srgb,var(--coral) 18%,var(--bg2))!important;
+}
+
+.serverIconImage{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+  border-radius:inherit!important;
+  pointer-events:none!important;
+}
+
+#serverRail{
+  width:100%!important;
+  align-items:center!important;
+}
+
+/* Barra de amigos sempre organizada e sem estourar. */
+.friendsHomeTop{
+  display:flex!important;
+  align-items:center!important;
+  gap:6px!important;
+  min-height:60px!important;
+  padding:10px 16px!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  white-space:nowrap!important;
+  scrollbar-width:none!important;
+}
+.friendsHomeTop::-webkit-scrollbar{
+  display:none!important;
+}
+
+.friendTab{
+  flex:0 0 auto!important;
+}
+
+.friendTab.add,
+.btn.primary{
+  color:var(--accent-contrast)!important;
+  background-color:var(--coral)!important;
+}
+
+/* Corrige o botão branco sem texto quando a cor principal é branca. */
+.friendTab.add{
+  min-width:116px!important;
+  font-weight:900!important;
+}
+
+/* Campo de busca correto. */
+.friendsSearchWrap{
+  padding:12px 16px 0!important;
+}
+
+.friendsSearchWrap input{
+  height:42px!important;
+  min-height:42px!important;
+  padding:0 14px!important;
+  border:1px solid var(--line)!important;
+  background:var(--bg2)!important;
+  color:var(--text)!important;
+}
+
+/* Área central não pode ficar esmagada por regras antigas. */
+.content,
+.view,
+.friendsHome,
+.chatView,
+.voiceView{
+  min-width:0!important;
+  min-height:0!important;
+}
+
+.chatView{
+  width:100%!important;
+}
+
+.chatHead{
+  min-height:52px!important;
+  padding:13px 18px!important;
+}
+
+/* Sidebar de servidor limpa e proporcional. */
+.sideHead{
+  min-height:64px!important;
+  height:64px!important;
+  padding:0 14px!important;
+}
+
+.sideHead .brand{
+  flex:1 1 auto!important;
+  min-width:0!important;
+}
+
+.sideHead > div:last-child{
+  flex:0 0 auto!important;
+}
+
+.sideScroll{
+  padding:12px!important;
+  min-width:0!important;
+}
+
+#channelTree{
+  width:100%!important;
+  min-width:0!important;
+}
+
+.channelBtn{
+  width:100%!important;
+  min-width:0!important;
+  max-width:100%!important;
+  overflow:hidden!important;
+}
+
+.channelBtn > span{
+  min-width:0!important;
+}
+
+.channelBtn .stageText{
+  overflow:hidden!important;
+}
+
+.channelBtn .stageText strong,
+.channelBtn .stageText small{
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+
+/* Os 3 botões de criar canal não devem ficar apertados demais. */
+.sideScroll > div[style*="grid-template-columns:repeat(3,1fr)"]{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:6px!important;
+}
+
+#createTextQuickBtn,
+#createVoiceQuickBtn,
+#createStageQuickBtn{
+  min-width:0!important;
+  padding:8px 5px!important;
+  font-size:11px!important;
+  overflow:hidden!important;
+}
+
+/* Ícones SVG sempre visíveis. */
+.uiIcon{
+  display:inline-block!important;
+  width:16px!important;
+  height:16px!important;
+  min-width:16px!important;
+  min-height:16px!important;
+  fill:currentColor!important;
+  stroke:none!important;
+  opacity:1!important;
+}
+
+.iconOnly{
+  display:inline-grid!important;
+  place-items:center!important;
+  min-width:32px!important;
+  min-height:32px!important;
+  padding:6px!important;
+}
+
+.iconOnly .uiIcon{
+  margin:0!important;
+}
+
+/* Conta inferior e botões nunca somem. */
+.userbar,
+.friendsAccountBar{
+  flex-shrink:0!important;
+}
+
+.friendsAccountBar{
+  width:100%!important;
+}
+
+.controls{
+  width:100%!important;
+  overflow-x:auto!important;
+  flex-wrap:nowrap!important;
+}
+
+.control{
+  flex:0 0 auto!important;
+}
+
+/* Corrige cores em temas claros/escuros sem fixar verde. */
+.brandDot,
+.serverMemberStatusDot{
+  background:var(--coral)!important;
+}
+
+.friendTab.active,
+.groupHead,
+.friendsSectionTitle{
+  color:var(--coral)!important;
+}
+
+/* Responsividade: esconder painel direito antes de esmagar o centro. */
+@media(max-width:1180px){
+  .app.hubMode{
+    grid-template-columns:76px minmax(0,1fr)!important;
+  }
+
+  .app.serverMode{
+    grid-template-columns:76px 280px minmax(0,1fr)!important;
+  }
+
+  .rightbar{
+    display:none!important;
+  }
+}
+
+@media(max-width:760px){
+  .app.serverMode{
+    grid-template-columns:64px 230px minmax(0,1fr)!important;
+  }
+
+  .app.hubMode{
+    grid-template-columns:64px minmax(0,1fr)!important;
+  }
+
+  .rail{
+    padding-left:6px!important;
+    padding-right:6px!important;
+  }
+
+  .serverIcon,
+  .homeHubIcon,
+  .addServer{
+    width:46px!important;
+    height:46px!important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -4705,15 +5018,27 @@ function hexToRgb(hex){
 }
 function applyCustomColor(hex){
   const rgb=hexToRgb(hex);
+
   if(!rgb){
     document.documentElement.style.removeProperty('--coral');
     document.documentElement.style.removeProperty('--coral2');
+    document.documentElement.style.removeProperty('--accent-contrast');
     return;
   }
+
   const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
-  const lighter=rgbToHex(Math.min(255,rgb.r+24),Math.min(255,rgb.g+24),Math.min(255,rgb.b+24));
+  const lighter=rgbToHex(
+    Math.min(255,rgb.r+24),
+    Math.min(255,rgb.g+24),
+    Math.min(255,rgb.b+24)
+  );
+
+  const luminance=(0.299*rgb.r + 0.587*rgb.g + 0.114*rgb.b)/255;
+  const contrast=luminance>0.62 ? '#07110e' : '#ffffff';
+
   document.documentElement.style.setProperty('--coral',safe);
   document.documentElement.style.setProperty('--coral2',lighter);
+  document.documentElement.style.setProperty('--accent-contrast',contrast);
 }
 function updateCustomColorUI(hex){
   const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
@@ -5378,9 +5703,21 @@ function renderServers(){
 
     if(s.icon){
       b.textContent = '';
-      b.style.backgroundImage = 'url("' + String(s.icon).replace(/"/g,'') + '")';
-      b.style.backgroundSize = 'cover';
-      b.style.backgroundPosition = 'center';
+      b.style.backgroundImage = '';
+
+      const image = document.createElement('img');
+      image.className = 'serverIconImage';
+      image.src = String(s.icon);
+      image.alt = '';
+      image.draggable = false;
+
+      image.addEventListener('error',()=>{
+        image.remove();
+        b.textContent = initials(s.name);
+        if(s.accent) b.style.backgroundColor = s.accent;
+      });
+
+      b.appendChild(image);
     }else{
       b.textContent = initials(s.name);
       b.style.backgroundImage = '';
@@ -8461,6 +8798,10 @@ $('#authPassword').addEventListener('keydown',event=>{
 });
 $('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
+if($('#addFriendBtn')){
+  $('#addFriendBtn').textContent='Adicionar amigo';
+}
+
 
 $('#showAuthPasswordBtn').addEventListener('click',()=>{
   togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
