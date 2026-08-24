@@ -2675,6 +2675,114 @@ select{
   }
 }
 
+
+.passwordField{
+  position:relative;
+  display:flex;
+  align-items:center;
+}
+.passwordField input{
+  padding-right:46px!important;
+}
+.passwordToggle{
+  position:absolute;
+  right:6px;
+  top:50%;
+  transform:translateY(-50%);
+  width:34px;
+  height:30px;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  color:var(--muted);
+  font-size:16px;
+}
+.passwordToggle:hover{
+  background:var(--bg3);
+  color:var(--text);
+}
+
+.friendsHome{
+  position:relative;
+  padding-bottom:58px;
+}
+.friendsAccountBar{
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
+  min-height:54px;
+  border:0;
+  border-top:1px solid var(--line);
+  background:var(--bg1);
+  color:var(--text);
+  display:flex;
+  align-items:center;
+  gap:9px;
+  padding:8px 14px;
+  text-align:left;
+  z-index:20;
+}
+.friendsAccountBar:hover{
+  background:var(--bg2);
+}
+.friendsAccountMeta{
+  min-width:0;
+  flex:1;
+}
+.friendsAccountMeta strong,
+.friendsAccountMeta span{
+  display:block;
+}
+.friendsAccountMeta strong{
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.friendsAccountMeta span{
+  margin-top:2px;
+  color:var(--muted);
+  font-size:10px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.friendsAccountGear{
+  color:var(--low);
+  font-size:15px;
+}
+
+.messageContextMenu{
+  position:fixed;
+  z-index:2500000;
+  width:150px;
+  padding:5px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  border-radius:9px;
+  box-shadow:0 12px 34px rgba(0,0,0,.32);
+}
+.messageContextMenu button{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:var(--text);
+  border-radius:6px;
+  padding:8px 9px;
+  text-align:left;
+  font-size:12px;
+}
+.messageContextMenu button:hover{
+  background:var(--bg3);
+}
+.messageContextMenu button.danger{
+  color:#ff8d8d;
+}
+.messageContextMenu button.hidden{
+  display:none!important;
+}
+
 </style>
 </head>
 <body>
@@ -2738,12 +2846,18 @@ select{
 
       <div class="authField">
         <label class="loginLabel" for="authPassword">Senha</label>
-        <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
+        <div class="passwordField">
+          <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
+          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+        </div>
       </div>
 
       <div id="authConfirmWrap" class="authField hidden">
         <label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label>
-        <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
+        <div class="passwordField">
+          <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
+          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+        </div>
       </div>
 
       <button id="loginBtn" class="btn primary" style="width:100%;margin-top:14px;">Entrar</button>
@@ -2870,6 +2984,15 @@ select{
             <div id="friendsCountTitle" class="friendsSectionTitle">Online</div>
             <div id="friendsList"></div>
           </div>
+
+          <button id="friendsAccountBar" class="friendsAccountBar" type="button" title="Abrir meu perfil">
+            <div id="friendsAccountAvatar" class="avatar">V</div>
+            <div class="friendsAccountMeta">
+              <strong id="friendsAccountName">Você</strong>
+              <span id="friendsAccountStatus">● Online · Editar perfil</span>
+            </div>
+            <span class="friendsAccountGear">⚙</span>
+          </button>
         </div>
       </section>
 
@@ -3479,6 +3602,12 @@ select{
 </div>
 
 <button id="installAppBtn" class="installAppBtn hidden" type="button">⬇ Instalar aplicativo</button>
+<div id="messageContextMenu" class="messageContextMenu hidden">
+  <button id="contextReplyBtn" type="button">Responder</button>
+  <button id="contextEditBtn" type="button">Editar</button>
+  <button id="contextDeleteBtn" class="danger" type="button">Excluir</button>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -3572,7 +3701,15 @@ const state = {
   preferredCameraId:localStorage.getItem('acord-camera-device')||'',
   musicShuffle:localStorage.getItem('acord-music-shuffle')==='1',
   musicRepeat:localStorage.getItem('acord-music-repeat')==='1',
-  musicFavorites:new Set(JSON.parse(localStorage.getItem('acord-music-favorites')||'[]')),
+  musicFavorites:new Set((()=>{
+    try{
+      const value=JSON.parse(localStorage.getItem('acord-music-favorites')||'[]');
+      return Array.isArray(value)?value:[];
+    }catch{
+      localStorage.removeItem('acord-music-favorites');
+      return [];
+    }
+  })()),
   serverSettingsIcon: null,
   serverSettingsAccent: '#ff6b4a',
   friendsFilter: 'online',
@@ -3877,10 +4014,19 @@ function submitAuthentication(){
   const password=$('#authPassword').value;
   const confirmation=$('#authPasswordConfirm').value;
   $('#authError').textContent='';
-  if(username.length<3){$('#authError').textContent='O nome precisa ter pelo menos 3 caracteres.';return}
-  if(password.length<6){$('#authError').textContent='A senha precisa ter pelo menos 6 caracteres.';return}
+
+  const button=$('#loginBtn');
+  button.disabled=true;
+  button.textContent=state.authMode==='register'?'Criando...':'Entrando...';
+
+  const restoreButton=()=>{
+    button.disabled=false;
+    button.textContent=state.authMode==='register'?'Criar conta':'Entrar';
+  };
+  if(username.length<3){$('#authError').textContent='O nome precisa ter pelo menos 3 caracteres.';restoreButton();return}
+  if(password.length<6){$('#authError').textContent='A senha precisa ter pelo menos 6 caracteres.';restoreButton();return}
   if(state.authMode==='register'){
-    if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';return}
+    if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';restoreButton();return}
     socket.emit('auth-register',{username,password});return;
   }
   socket.emit('auth-login',{username,password});
@@ -3958,6 +4104,51 @@ async function refreshMediaDevices(){
 }
 function toggleCallSettings(){ $('#callSettingsPanel').classList.toggle('hidden'); refreshMediaDevices(); }
 function syncStageHandButton(){const c=currentVoice();$('#stageHandBtn').classList.toggle('hidden',c?.mode!=='stage')}
+
+function togglePasswordVisibility(inputSelector,buttonSelector){
+  const input=$(inputSelector);
+  const button=$(buttonSelector);
+  if(!input || !button) return;
+
+  const showing=input.type==='text';
+  input.type=showing?'password':'text';
+  button.textContent=showing?'◉':'◎';
+  button.title=showing?'Mostrar senha':'Ocultar senha';
+  button.setAttribute('aria-label',button.title);
+}
+
+let messageContextTarget=null;
+
+function closeMessageContextMenu(){
+  messageContextTarget=null;
+  $('#messageContextMenu')?.classList.add('hidden');
+}
+
+function openMessageContextMenu(event,message){
+  event.preventDefault();
+  if(!message?.id) return;
+
+  messageContextTarget=message;
+
+  const menu=$('#messageContextMenu');
+  const edit=$('#contextEditBtn');
+  const remove=$('#contextDeleteBtn');
+
+  const own=message.userId===state.userId;
+  edit.classList.toggle('hidden',!own);
+  remove.classList.toggle('hidden',!own);
+
+  menu.classList.remove('hidden');
+
+  const margin=8;
+  const rect=menu.getBoundingClientRect();
+  const x=Math.min(event.clientX,window.innerWidth-rect.width-margin);
+  const y=Math.min(event.clientY,window.innerHeight-rect.height-margin);
+
+  menu.style.left=Math.max(margin,x)+'px';
+  menu.style.top=Math.max(margin,y)+'px';
+}
+
 function toast(text){
   const el = $('#toast');
   el.textContent = text;
@@ -4142,16 +4333,32 @@ function updateCustomColorFromHex(){
 applyCustomColor(state.customColor);
 
 function refreshOwnProfileUI(){
-  $('#userName').textContent = state.username || 'Você';
-  $('#userBioMini').textContent = state.bio
-    ? state.bio.slice(0,34)
-    : '● Online · Editar perfil';
+  const shownName=state.displayName || state.username || 'Você';
+  const shownStatus='● ' + ({
+    online:'Online',
+    away:'Ausente',
+    busy:'Ocupado',
+    invisible:'Invisível'
+  }[state.status] || 'Online') + ' · Editar perfil';
+
+  $('#userName').textContent = shownName;
+  $('#userBioMini').textContent = shownStatus;
 
   applyAvatar(
     $('#userAvatar'),
-    {username:state.username,avatar:state.avatar},
-    state.username
+    {username:shownName,avatar:state.avatar},
+    shownName
   );
+
+  if($('#friendsAccountName')){
+    $('#friendsAccountName').textContent=shownName;
+    $('#friendsAccountStatus').textContent=shownStatus;
+    applyAvatar(
+      $('#friendsAccountAvatar'),
+      {username:shownName,avatar:state.avatar},
+      shownName
+    );
+  }
 
   if($('#welcomeTitle')){
     $('#welcomeTitle').textContent = 'Bem-vindo, ' + (state.username || 'você');
@@ -4170,6 +4377,11 @@ function setProfileTab(tab){
 }
 
 function openProfileModal(){
+  if(!state.profileReady || !state.userId){
+    toast('Entre na sua conta primeiro');
+    return;
+  }
+
   state.pendingAvatar = state.avatar || '';
   state.pendingBanner = state.banner || '';
   state.pendingTheme = normalizeProfileTheme(state.theme);
@@ -5657,6 +5869,11 @@ function appendMessage(m){
   }
 
   row.appendChild(actions);
+
+  row.addEventListener('contextmenu',event=>{
+    openMessageContextMenu(event,m);
+  });
+
   $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
@@ -7831,6 +8048,13 @@ $('#authPassword').addEventListener('keydown',event=>{
 $('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
 
+$('#showAuthPasswordBtn').addEventListener('click',()=>{
+  togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
+});
+$('#showAuthConfirmBtn').addEventListener('click',()=>{
+  togglePasswordVisibility('#authPasswordConfirm','#showAuthConfirmBtn');
+});
+
 $('#createServerBtn').addEventListener('click',()=>openModal('server'));
 $('#homeCreateServer').addEventListener('click',()=>openModal('server'));
 $('#serverRolesBtn').addEventListener('click',()=>setView('roles'));
@@ -7849,6 +8073,7 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
+$('#friendsAccountBar').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
 $('#logoutAccountBtn').addEventListener('click',logoutAccount);
@@ -8091,6 +8316,56 @@ $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
 $('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
+$('#contextReplyBtn').addEventListener('click',()=>{
+  const message=messageContextTarget;
+  closeMessageContextMenu();
+  if(!message) return;
+
+  state.replyToMessageId=message.id;
+  $('#replyBarText').textContent='Respondendo a '+(message.username||'Usuário');
+  $('#replyBar').classList.remove('hidden');
+  $('#messageInput').focus();
+});
+
+$('#contextEditBtn').addEventListener('click',()=>{
+  const message=messageContextTarget;
+  closeMessageContextMenu();
+  if(!message || message.userId!==state.userId) return;
+
+  const value=prompt('Editar mensagem:',message.text||'');
+  if(value===null) return;
+
+  socket.emit('chat-edit',{
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    messageId:message.id,
+    text:value
+  });
+});
+
+$('#contextDeleteBtn').addEventListener('click',()=>{
+  const message=messageContextTarget;
+  closeMessageContextMenu();
+  if(!message || message.userId!==state.userId) return;
+
+  if(!confirm('Excluir esta mensagem?')) return;
+
+  socket.emit('chat-delete',{
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    messageId:message.id
+  });
+});
+
+document.addEventListener('click',event=>{
+  if(!event.target.closest('#messageContextMenu')){
+    closeMessageContextMenu();
+  }
+});
+
+window.addEventListener('blur',closeMessageContextMenu);
+window.addEventListener('resize',closeMessageContextMenu);
+
 $('#chatImageBtn').addEventListener('click',()=>$('#chatImageInput').click());
 $('#chatImageInput').addEventListener('change',async event=>{
   const file=event.target.files?.[0];if(!file)return;
@@ -8290,11 +8565,17 @@ document.addEventListener('keydown',e=>{
 
 
 socket.on('auth-success',payload=>{
+  $('#loginBtn').disabled=false;
+  $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
   $('#authError').textContent='';
   applyAuthProfile(payload?.profile,payload?.token);
   requestNotifications();
 });
-socket.on('auth-error',payload=>{$('#authError').textContent=payload?.error||'Não foi possível entrar.'});
+socket.on('auth-error',payload=>{
+  $('#loginBtn').disabled=false;
+  $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
+  $('#authError').textContent=payload?.error||'Não foi possível entrar.';
+});
 socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord-auth-token');$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')});
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
