@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-login-delete-theme-v19';
+const CACHE='acord-groups-invites-v20';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4751,6 +4751,10 @@ html[data-palette="candy"]{
           <div style="display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--line);">
               <strong id="dmTitle">Selecione um amigo</strong>
+              <div id="groupCallActions" class="hidden" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+                <button id="groupCallBtn" class="btn primary small" type="button">Ligar para o grupo</button>
+                <button id="groupAddMemberBtn" class="btn secondary small" type="button">Adicionar pessoa</button>
+              </div>
               <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
             </div>
 
@@ -5545,6 +5549,8 @@ const state = {
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
+  activePrivateGroupId:null,
+  activeGroupCallId:null,
   pendingAvatar:null,
   pendingBanner:null,
   selectedServerMemberId:null,
@@ -8666,6 +8672,49 @@ function removeFriend(friend){
   });
 }
 
+
+function currentPrivateGroup(){
+  if(!state.activePrivateGroupId) return null;
+  return (state.privateGroups||[]).find(group=>group.id===state.activePrivateGroupId)||null;
+}
+
+function openGroupAddMember(){
+  const group=currentPrivateGroup();
+  if(!group){toast('Abra um grupo primeiro');return;}
+
+  const friends=getFriends().filter(friend=>
+    !(group.members||[]).includes(friend.id)
+  );
+
+  if(!friends.length){toast('Todos os seus amigos já estão no grupo');return;}
+
+  const username=prompt(
+    'Digite o nome do amigo que deseja adicionar:\\n'+
+    friends.map(friend=>friend.username).join(', ')
+  );
+
+  if(!username) return;
+
+  const friend=friends.find(
+    item=>String(item.username||'').toLowerCase()===String(username).trim().toLowerCase()
+  );
+
+  if(!friend){toast('Amigo não encontrado');return;}
+
+  socket.emit('private-group-add-member',{
+    groupId:group.id,
+    targetUserId:friend.id,
+    targetUsername:friend.username
+  });
+}
+
+function startPrivateGroupCall(){
+  const group=currentPrivateGroup();
+  if(!group){toast('Abra um grupo primeiro');return;}
+
+  socket.emit('private-group-call-start',{groupId:group.id});
+}
+
 function callFriend(friend){
   const online = state.onlineUsers.find(user =>
     (friend.id && user.id === friend.id) ||
@@ -9202,6 +9251,9 @@ function renderDmContacts(){
 }
 
 function openDm(profile){
+  state.activePrivateGroupId=null;
+  $('#groupCallActions')?.classList.add('hidden');
+
   if(!profile?.username) return;
 
   state.activeGroupId=null;
@@ -9696,7 +9748,9 @@ async function copyInvite(){
     return;
   }
 
-  const url = new URL(location.origin + location.pathname);
+  const url=new URL(location.origin + location.pathname);
+  url.search='';
+  url.hash='';
   url.searchParams.set('invite',server.inviteToken);
 
   try{
@@ -11063,6 +11117,8 @@ document.addEventListener('keydown',event=>{
 });
 
 $('#profileBtn').addEventListener('click',openProfileModal);
+$('#groupCallBtn')?.addEventListener('click',startPrivateGroupCall);
+$('#groupAddMemberBtn')?.addEventListener('click',openGroupAddMember);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
 $('#friendsServersBtn').addEventListener('click',openServerManager);
 $('#serverManagerCloseBtn').addEventListener('click',closeServerManager);
@@ -12153,18 +12209,27 @@ socket.on('server-list',list=>{
   restoreCurrentView();
 });
 
-socket.on('invite-joined',({serverId,serverName})=>{
-  toast('Você entrou em ' + (serverName || 'um servidor'));
-
-  const url = new URL(location.href);
-  url.searchParams.delete('invite');
-  history.replaceState(null,'',url);
+socket.on('invite-joined',payload=>{
+  const serverId=payload?.serverId;
+  if(!serverId) return;
 
   socket.emit('get-servers');
 
   setTimeout(()=>{
-    if(serverId) selectServer(serverId);
-  },120);
+    const server=state.servers.find(item=>item.id===serverId);
+
+    if(server){
+      selectServer(serverId);
+      toast('Você entrou no servidor '+(payload?.serverName||''));
+    }else{
+      localStorage.setItem('ecord-last-server-id',serverId);
+      socket.emit('get-servers');
+    }
+
+    const url=new URL(location.href);
+    url.searchParams.delete('invite');
+    history.replaceState(null,'',url);
+  },180);
 });
 
 socket.on('permission-error',data=>{
@@ -12396,6 +12461,48 @@ socket.on('chat-message',m=>{
   if(m.serverId===state.serverId && m.channelId===state.textChannelId){
     appendMessage(m);
   }
+});
+
+
+socket.on('group-updated',payload=>{
+  socket.emit('get-group-state');
+  toast(payload?.message||'Grupo atualizado');
+});
+
+socket.on('private-group-call-created',payload=>{
+  state.activeGroupCallId=payload?.callId||null;
+  state.activePrivateGroupId=payload?.groupId||null;
+  state.privateCallId=payload?.callId||null;
+  state.privatePeerName=payload?.groupName||'Grupo';
+
+  setView('voice');
+  $('#voiceTitle').textContent='Chamada do grupo · '+(payload?.groupName||'Grupo');
+  $('#topTitle').textContent='Chamada em grupo';
+
+  socket.emit('join-private-voice',{callId:payload?.callId});
+});
+
+socket.on('private-group-call-invite',payload=>{
+  addNotification(
+    'Chamada de grupo',
+    (payload?.fromUsername||'Alguém')+' está chamando no grupo '+(payload?.groupName||'')
+  );
+
+  if(!confirm(
+    (payload?.fromUsername||'Alguém')+' iniciou uma chamada no grupo "'+
+    (payload?.groupName||'Grupo')+'". Entrar?'
+  )) return;
+
+  state.activeGroupCallId=payload?.callId||null;
+  state.activePrivateGroupId=payload?.groupId||null;
+  state.privateCallId=payload?.callId||null;
+  state.privatePeerName=payload?.groupName||'Grupo';
+
+  setView('voice');
+  $('#voiceTitle').textContent='Chamada do grupo · '+(payload?.groupName||'Grupo');
+  $('#topTitle').textContent='Chamada em grupo';
+
+  socket.emit('join-private-voice',{callId:payload?.callId});
 });
 
 socket.on('voice-participants',async participants=>{
@@ -13346,6 +13453,10 @@ io.on('connection', socket => {
     if (!socket.data.userId) return;
 
     const safeToken = String(token || '').trim().slice(0,100);
+    if(!safeToken || safeToken.length<10){
+      socket.emit('permission-error',{error:'Convite inválido'});
+      return;
+    }
 
     const serverData = [...servers.values()].find(item =>
       item.inviteToken === safeToken
@@ -13368,7 +13479,8 @@ io.on('connection', socket => {
 
     socket.emit('invite-joined',{
       serverId:serverData.id,
-      serverName:serverData.name
+      serverName:serverData.name,
+      inviteOnly:true
     });
   });
 
@@ -13817,6 +13929,95 @@ io.on('connection', socket => {
         type: isStage ? 'stage' : 'voice',
         channelId: channel.id
       });
+    }
+  });
+
+
+  socket.on('private-group-add-member',({groupId,targetUserId,targetUsername})=>{
+    if(!socket.data.userId) return;
+
+    const group=privateGroups.get(String(groupId||''));
+    if(!group){socket.emit('permission-error',{error:'Grupo não encontrado'});return;}
+
+    if(!(group.members||[]).includes(socket.data.userId) && group.ownerId!==socket.data.userId){
+      socket.emit('permission-error',{error:'Você não faz parte deste grupo'});
+      return;
+    }
+
+    let targetProfile=targetUserId?profiles.get(String(targetUserId)):null;
+    if(!targetProfile && targetUsername) targetProfile=findProfileByUsername(targetUsername);
+
+    if(!targetProfile){socket.emit('permission-error',{error:'Usuário não encontrado'});return;}
+
+    const isFriend=friendships.some(link=>
+      (link.a===socket.data.userId && link.b===targetProfile.id) ||
+      (link.b===socket.data.userId && link.a===targetProfile.id)
+    );
+
+    if(!isFriend){socket.emit('permission-error',{error:'Só é possível adicionar amigos ao grupo'});return;}
+
+    group.members=Array.isArray(group.members)?group.members:[];
+
+    if(group.members.includes(targetProfile.id)){
+      socket.emit('group-updated',{message:'Essa pessoa já está no grupo'});
+      return;
+    }
+
+    if(group.members.length>=10){
+      socket.emit('permission-error',{error:'O grupo atingiu o limite de 10 pessoas'});
+      return;
+    }
+
+    group.members.push(targetProfile.id);
+    group.members=[...new Set(group.members)];
+    saveServersToDisk();
+
+    for(const memberId of group.members){
+      emitGroupState(memberId);
+      for(const client of io.sockets.sockets.values()){
+        if(client.data.userId===memberId){
+          client.emit('group-updated',{
+            groupId:group.id,
+            message:targetProfile.username+' entrou no grupo'
+          });
+        }
+      }
+    }
+  });
+
+  socket.on('private-group-call-start',({groupId})=>{
+    if(!socket.data.userId) return;
+
+    const group=privateGroups.get(String(groupId||''));
+    if(!group){socket.emit('permission-error',{error:'Grupo não encontrado'});return;}
+
+    if(!(group.members||[]).includes(socket.data.userId) && group.ownerId!==socket.data.userId){
+      socket.emit('permission-error',{error:'Você não faz parte deste grupo'});
+      return;
+    }
+
+    const callId='group-'+group.id+'-'+Date.now().toString(36);
+
+    socket.emit('private-group-call-created',{
+      callId,
+      groupId:group.id,
+      groupName:group.name||'Grupo'
+    });
+
+    for(const memberId of group.members||[]){
+      if(memberId===socket.data.userId) continue;
+
+      for(const client of io.sockets.sockets.values()){
+        if(client.data.userId===memberId){
+          client.emit('private-group-call-invite',{
+            callId,
+            groupId:group.id,
+            groupName:group.name||'Grupo',
+            fromUserId:socket.data.userId,
+            fromUsername:socket.data.username
+          });
+        }
+      }
     }
   });
 
