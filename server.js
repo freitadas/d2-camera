@@ -2300,6 +2300,381 @@ body.locked{overflow:hidden!important}
     display:none;
   }
 }
+
+/* ===== MODO MINIMALISTA ACORD ===== */
+:root{
+  --radius-xs:6px;
+  --radius-sm:8px;
+  --radius-md:10px;
+}
+
+*{
+  scrollbar-width:thin;
+}
+
+body{
+  background:var(--bg0);
+}
+
+button,
+input,
+textarea,
+select{
+  transition:.12s ease;
+}
+
+.app{
+  gap:0;
+}
+
+.rail{
+  background:var(--bg0);
+  border-right:1px solid var(--line);
+  padding-top:8px;
+}
+
+.serverIcon,
+.addServer,
+.homeHubIcon{
+  border-radius:10px!important;
+  box-shadow:none!important;
+}
+
+.serverIcon:hover,
+.serverIcon.active,
+.homeHubIcon:hover,
+.homeHubIcon.active{
+  border-radius:10px!important;
+  transform:none!important;
+  box-shadow:none!important;
+}
+
+.serverIcon.active:before{
+  width:3px;
+  height:18px;
+  left:-10px;
+}
+
+.homeHubMonitor{
+  filter:none!important;
+}
+
+.sidebar,
+.rightbar,
+.main,
+.topbar,
+.sideHead,
+.userbar{
+  box-shadow:none!important;
+}
+
+.sidebar{
+  border-right:1px solid var(--line);
+}
+
+.rightbar{
+  border-left:1px solid var(--line);
+}
+
+.sideHead,
+.topbar{
+  height:50px;
+}
+
+.sideScroll{
+  padding:8px;
+}
+
+.brandDot{
+  width:7px;
+  height:7px;
+  box-shadow:none;
+}
+
+.navBtn,
+.channelBtn,
+.inviteBtn,
+.friendTab,
+.btn,
+.control{
+  border-radius:8px!important;
+  box-shadow:none!important;
+}
+
+.navBtn,
+.channelBtn{
+  padding:8px 9px;
+}
+
+.navBtn:hover,
+.navBtn.active,
+.channelBtn:hover,
+.channelBtn.active{
+  transform:none!important;
+}
+
+.groupHead{
+  margin:14px 8px 5px;
+  font-size:10px;
+  letter-spacing:.05em;
+}
+
+.userbar{
+  padding:9px 10px;
+  border-top:1px solid var(--line)!important;
+}
+
+.avatar{
+  box-shadow:none!important;
+}
+
+.topbar{
+  padding-left:14px;
+  padding-right:14px;
+}
+
+.topLeft strong,
+#topTitle{
+  font-weight:800;
+}
+
+.messages{
+  padding:12px 16px;
+}
+
+.message{
+  margin:0 0 4px;
+  padding:8px 10px;
+  border-radius:8px;
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+
+.message:hover{
+  background:var(--bg2)!important;
+}
+
+.message strong{
+  font-size:12px;
+}
+
+.message span{
+  font-size:12px;
+  line-height:1.45;
+}
+
+.messageActions{
+  box-shadow:none!important;
+  border-radius:7px;
+}
+
+.compose{
+  padding:10px 12px;
+  gap:7px;
+  border-top:1px solid var(--line);
+  background:var(--bg1);
+}
+
+.compose input,
+input,
+textarea,
+select{
+  box-shadow:none!important;
+  border-radius:8px!important;
+}
+
+.compose input{
+  min-height:38px;
+}
+
+.btn{
+  min-height:36px;
+}
+
+.btn.primary{
+  box-shadow:none!important;
+}
+
+.controls{
+  gap:6px;
+  padding:9px;
+  min-height:56px;
+}
+
+.control{
+  min-width:auto;
+  padding:9px 12px;
+  font-size:12px;
+}
+
+.videoGrid{
+  gap:8px;
+  padding:10px;
+}
+
+.videoCard{
+  border-radius:10px!important;
+  box-shadow:none!important;
+  border:1px solid var(--line)!important;
+}
+
+.modal{
+  border-radius:14px!important;
+  box-shadow:0 18px 50px rgba(0,0,0,.28)!important;
+  border:1px solid var(--line);
+}
+
+.modalWrap{
+  backdrop-filter:blur(4px);
+}
+
+.profileTabs,
+.authSwitch{
+  border-radius:9px!important;
+}
+
+.profileTabBtn,
+.authTab{
+  border-radius:7px!important;
+}
+
+.profileThemeBtn,
+.profilePaletteBtn{
+  border-radius:9px!important;
+  box-shadow:none!important;
+}
+
+.customColorBox,
+.localMusicShell,
+.localMusicNow,
+.callSettingsPanel,
+.settingsCard,
+.memberProfileBio,
+.memberRoleToggle{
+  border-radius:10px!important;
+  box-shadow:none!important;
+}
+
+.localMusicPanel{
+  padding:10px;
+}
+
+.localMusicHead{
+  padding:10px 12px;
+}
+
+.localMusicBody{
+  padding:12px;
+}
+
+.localMusicNow{
+  padding:10px;
+}
+
+.loginShell{
+  box-shadow:none!important;
+}
+
+.loginBrandPanel{
+  background:var(--bg1)!important;
+  border-right:1px solid var(--line);
+}
+
+.loginHero h1{
+  font-size:clamp(30px,4vw,48px)!important;
+  line-height:1.02!important;
+}
+
+.loginFeatures{
+  gap:8px!important;
+}
+
+.loginFeature{
+  border-radius:9px!important;
+  box-shadow:none!important;
+  background:var(--bg2)!important;
+}
+
+.loginCard{
+  box-shadow:none!important;
+}
+
+.loginMark,
+.sharePickerLogo{
+  border-radius:9px!important;
+  box-shadow:none!important;
+}
+
+.sharePicker,
+.shareChoice{
+  border-radius:12px!important;
+  box-shadow:none!important;
+}
+
+.sharePicker{
+  background:var(--bg1)!important;
+}
+
+.shareChoice{
+  min-height:120px;
+  padding:14px;
+}
+
+.shareChoice:hover{
+  transform:none!important;
+}
+
+.serverMemberRow,
+.friendRow,
+.settingsMember{
+  border-radius:8px!important;
+}
+
+.serverPresenceTitle,
+.memberProfileRolesTitle,
+.localMusicNowLabel{
+  letter-spacing:.05em!important;
+}
+
+.callSettingsPanel{
+  width:min(360px,calc(100% - 28px));
+}
+
+.accountDangerZone{
+  gap:6px;
+}
+
+.toast{
+  border-radius:8px!important;
+  box-shadow:0 10px 28px rgba(0,0,0,.24)!important;
+}
+
+.installAppBtn{
+  border-radius:8px!important;
+  box-shadow:none!important;
+}
+
+@media(max-width:900px){
+  .rightbar{
+    display:none;
+  }
+}
+
+@media(max-width:720px){
+  .control{
+    padding:8px 10px;
+  }
+
+  .messages{
+    padding:10px;
+  }
+
+  .compose{
+    padding:8px;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -2421,7 +2796,7 @@ body.locked{overflow:hidden!important}
     </div>
 
     <div class="sideScroll">
-      <button id="serverRolesBtn" class="navBtn" type="button">🛡 Cargos do servidor</button>
+      <button id="serverRolesBtn" class="navBtn" type="button">Cargos</button>
 
       <div class="groupHead">
         <span>Canais</span>
@@ -2482,8 +2857,8 @@ body.locked{overflow:hidden!important}
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
-            <button id="createPrivateGroupBtn" class="friendTab" type="button">👥 Criar grupo</button>
-            <button id="friendsProfileBtn" class="friendTab" type="button">👤 Perfil</button>
+            <button id="createPrivateGroupBtn" class="friendTab" type="button">Criar grupo</button>
+            <button id="friendsProfileBtn" class="friendTab" type="button">Perfil</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -2667,7 +3042,7 @@ body.locked{overflow:hidden!important}
         <div style="height:100%;display:grid;grid-template-rows:auto 1fr;">
           <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;">
             <div>
-              <strong>🛡 Cargos do servidor</strong>
+              <strong>Cargos</strong>
               <div style="font-size:12px;color:var(--muted);margin-top:3px;">Crie cargos, escolha a cor e atribua aos membros.</div>
             </div>
             <button id="addRoleBtn" class="btn primary small">+ Criar cargo</button>
@@ -2758,15 +3133,15 @@ body.locked{overflow:hidden!important}
         <div id="videoGrid" class="videoGrid"></div>
 
         <div id="voiceControls" class="controls hidden">
-          <button id="micBtn" class="control">🎤 Microfone</button>
-          <button id="musicBtn" class="control">🎵 Música</button>
-          <button id="deafenBtn" class="control">🔊 Áudio</button>
+          <button id="micBtn" class="control">Microfone</button>
+          <button id="musicBtn" class="control">Música</button>
+          <button id="deafenBtn" class="control">Áudio</button>
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
-          <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
-          <button id="screenBtn" class="control">🖥️ Compartilhar tela</button>
-          <button id="stageHandBtn" class="control stageHandBtn hidden">✋ Pedir para falar</button>
-          <button id="callSettingsBtn" class="control">⚙ Dispositivos</button>
-          <button id="leaveVoiceBtn" class="control danger">☎ Sair</button>
+          <button id="cameraBtn" class="control off">Câmera</button>
+          <button id="screenBtn" class="control">Compartilhar</button>
+          <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
+          <button id="callSettingsBtn" class="control">Dispositivos</button>
+          <button id="leaveVoiceBtn" class="control danger">Sair</button>
         </div>
         <div id="callSettingsPanel" class="callSettingsPanel hidden">
           <div style="font-weight:900;margin-bottom:10px;">Áudio e vídeo</div>
@@ -4231,7 +4606,7 @@ function setView(name){
   }
 
   if(name==='settings'){
-    $('#topTitle').textContent = '⚙ Configurações do servidor';
+    $('#topTitle').textContent = 'Configurações do servidor';
     $('#topSub').textContent = currentServer()?.name || '';
     openServerSettings();
   }
@@ -6844,7 +7219,7 @@ function applyDeafenState(){
   const button = $('#deafenBtn');
 
   if(button){
-    button.textContent = muted ? '🔇 Áudio mutado' : '🔊 Áudio';
+    button.textContent = muted ? '🔇 Áudio mutado' : 'Áudio';
     button.classList.toggle('off',muted);
   }
 }
@@ -6967,9 +7342,9 @@ function leaveVoice(){
   $('#audioGateBtn').classList.add('hidden');
   $('#voiceStatus').textContent = 'Fora da chamada';
   syncVoiceControlsUI();
-  $('#cameraBtn').textContent = '📷 Ligar câmera';
+  $('#cameraBtn').textContent = 'Câmera';
   $('#cameraBtn').classList.add('off');
-  $('#screenBtn').textContent = '🖥️ Compartilhar tela';
+  $('#screenBtn').textContent = 'Compartilhar';
   $('#screenBtn').classList.remove('sharing');
 
   $('#localMusicPanel').classList.add('hidden');
@@ -6987,7 +7362,7 @@ function toggleMic(){
   const t = state.localStream?.getAudioTracks()[0];
   if(!t) return;
   t.enabled = !t.enabled;
-  $('#micBtn').textContent = t.enabled ? '🎤 Microfone' : '🔇 Microfone';
+  $('#micBtn').textContent = t.enabled ? 'Microfone' : '🔇 Microfone';
   $('#micBtn').classList.toggle('off',!t.enabled);
 }
 
@@ -7043,7 +7418,7 @@ async function toggleCamera(){
       }
     }
 
-    $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : '📷 Ligar câmera';
+    $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : 'Câmera';
     $('#cameraBtn').classList.toggle('off',!state.cameraTrack.enabled);
     ensureCard('local',state.username+' (você)',state.localStream,true);
     return;
@@ -7092,7 +7467,7 @@ async function toggleCamera(){
     $('#cameraBtn').classList.remove('off');
   }catch(err){
     console.error(err);
-    $('#cameraBtn').textContent = '📷 Ligar câmera';
+    $('#cameraBtn').textContent = 'Câmera';
     $('#cameraBtn').classList.add('off');
     toast('Câmera não autorizada');
   }finally{
@@ -7126,7 +7501,7 @@ async function stopScreen(){
   await replaceVideoForAll(replacement);
 
   ensureCard('local',state.username+' (você)',state.localStream,true);
-  $('#screenBtn').textContent = '🖥️ Compartilhar tela';
+  $('#screenBtn').textContent = 'Compartilhar';
   $('#screenBtn').classList.remove('sharing');
   $('#cameraBtn').disabled = false;
   if(state.joinedVoiceId) $('#voiceStatus').textContent = 'Conectado';
