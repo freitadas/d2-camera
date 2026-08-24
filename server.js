@@ -32,6 +32,8 @@ function originAllowed(origin){
 const io = new Server(server, {
   maxHttpBufferSize: 512 * 1024,
   perMessageDeflate: false,
+  pingInterval: 25000,
+  pingTimeout: 60000,
   cors: {
     origin(origin, callback){
       callback(null, originAllowed(origin));
@@ -1036,7 +1038,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-layout-icons-fix-v4';
+const CACHE='acord-call-stability-v5';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4307,7 +4309,14 @@ html[data-palette="candy"]{
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const socket = io({reconnection:true});
+const socket = io({
+  reconnection:true,
+  reconnectionAttempts:Infinity,
+  reconnectionDelay:700,
+  reconnectionDelayMax:4000,
+  randomizationFactor:0.35,
+  timeout:20000
+});
 
 const $ = (s) => document.querySelector(s);
 
@@ -4426,7 +4435,10 @@ const state = {
     : 'friends',
   appInitialized: false,
   restoringReload: PAGE_WAS_RELOADED,
-  profileReady: false
+  profileReady: false,
+  voiceReconnectPending:false,
+  voiceReconnectTimer:null,
+  voiceReconnectAttempts:0
 };
 
 const rtcConfig = {
@@ -8061,19 +8073,72 @@ function createPeer(peerId, username, asOfferer = false){
     }
   };
 
-  const updateConnectionStatus = ()=>{
-    const connection = pc.connectionState;
-    const ice = pc.iceConnectionState;
+  let disconnectRepairTimer=null;
 
-    if(connection === 'connected'){
-      if(!state.screenTrack) $('#voiceStatus').textContent = 'Conectado';
+  const updateConnectionStatus=()=>{
+    const connection=pc.connectionState;
+    const ice=pc.iceConnectionState;
+
+    if(connection==='connected'){
+      if(disconnectRepairTimer){
+        clearTimeout(disconnectRepairTimer);
+        disconnectRepairTimer=null;
+      }
+
+      state.voiceReconnectAttempts=0;
+      state.voiceReconnectPending=false;
+
+      if(!state.screenTrack){
+        $('#voiceStatus').textContent=state.privateCallId
+          ? 'Call privada · Somente convidados'
+          : 'Conectado';
+      }
+
       unlockAllRemoteAudio();
-    }else if(connection === 'connecting' || ice === 'checking'){
-      $('#voiceStatus').textContent = 'Conectando mídia...';
-    }else if(connection === 'failed' || ice === 'failed'){
-      $('#voiceStatus').textContent = 'Falha na conexão de mídia';
-      toast('A conexão de voz/vídeo falhou nesta rede.');
-      try{ pc.restartIce(); }catch{}
+      return;
+    }
+
+    if(connection==='connecting' || ice==='checking'){
+      $('#voiceStatus').textContent='Conectando mídia...';
+      return;
+    }
+
+    if(connection==='disconnected'){
+      $('#voiceStatus').textContent='Conexão instável · tentando recuperar...';
+
+      if(!disconnectRepairTimer){
+        disconnectRepairTimer=setTimeout(()=>{
+          disconnectRepairTimer=null;
+
+          if(
+            pc.connectionState==='disconnected' ||
+            pc.iceConnectionState==='disconnected'
+          ){
+            repairPeerConnection(peerId);
+          }
+        },2500);
+      }
+      return;
+    }
+
+    if(connection==='failed' || ice==='failed'){
+      $('#voiceStatus').textContent='Recuperando conexão de mídia...';
+      repairPeerConnection(peerId);
+
+      setTimeout(()=>{
+        if(
+          state.joinedVoiceId &&
+          (
+            pc.connectionState==='failed' ||
+            pc.iceConnectionState==='failed'
+          )
+        ){
+          try{pc.close()}catch{}
+          state.peers.delete(peerId);
+          state.pendingCandidates.delete(peerId);
+          scheduleVoiceReconnect(400);
+        }
+      },3500);
     }
   };
 
@@ -8204,8 +8269,12 @@ function toggleDeafen(){
 }
 
 async function joinVoice(){
-  const channel = currentVoice();
+  const channel=currentVoice();
   if(!channel) return;
+
+  state.voiceReconnectPending=false;
+  state.voiceReconnectAttempts=0;
+  clearVoiceReconnectTimer();
 
   const changingCall =
     !!state.joinedVoiceId &&
@@ -8260,6 +8329,66 @@ async function joinVoice(){
   }
 }
 
+
+function clearVoiceReconnectTimer(){
+  if(state.voiceReconnectTimer){
+    clearTimeout(state.voiceReconnectTimer);
+    state.voiceReconnectTimer=null;
+  }
+}
+
+function scheduleVoiceReconnect(delay=500){
+  clearVoiceReconnectTimer();
+  if(!state.joinedVoiceId) return;
+
+  state.voiceReconnectPending=true;
+
+  state.voiceReconnectTimer=setTimeout(()=>{
+    state.voiceReconnectTimer=null;
+
+    if(!state.joinedVoiceId || !socket.connected || !state.profileReady) return;
+
+    state.voiceReconnectAttempts+=1;
+
+    if(state.privateCallId){
+      socket.emit('join-private-call',{
+        callId:state.privateCallId,
+        username:state.username,
+        userId:state.userId
+      });
+    }else if(state.activeVoiceServerId && state.activeVoiceChannelId){
+      socket.emit('join-voice',{
+        serverId:state.activeVoiceServerId,
+        channelId:state.activeVoiceChannelId,
+        username:state.username
+      });
+    }
+
+    $('#voiceStatus').textContent='Reconectando call...';
+  },delay);
+}
+
+async function repairPeerConnection(peerId){
+  const pc=state.peers.get(peerId);
+  if(!pc || pc.signalingState==='closed') return;
+
+  try{
+    if(typeof pc.restartIce==='function') pc.restartIce();
+
+    if(pc.signalingState==='stable'){
+      const offer=await pc.createOffer({iceRestart:true});
+      await pc.setLocalDescription(offer);
+
+      socket.emit('offer',{
+        target:peerId,
+        sdp:pc.localDescription
+      });
+    }
+  }catch(error){
+    console.warn('Falha ao reparar conexão WebRTC:',error);
+  }
+}
+
 function closePeers(){
   for(const pc of state.peers.values()) pc.close();
 
@@ -8279,7 +8408,11 @@ function closePeers(){
 }
 
 function leaveVoice(){
-  const wasPrivate = !!state.privateCallId;
+  const wasPrivate=!!state.privateCallId;
+
+  state.voiceReconnectPending=false;
+  state.voiceReconnectAttempts=0;
+  clearVoiceReconnectTimer();
 
   socket.emit('leave-voice');
   closePeers();
@@ -9323,8 +9456,16 @@ socket.on('auth-success',payload=>{
   $('#loginBtn').disabled=false;
   $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
   $('#authError').textContent='';
+
+  const hadActiveCall=!!state.joinedVoiceId;
+
   applyAuthProfile(payload?.profile,payload?.token);
   requestNotifications();
+
+  if(hadActiveCall){
+    closePeers();
+    scheduleVoiceReconnect(250);
+  }
 });
 socket.on('auth-error',payload=>{
   $('#loginBtn').disabled=false;
@@ -9793,6 +9934,16 @@ socket.on('chat-message',m=>{
 });
 
 socket.on('voice-participants',async participants=>{
+  state.voiceReconnectPending=false;
+  state.voiceReconnectAttempts=0;
+  clearVoiceReconnectTimer();
+
+  if(state.joinedVoiceId){
+    $('#voiceStatus').textContent=state.privateCallId
+      ? 'Call privada · Somente convidados'
+      : 'Conectado';
+  }
+
   renderMembers([{id:socket.id,username:state.username},...participants]);
   for(const p of participants){
     state.peerNames.set(p.id,p.username);
@@ -9873,24 +10024,31 @@ socket.on('user-left',({id})=>{
   document.getElementById('v-'+id)?.remove();
 });
 
-socket.on('disconnect',()=>{
-  if(state.joinedVoiceId) $('#voiceStatus').textContent='Reconectando servidor...';
+socket.on('disconnect',reason=>{
+  if(!state.joinedVoiceId) return;
+
+  state.voiceReconnectPending=true;
+  clearVoiceReconnectTimer();
+
+  $('#voiceStatus').textContent='Conexão interrompida · reconectando...';
+
+  // Preserva microfone, câmera e identificação da call.
+  closePeers();
 });
 
 socket.on('connect',()=>{
-  if(state.authToken) socket.emit('auth-restore',{token:state.authToken});
-  else{$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')}
-
-  if(state.joinedVoiceId && state.profileReady){
-    closePeers();
-    if(state.privateCallId){
-      socket.emit('join-private-call',{callId:state.privateCallId,username:state.username,userId:state.userId});
-    }else if(state.activeVoiceServerId&&state.activeVoiceChannelId){
-      socket.emit('join-voice',{serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,username:state.username});
-    }
+  if(state.authToken){
+    socket.emit('auth-restore',{token:state.authToken});
+  }else{
+    $('#login').classList.remove('hidden');
+    $('#appShell').classList.add('hidden');
   }
 
-  setTimeout(()=>{if(state.appInitialized&&state.profileReady)restoreCurrentView()},150);
+  setTimeout(()=>{
+    if(state.appInitialized&&state.profileReady){
+      restoreCurrentView();
+    }
+  },150);
 });
 </script>
 </body>
@@ -11259,9 +11417,11 @@ io.on('connection', socket => {
   socket.on('join-private-call', ({ callId, username, userId }) => {
     if (!callId) return;
 
-    leaveVoiceRoom();
+    const room = 'private:' + String(callId).slice(0,100);
 
-    const room = 'private:' + String(callId).slice(0, 100);
+    if(socket.data.voiceRoom && socket.data.voiceRoom !== room){
+      leaveVoiceRoom();
+    }
 
     const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
@@ -11278,18 +11438,23 @@ io.on('connection', socket => {
 
     socket.data.username = socket.data.username || cleanName(username);
     if(!socket.data.userId) return;
-    socket.data.voiceRoom = room;
-    socket.data.voiceServerId = null;
-    socket.data.voiceChannelId = null;
+
+    const alreadyInRoom=socket.rooms.has(room);
+
+    socket.data.voiceRoom=room;
+    socket.data.voiceServerId=null;
+    socket.data.voiceChannelId=null;
 
     socket.join(room);
 
-    socket.emit('voice-participants', participants);
+    socket.emit('voice-participants',participants);
 
-    socket.to(room).emit('user-joined', {
-      id: socket.id,
-      username: socket.data.username
-    });
+    if(!alreadyInRoom){
+      socket.to(room).emit('user-joined',{
+        id:socket.id,
+        username:socket.data.username
+      });
+    }
 
     const members = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
@@ -11311,9 +11476,11 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket) || !s.voiceChannels.some(c => c.id === channelId)) return;
 
-    leaveVoiceRoom();
-
     const room = `voice:${serverId}:${channelId}`;
+
+    if(socket.data.voiceRoom && socket.data.voiceRoom !== room){
+      leaveVoiceRoom();
+    }
 
     const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
@@ -11323,14 +11490,22 @@ io.on('connection', socket => {
       .filter(Boolean);
 
     socket.data.username = cleanName(username);
-    socket.data.voiceRoom = room;
-    socket.data.voiceServerId = serverId;
-    socket.data.voiceChannelId = channelId;
+    const alreadyInRoom=socket.rooms.has(room);
+
+    socket.data.voiceRoom=room;
+    socket.data.voiceServerId=serverId;
+    socket.data.voiceChannelId=channelId;
 
     socket.join(room);
 
-    socket.emit('voice-participants', participants);
-    socket.to(room).emit('user-joined', { id: socket.id, username: socket.data.username });
+    socket.emit('voice-participants',participants);
+
+    if(!alreadyInRoom){
+      socket.to(room).emit('user-joined',{
+        id:socket.id,
+        username:socket.data.username
+      });
+    }
 
     const members = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
