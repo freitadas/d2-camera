@@ -122,6 +122,14 @@ function makeServer(name = 'e-cord', options = {}) {
   const data = {
     id: serverId,
     name: String(name || 'Servidor').trim().slice(0, 30) || 'Servidor',
+    icon: String(options.icon || '').slice(0, 350000),
+    accent: /^#[0-9a-f]{6}$/i.test(String(options.accent || ''))
+      ? String(options.accent)
+      : '#ff6b4a',
+    description: String(options.description || '').trim().slice(0, 240),
+    tags: Array.isArray(options.tags)
+      ? options.tags.map(tag => String(tag || '').trim().slice(0, 22)).filter(Boolean).slice(0, 5)
+      : [],
     textChannels,
     voiceChannels,
     roles,
@@ -145,6 +153,10 @@ function serializeServers() {
   return [...servers.values()].map(serverData => ({
     id: serverData.id,
     name: serverData.name,
+    icon: serverData.icon,
+    accent: serverData.accent,
+    description: serverData.description,
+    tags: serverData.tags,
     textChannels: serverData.textChannels,
     voiceChannels: serverData.voiceChannels,
     roles: serverData.roles,
@@ -193,6 +205,10 @@ function loadServersFromDisk() {
     for (const item of list) {
       makeServer(item.name, {
         id: item.id,
+        icon: item.icon,
+        accent: item.accent,
+        description: item.description,
+        tags: item.tags,
         textChannels: item.textChannels,
         voiceChannels: item.voiceChannels,
         roles: item.roles,
@@ -216,6 +232,10 @@ function mergeRestoredServer(item) {
   if (!existing) {
     return makeServer(item.name || 'Servidor', {
       id: serverId,
+      icon: item.icon,
+      accent: item.accent,
+      description: item.description,
+      tags: item.tags,
       textChannels: item.textChannels,
       voiceChannels: item.voiceChannels,
       roles: item.roles
@@ -224,6 +244,25 @@ function mergeRestoredServer(item) {
 
   if (item.name) {
     existing.name = String(item.name).trim().slice(0, 30) || existing.name;
+  }
+
+  if (typeof item.icon === 'string') {
+    existing.icon = item.icon.slice(0, 350000);
+  }
+
+  if (/^#[0-9a-f]{6}$/i.test(String(item.accent || ''))) {
+    existing.accent = String(item.accent);
+  }
+
+  if (typeof item.description === 'string') {
+    existing.description = item.description.trim().slice(0, 240);
+  }
+
+  if (Array.isArray(item.tags)) {
+    existing.tags = item.tags
+      .map(tag => String(tag || '').trim().slice(0, 22))
+      .filter(Boolean)
+      .slice(0, 5);
   }
 
   const mergeChannels = (target, incoming, fallback) => {
@@ -279,6 +318,10 @@ function publicServers() {
   return [...servers.values()].map(s => ({
     id: s.id,
     name: s.name,
+    icon: s.icon,
+    accent: s.accent,
+    description: s.description,
+    tags: s.tags,
     textChannels: s.textChannels,
     voiceChannels: s.voiceChannels,
     roles: s.roles
@@ -611,6 +654,204 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   color:var(--mint)!important;
 }
 
+
+.serverSettings{
+  height:100%;
+  display:grid;
+  grid-template-columns:220px minmax(0,1fr);
+  background:#091510;
+}
+.settingsMenu{
+  border-right:1px solid var(--line);
+  padding:22px 14px;
+  background:#0b1915;
+  overflow:auto;
+}
+.settingsServerName{
+  padding:0 10px 16px;
+  color:var(--text);
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.settingsGroup{
+  margin-top:15px;
+  padding:0 10px 6px;
+  color:var(--low);
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.settingsNavBtn{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:9px 10px;
+  border-radius:9px;
+  text-align:left;
+  font-weight:650;
+  font-size:13px;
+  margin:1px 0;
+}
+.settingsNavBtn:hover,
+.settingsNavBtn.active{
+  background:var(--bg3);
+  color:var(--text);
+}
+.settingsNavBtn.danger{
+  color:#ff7f7f;
+}
+.settingsBody{
+  overflow:auto;
+  padding:32px 38px 60px;
+}
+.settingsPanel{
+  width:min(850px,100%);
+}
+.settingsPanel h2{
+  margin:0 0 7px;
+  font-size:24px;
+  letter-spacing:-.035em;
+}
+.settingsPanel>p{
+  margin:0 0 24px;
+  color:var(--muted);
+  line-height:1.5;
+  font-size:13px;
+}
+.settingsGrid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 260px;
+  gap:30px;
+}
+.settingsCard{
+  background:var(--bg1);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:20px;
+}
+.settingsLabel{
+  display:block;
+  margin:0 0 7px;
+  color:var(--low);
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.settingsField{
+  margin-bottom:18px;
+}
+.serverIconPreview{
+  width:92px;
+  height:92px;
+  border-radius:28px;
+  display:grid;
+  place-items:center;
+  font-size:29px;
+  font-weight:950;
+  color:#25100b;
+  background:var(--coral);
+  background-size:cover;
+  background-position:center;
+  border:1px solid rgba(255,255,255,.08);
+}
+.accentChoices{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:8px;
+}
+.accentChoice{
+  height:48px;
+  border-radius:12px;
+  border:2px solid transparent;
+}
+.accentChoice.active{
+  border-color:var(--text);
+  box-shadow:0 0 0 3px rgba(255,255,255,.06);
+}
+.serverPreview{
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--bg2);
+}
+.serverPreviewBanner{
+  height:105px;
+  background:var(--coral);
+}
+.serverPreviewInner{
+  padding:0 16px 18px;
+}
+.serverPreviewIcon{
+  width:64px;
+  height:64px;
+  margin-top:-32px;
+  border:5px solid var(--bg2);
+  border-radius:22px;
+  display:grid;
+  place-items:center;
+  background:var(--coral);
+  color:#25100b;
+  background-size:cover;
+  background-position:center;
+  font-size:21px;
+  font-weight:950;
+}
+.serverPreviewName{
+  font-weight:900;
+  font-size:15px;
+  margin-top:9px;
+}
+.serverPreviewDescription{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.5;
+  margin-top:7px;
+}
+.serverTags{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:12px;
+}
+.serverTag{
+  padding:5px 8px;
+  border-radius:999px;
+  background:var(--bg3);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:10px;
+  font-weight:700;
+}
+.settingsMember{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:11px 12px;
+  border:1px solid var(--line);
+  background:var(--bg2);
+  border-radius:12px;
+  margin-bottom:8px;
+}
+.settingsDangerBox{
+  border:1px solid rgba(223,76,76,.35);
+  background:rgba(223,76,76,.07);
+  padding:18px;
+  border-radius:15px;
+}
+@media(max-width:850px){
+  .serverSettings{grid-template-columns:160px minmax(0,1fr)}
+  .settingsBody{padding:24px 18px 50px}
+  .settingsGrid{grid-template-columns:1fr}
+}
+
 .fakeFullscreen{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:999999!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
 .fakeFullscreen video{object-fit:contain!important}
 body.locked{overflow:hidden!important}
@@ -711,6 +952,7 @@ body.locked{overflow:hidden!important}
       <div class="brand"><span class="brandDot"></span><span id="serverTitle" class="serverTitle">e-cord</span></div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="inviteBtn" class="inviteBtn">Convidar</button>
+        <button id="serverSettingsBtn" class="inviteBtn" title="Configurações do servidor">⚙</button>
         <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
       </div>
     </div>
@@ -780,6 +1022,146 @@ body.locked{overflow:hidden!important}
 
           <div style="overflow:auto;padding:18px;">
             <div id="friendsList" style="display:grid;gap:10px;"></div>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="serverSettingsView" class="view hidden">
+        <div class="serverSettings">
+
+          <aside class="settingsMenu">
+            <div id="settingsServerName" class="settingsServerName">Servidor</div>
+
+            <button class="settingsNavBtn active" data-settings-page="profile">⚙ Perfil do servidor</button>
+
+            <div class="settingsGroup">Pessoas</div>
+            <button class="settingsNavBtn" data-settings-page="members">👥 Membros</button>
+            <button class="settingsNavBtn" data-settings-page="roles">🛡 Cargos</button>
+            <button class="settingsNavBtn" data-settings-page="invites">✉ Convites</button>
+
+            <div class="settingsGroup">Moderação</div>
+            <button class="settingsNavBtn" data-settings-page="security">🔒 Segurança</button>
+
+            <div class="settingsGroup">Servidor</div>
+            <button class="settingsNavBtn danger" data-settings-page="delete">🗑 Excluir servidor</button>
+          </aside>
+
+          <div class="settingsBody">
+
+            <div id="settingsProfilePage" class="settingsPanel">
+              <h2>Perfil do servidor</h2>
+              <p>Personalize a identidade do seu servidor no e-cord.</p>
+
+              <div class="settingsGrid">
+
+                <div class="settingsCard">
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsName">Nome do servidor</label>
+                    <input id="serverSettingsName" maxlength="30" placeholder="Nome do servidor">
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel">Ícone</label>
+                    <div style="display:flex;align-items:center;gap:16px;">
+                      <div id="serverSettingsIconPreview" class="serverIconPreview">e</div>
+                      <div style="flex:1;">
+                        <input id="serverSettingsIconInput" type="file" accept="image/*">
+                        <button id="serverSettingsRemoveIcon" class="btn secondary small" type="button" style="margin-top:8px;">Remover ícone</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel">Faixa / cor do servidor</label>
+                    <div id="serverAccentChoices" class="accentChoices">
+                      <button class="accentChoice" data-accent="#ff6b4a" style="background:#ff6b4a"></button>
+                      <button class="accentChoice" data-accent="#41d99a" style="background:#41d99a"></button>
+                      <button class="accentChoice" data-accent="#b56cff" style="background:#b56cff"></button>
+                      <button class="accentChoice" data-accent="#3ea6ff" style="background:#3ea6ff"></button>
+                      <button class="accentChoice" data-accent="#ffd84a" style="background:#ffd84a"></button>
+                      <button class="accentChoice" data-accent="#ff4f81" style="background:#ff4f81"></button>
+                      <button class="accentChoice" data-accent="#31d7d0" style="background:#31d7d0"></button>
+                      <button class="accentChoice" data-accent="#ff9c42" style="background:#ff9c42"></button>
+                      <button class="accentChoice" data-accent="#74d14c" style="background:#74d14c"></button>
+                      <button class="accentChoice" data-accent="#7b8794" style="background:#7b8794"></button>
+                    </div>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsDescription">Descrição</label>
+                    <textarea id="serverSettingsDescription" maxlength="240" placeholder="Conte para as pessoas sobre o seu servidor..." style="width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsTags">Características</label>
+                    <input id="serverSettingsTags" maxlength="120" placeholder="Ex.: Jogos, Amigos, Comunidade">
+                    <div style="font-size:11px;color:var(--low);margin-top:6px;">Separe por vírgulas. Máximo de 5.</div>
+                  </div>
+
+                  <button id="saveServerSettingsBtn" class="btn primary">Salvar alterações</button>
+                </div>
+
+                <div>
+                  <div style="color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Prévia</div>
+                  <div class="serverPreview">
+                    <div id="serverPreviewBanner" class="serverPreviewBanner"></div>
+                    <div class="serverPreviewInner">
+                      <div id="serverPreviewIcon" class="serverPreviewIcon">e</div>
+                      <div id="serverPreviewName" class="serverPreviewName">Servidor</div>
+                      <div id="serverPreviewDescription" class="serverPreviewDescription">Seu servidor no e-cord.</div>
+                      <div id="serverPreviewTags" class="serverTags"></div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div id="settingsMembersPage" class="settingsPanel hidden">
+              <h2>Membros</h2>
+              <p>Pessoas que estão online no e-cord agora.</p>
+              <div id="settingsMembersList"></div>
+            </div>
+
+            <div id="settingsRolesPage" class="settingsPanel hidden">
+              <h2>Cargos</h2>
+              <p>Gerencie os cargos já existentes do servidor.</p>
+              <button id="settingsOpenRolesBtn" class="btn primary">Abrir gerenciamento de cargos</button>
+            </div>
+
+            <div id="settingsInvitesPage" class="settingsPanel hidden">
+              <h2>Convites</h2>
+              <p>Envie um link para seus amigos entrarem neste servidor.</p>
+              <div class="settingsCard">
+                <button id="settingsCopyInviteBtn" class="btn primary">Copiar convite do servidor</button>
+              </div>
+            </div>
+
+            <div id="settingsSecurityPage" class="settingsPanel hidden">
+              <h2>Segurança</h2>
+              <p>Ferramentas básicas de controle do seu servidor.</p>
+              <div class="settingsCard">
+                <strong>Proteção do e-cord</strong>
+                <p style="color:var(--muted);font-size:13px;line-height:1.55;margin-bottom:0;">
+                  Somente pessoas com o link do convite conseguem abrir este servidor.
+                  Mais permissões por cargo poderão ser adicionadas depois.
+                </p>
+              </div>
+            </div>
+
+            <div id="settingsDeletePage" class="settingsPanel hidden">
+              <h2>Excluir servidor</h2>
+              <p>Essa ação remove o servidor e seus canais do e-cord.</p>
+              <div class="settingsDangerBox">
+                <strong style="color:#ff9696;">Zona de perigo</strong>
+                <p style="color:var(--muted);font-size:13px;line-height:1.5;">
+                  Depois de excluir, não será possível recuperar pelo aplicativo.
+                </p>
+                <button id="settingsDeleteServerBtn" class="btn danger">Excluir servidor</button>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
@@ -982,7 +1364,9 @@ const state = {
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
-  pendingAvatar: null
+  pendingAvatar: null,
+  serverSettingsIcon: null,
+  serverSettingsAccent: '#ff6b4a'
 };
 
 const rtcConfig = {
@@ -1144,6 +1528,12 @@ function safeServerSnapshot(serverData){
   return {
     id:String(serverData.id),
     name:String(serverData.name || 'Servidor').slice(0,30),
+    icon:String(serverData.icon || '').slice(0,350000),
+    accent:/^#[0-9a-f]{6}$/i.test(String(serverData.accent||'')) ? String(serverData.accent) : '#ff6b4a',
+    description:String(serverData.description || '').slice(0,240),
+    tags:Array.isArray(serverData.tags)
+      ? serverData.tags.map(tag=>String(tag||'').slice(0,22)).filter(Boolean).slice(0,5)
+      : [],
     textChannels:Array.isArray(serverData.textChannels)
       ? serverData.textChannels.map(c=>({id:String(c.id),name:String(c.name||'chat').slice(0,30)}))
       : [],
@@ -1222,6 +1612,7 @@ function setView(name){
   $('#homeView').classList.toggle('hidden', name!=='home');
   $('#friendsView').classList.toggle('hidden', name!=='friends');
   $('#rolesView').classList.toggle('hidden', name!=='roles');
+  $('#serverSettingsView').classList.toggle('hidden', name!=='settings');
   $('#chatView').classList.toggle('hidden', name!=='chat');
   $('#voiceView').classList.toggle('hidden', name!=='voice');
   $('#homeBtn').classList.toggle('active', name==='home');
@@ -1243,6 +1634,11 @@ function setView(name){
     $('#topSub').textContent = currentServer()?.name || '';
     renderRoles();
   }
+  if(name==='settings'){
+    $('#topTitle').textContent = '⚙ Configurações do servidor';
+    $('#topSub').textContent = currentServer()?.name || '';
+    openServerSettings();
+  }
   if(name==='chat'){
     const c = currentText();
     $('#topTitle').textContent = c ? '# '+c.name : '# chat';
@@ -1261,8 +1657,18 @@ function renderServers(){
   state.servers.forEach(s=>{
     const b = document.createElement('button');
     b.className = 'serverIcon' + (s.id===state.serverId ? ' active' : '');
-    b.textContent = initials(s.name);
     b.title = s.name;
+
+    if(s.icon){
+      b.textContent = '';
+      b.style.backgroundImage = 'url("' + String(s.icon).replace(/"/g,'') + '")';
+      b.style.backgroundSize = 'cover';
+      b.style.backgroundPosition = 'center';
+    }else{
+      b.textContent = initials(s.name);
+      b.style.backgroundImage = '';
+      if(s.accent) b.style.backgroundColor = s.accent;
+    }
     b.addEventListener('click', ()=>selectServer(s.id));
     rail.appendChild(b);
   });
@@ -1276,11 +1682,13 @@ function renderSidebar(){
     $('#textChannels').innerHTML = '';
     $('#voiceChannels').innerHTML = '';
     $('#inviteBtn').disabled = true;
+    $('#serverSettingsBtn').disabled = true;
     $('#deleteServerBtn').disabled = true;
     return;
   }
 
   $('#inviteBtn').disabled = false;
+  $('#serverSettingsBtn').disabled = false;
   $('#deleteServerBtn').disabled = false;
   $('#serverTitle').textContent = s.name;
 
@@ -1304,6 +1712,211 @@ function renderSidebar(){
     b.querySelector('span:last-child').textContent = c.name;
     b.addEventListener('click', ()=>selectVoice(c.id));
     voiceBox.appendChild(b);
+  });
+}
+
+
+function setServerSettingsPage(page){
+  const pages = ['profile','members','roles','invites','security','delete'];
+
+  pages.forEach(name=>{
+    const id =
+      name === 'profile' ? '#settingsProfilePage' :
+      name === 'members' ? '#settingsMembersPage' :
+      name === 'roles' ? '#settingsRolesPage' :
+      name === 'invites' ? '#settingsInvitesPage' :
+      name === 'security' ? '#settingsSecurityPage' :
+      '#settingsDeletePage';
+
+    $(id).classList.toggle('hidden',name !== page);
+  });
+
+  document.querySelectorAll('.settingsNavBtn').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.settingsPage === page);
+  });
+
+  if(page === 'members'){
+    renderSettingsMembers();
+  }
+}
+
+function updateServerSettingsPreview(){
+  const server = currentServer();
+  if(!server) return;
+
+  const name = $('#serverSettingsName').value.trim() || 'Servidor';
+  const description = $('#serverSettingsDescription').value.trim();
+  const accent = state.serverSettingsAccent || '#ff6b4a';
+  const icon = state.serverSettingsIcon || '';
+
+  $('#serverPreviewBanner').style.background = accent;
+  $('#serverPreviewName').textContent = name;
+  $('#serverPreviewDescription').textContent =
+    description || 'Seu servidor no e-cord.';
+
+  const iconPreview = $('#serverPreviewIcon');
+  const settingsIcon = $('#serverSettingsIconPreview');
+
+  [iconPreview,settingsIcon].forEach(el=>{
+    if(icon){
+      el.textContent = '';
+      el.style.backgroundImage = 'url("' + icon.replace(/"/g,'') + '")';
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundPosition = 'center';
+    }else{
+      el.style.backgroundImage = '';
+      el.style.background = accent;
+      el.textContent = initials(name);
+    }
+  });
+
+  const tags = $('#serverSettingsTags').value
+    .split(',')
+    .map(item=>item.trim())
+    .filter(Boolean)
+    .slice(0,5);
+
+  const tagsBox = $('#serverPreviewTags');
+  tagsBox.innerHTML = '';
+
+  tags.forEach(tag=>{
+    const span = document.createElement('span');
+    span.className = 'serverTag';
+    span.textContent = tag;
+    tagsBox.appendChild(span);
+  });
+
+  document.querySelectorAll('.accentChoice').forEach(btn=>{
+    btn.classList.toggle(
+      'active',
+      String(btn.dataset.accent).toLowerCase() === accent.toLowerCase()
+    );
+  });
+}
+
+function openServerSettings(){
+  const server = currentServer();
+  if(!server) return;
+
+  $('#settingsServerName').textContent = server.name;
+  $('#serverSettingsName').value = server.name || '';
+  $('#serverSettingsDescription').value = server.description || '';
+  $('#serverSettingsTags').value = Array.isArray(server.tags)
+    ? server.tags.join(', ')
+    : '';
+
+  state.serverSettingsIcon = server.icon || '';
+  state.serverSettingsAccent = server.accent || '#ff6b4a';
+
+  $('#serverSettingsIconInput').value = '';
+
+  setServerSettingsPage('profile');
+  updateServerSettingsPreview();
+}
+
+function renderSettingsMembers(){
+  const box = $('#settingsMembersList');
+  box.innerHTML = '';
+
+  const users = Array.isArray(state.onlineUsers) ? state.onlineUsers : [];
+
+  if(!users.length){
+    const empty = document.createElement('div');
+    empty.className = 'settingsCard';
+    empty.style.color = 'var(--low)';
+    empty.textContent = 'Nenhum usuário online agora.';
+    box.appendChild(empty);
+    return;
+  }
+
+  users.forEach(user=>{
+    const row = document.createElement('div');
+    row.className = 'settingsMember';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    applyAvatar(avatar,user,user.username);
+
+    const meta = document.createElement('div');
+    meta.style.flex = '1';
+
+    const name = document.createElement('strong');
+    name.textContent = user.username || 'Usuário';
+
+    const status = document.createElement('div');
+    status.style.cssText = 'font-size:11px;color:var(--mint);margin-top:2px;';
+    status.textContent = '● Online';
+
+    meta.append(name,status);
+    row.append(avatar,meta);
+    box.appendChild(row);
+  });
+}
+
+async function readServerIcon(file){
+  if(!file) return '';
+
+  const reader = new FileReader();
+
+  return await new Promise((resolve,reject)=>{
+    reader.onerror = ()=>reject(new Error('Erro ao ler imagem'));
+
+    reader.onload = ()=>{
+      const img = new Image();
+
+      img.onerror = ()=>reject(new Error('Imagem inválida'));
+
+      img.onload = ()=>{
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        const source = Math.min(img.naturalWidth,img.naturalHeight);
+        const sx = (img.naturalWidth-source)/2;
+        const sy = (img.naturalHeight-source)/2;
+
+        ctx.drawImage(
+          img,
+          sx,sy,source,source,
+          0,0,size,size
+        );
+
+        resolve(canvas.toDataURL('image/jpeg',0.82));
+      };
+
+      img.src = reader.result;
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function saveServerSettings(){
+  const server = currentServer();
+  if(!server) return;
+
+  const name = $('#serverSettingsName').value.trim().slice(0,30);
+
+  if(!name){
+    toast('Digite um nome para o servidor');
+    return;
+  }
+
+  const tags = $('#serverSettingsTags').value
+    .split(',')
+    .map(tag=>tag.trim().slice(0,22))
+    .filter(Boolean)
+    .slice(0,5);
+
+  socket.emit('update-server-settings',{
+    serverId:server.id,
+    name,
+    icon:state.serverSettingsIcon || '',
+    accent:state.serverSettingsAccent || '#ff6b4a',
+    description:$('#serverSettingsDescription').value.trim().slice(0,240),
+    tags
   });
 }
 
@@ -2466,7 +3079,56 @@ $('#profileModalWrap').addEventListener('click',event=>{
   if(event.target === $('#profileModalWrap')) closeProfileModal();
 });
 
+$('#serverSettingsBtn').addEventListener('click',()=>{
+  if(!currentServer()){
+    toast('Crie um servidor primeiro');
+    return;
+  }
+  setView('settings');
+});
+
 $('#deleteServerBtn').addEventListener('click',deleteCurrentServer);
+
+document.querySelectorAll('.settingsNavBtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    setServerSettingsPage(btn.dataset.settingsPage);
+  });
+});
+
+$('#serverSettingsName').addEventListener('input',updateServerSettingsPreview);
+$('#serverSettingsDescription').addEventListener('input',updateServerSettingsPreview);
+$('#serverSettingsTags').addEventListener('input',updateServerSettingsPreview);
+
+document.querySelectorAll('.accentChoice').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    state.serverSettingsAccent = btn.dataset.accent || '#ff6b4a';
+    updateServerSettingsPreview();
+  });
+});
+
+$('#serverSettingsIconInput').addEventListener('change',async event=>{
+  const file = event.target.files?.[0];
+  if(!file) return;
+
+  try{
+    state.serverSettingsIcon = await readServerIcon(file);
+    updateServerSettingsPreview();
+  }catch(error){
+    console.error(error);
+    toast('Não foi possível usar esse ícone');
+  }
+});
+
+$('#serverSettingsRemoveIcon').addEventListener('click',()=>{
+  state.serverSettingsIcon = '';
+  $('#serverSettingsIconInput').value = '';
+  updateServerSettingsPreview();
+});
+
+$('#saveServerSettingsBtn').addEventListener('click',saveServerSettings);
+$('#settingsOpenRolesBtn').addEventListener('click',()=>setView('roles'));
+$('#settingsCopyInviteBtn').addEventListener('click',copyInvite);
+$('#settingsDeleteServerBtn').addEventListener('click',deleteCurrentServer);
 
 $('#acceptCallBtn').addEventListener('click',()=>{
   const call = state.incomingCall;
@@ -2672,6 +3334,17 @@ socket.on('server-list',list=>{
   renderServers();
   renderSidebar();
   renderRoles();
+});
+
+socket.on('server-settings-updated',({serverId,message})=>{
+  renderServers();
+  renderSidebar();
+
+  if(state.serverId===serverId && !$('#serverSettingsView').classList.contains('hidden')){
+    openServerSettings();
+  }
+
+  toast(message || 'Servidor atualizado');
 });
 
 socket.on('server-deleted',({serverId})=>{
@@ -2930,6 +3603,31 @@ io.on('connection', socket => {
     saveServersToDisk();
     io.emit('server-list', publicServers());
     socket.emit('server-created', { serverId: created.id });
+  });
+
+  socket.on('update-server-settings', ({ serverId, name, icon, accent, description, tags }) => {
+    const safeId = String(serverId || '').slice(0,80);
+    const serverData = servers.get(safeId);
+
+    if (!serverData) return;
+
+    serverData.name = cleanName(name, serverData.name || 'Servidor');
+    serverData.icon = String(icon || '').slice(0,350000);
+    serverData.accent = /^#[0-9a-f]{6}$/i.test(String(accent || ''))
+      ? String(accent)
+      : (serverData.accent || '#ff6b4a');
+    serverData.description = String(description || '').trim().slice(0,240);
+    serverData.tags = Array.isArray(tags)
+      ? tags.map(tag => String(tag || '').trim().slice(0,22)).filter(Boolean).slice(0,5)
+      : [];
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+
+    socket.emit('server-settings-updated',{
+      serverId:safeId,
+      message:'Configurações salvas'
+    });
   });
 
   socket.on('delete-server', ({ serverId }) => {
