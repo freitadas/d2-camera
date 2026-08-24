@@ -1038,7 +1038,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-call-stability-v5';
+const CACHE='acord-social-tools-v6';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3480,6 +3480,26 @@ html[data-palette="candy"]{
   }
 }
 
+
+.chatSearchInput{
+  width:min(250px,32vw)!important;height:34px!important;min-height:34px!important;
+  padding:0 10px!important;font-size:11px!important
+}
+.typingIndicator{min-height:24px;padding:4px 16px 7px;color:var(--muted);font-size:10px;font-style:italic}
+.notificationPanel{
+  position:fixed;top:62px;right:18px;z-index:2000000;width:min(360px,calc(100vw - 36px));
+  max-height:520px;overflow:hidden;border:1px solid var(--line);border-radius:12px;
+  background:var(--bg1);box-shadow:0 18px 50px rgba(0,0,0,.35)
+}
+.notificationPanelHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.notificationList{max-height:450px;overflow:auto;padding:6px}
+.notificationItem{padding:10px;border-radius:8px;color:var(--muted);font-size:11px}
+.notificationItem:hover{background:var(--bg2);color:var(--text)}
+.notificationItem strong{display:block;color:var(--text);font-size:12px;margin-bottom:3px}
+.notificationEmpty{padding:18px;color:var(--low);font-size:11px;text-align:center}
+.videoCard.speaking{outline:3px solid var(--coral)!important;outline-offset:2px!important;box-shadow:0 0 26px color-mix(in srgb,var(--coral) 28%,transparent)!important}
+.serverMemberRow.blockedUser,.friendRow.blockedUser{opacity:.42!important}
+
 </style>
 </head>
 <body>
@@ -3640,7 +3660,10 @@ html[data-palette="candy"]{
         <div id="topTitle" class="topTitle">Acord</div>
         <div id="topSub" class="topSub">servidores, chat, voz, câmera e tela</div>
       </div>
-      <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="notificationBtn" class="btn secondary small" type="button">Notificações <span id="notificationBadge" class="unreadBadge hidden">0</span></button>
+        <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
+      </div>
     </header>
 
     <div class="content">
@@ -3874,8 +3897,12 @@ html[data-palette="candy"]{
       </section>
 
       <section id="chatView" class="view chatView hidden">
-        <div class="chatHead"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
+        <div class="chatHead" style="display:flex;align-items:center;gap:10px;">
+          <div style="min-width:0;flex:1;"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
+          <input id="chatSearchInput" class="chatSearchInput" type="search" placeholder="Pesquisar mensagens">
+        </div>
         <div id="messages" class="messages"></div>
+        <div id="typingIndicator" class="typingIndicator hidden"></div>
         <div id="replyBar" class="replyBar hidden">
           <span id="replyBarText">Respondendo...</span>
           <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
@@ -4299,6 +4326,24 @@ html[data-palette="candy"]{
 </div>
 
 <button id="installAppBtn" class="installAppBtn hidden" type="button">⬇ Instalar aplicativo</button>
+<div id="notificationPanel" class="notificationPanel hidden">
+  <div class="notificationPanelHead">
+    <strong>Notificações</strong>
+    <button id="clearNotificationsBtn" class="btn secondary small" type="button">Limpar</button>
+  </div>
+  <div id="notificationList" class="notificationList">
+    <div class="notificationEmpty">Nenhuma notificação.</div>
+  </div>
+</div>
+
+<div id="userContextMenu" class="messageContextMenu hidden">
+  <button id="userContextProfileBtn" type="button">Ver perfil</button>
+  <button id="userContextMessageBtn" type="button">Mensagem</button>
+  <button id="userContextCallBtn" type="button">Ligar</button>
+  <button id="userContextBlockBtn" type="button">Bloquear</button>
+  <button id="userContextKickBtn" class="danger hidden" type="button">Expulsar do servidor</button>
+</div>
+
 <div id="messageContextMenu" class="messageContextMenu hidden">
   <button id="contextReplyBtn" type="button">Responder</button>
   <button id="contextEditBtn" type="button">Editar</button>
@@ -4438,7 +4483,19 @@ const state = {
   profileReady: false,
   voiceReconnectPending:false,
   voiceReconnectTimer:null,
-  voiceReconnectAttempts:0
+  voiceReconnectAttempts:0,
+  notifications:[],
+  blockedUsers:new Set((()=>{
+    try{
+      const value=JSON.parse(localStorage.getItem('acord-blocked-users')||'[]');
+      return Array.isArray(value)?value:[];
+    }catch{return []}
+  })()),
+  userContextProfile:null,
+  typingTimer:null,
+  typingUsers:new Map(),
+  chatSearch:'',
+  speakingMonitors:new Map()
 };
 
 const rtcConfig = {
@@ -4886,6 +4943,153 @@ function openMessageContextMenu(event,message){
 
   menu.style.left=Math.max(margin,x)+'px';
   menu.style.top=Math.max(margin,y)+'px';
+}
+
+
+function persistBlockedUsers(){
+  localStorage.setItem('acord-blocked-users',JSON.stringify([...state.blockedUsers]));
+}
+
+function addNotification(title,body=''){
+  state.notifications.unshift({
+    id:'n-'+Date.now()+'-'+Math.random().toString(36).slice(2,8),
+    title:String(title||'Acord').slice(0,80),
+    body:String(body||'').slice(0,180),
+    at:Date.now()
+  });
+  state.notifications=state.notifications.slice(0,50);
+  renderNotifications();
+  if(document.visibilityState!=='visible') maybeNotify(title,body);
+}
+
+function renderNotifications(){
+  const list=$('#notificationList');
+  const badge=$('#notificationBadge');
+  if(!list||!badge) return;
+
+  badge.textContent=String(state.notifications.length);
+  badge.classList.toggle('hidden',!state.notifications.length);
+  list.innerHTML='';
+
+  if(!state.notifications.length){
+    const empty=document.createElement('div');
+    empty.className='notificationEmpty';
+    empty.textContent='Nenhuma notificação.';
+    list.appendChild(empty);
+    return;
+  }
+
+  state.notifications.forEach(item=>{
+    const row=document.createElement('div');
+    row.className='notificationItem';
+    const title=document.createElement('strong');
+    title.textContent=item.title;
+    const body=document.createElement('div');
+    body.textContent=item.body;
+    row.append(title,body);
+    list.appendChild(row);
+  });
+}
+
+function closeUserContextMenu(){
+  state.userContextProfile=null;
+  $('#userContextMenu')?.classList.add('hidden');
+}
+
+function openUserContextMenu(event,profile,serverMode=false){
+  event.preventDefault();
+  if(!profile?.id || profile.id===state.userId) return;
+
+  state.userContextProfile=profile;
+  const menu=$('#userContextMenu');
+
+  $('#userContextBlockBtn').textContent=
+    state.blockedUsers.has(profile.id)?'Desbloquear':'Bloquear';
+
+  const canKick=
+    serverMode &&
+    currentServer() &&
+    currentServer().ownerId===state.userId &&
+    profile.id!==currentServer().ownerId;
+
+  $('#userContextKickBtn').classList.toggle('hidden',!canKick);
+
+  menu.classList.remove('hidden');
+  const rect=menu.getBoundingClientRect();
+  menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-rect.width-8))+'px';
+  menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-rect.height-8))+'px';
+}
+
+function filterVisibleMessages(){
+  const search=String(state.chatSearch||'').trim().toLowerCase();
+  document.querySelectorAll('#messages .message').forEach(row=>{
+    row.classList.toggle('hidden',!!search && !String(row.textContent||'').toLowerCase().includes(search));
+  });
+}
+
+function updateTypingIndicator(){
+  const indicator=$('#typingIndicator');
+  if(!indicator) return;
+
+  const now=Date.now();
+  for(const [id,value] of state.typingUsers){
+    if(now-value.at>2600) state.typingUsers.delete(id);
+  }
+
+  const names=[...state.typingUsers.values()].map(v=>v.username).filter(Boolean);
+
+  if(!names.length){
+    indicator.classList.add('hidden');
+    indicator.textContent='';
+    return;
+  }
+
+  indicator.textContent=names.length===1
+    ? names[0]+' está digitando...'
+    : names.slice(0,2).join(' e ')+' estão digitando...';
+
+  indicator.classList.remove('hidden');
+}
+
+function startSpeakingMonitor(peerId,stream){
+  if(!stream?.getAudioTracks?.().length) return;
+
+  try{
+    const context=getSharedAudioContext();
+    if(!context) return;
+
+    const source=context.createMediaStreamSource(stream);
+    const analyser=context.createAnalyser();
+    analyser.fftSize=256;
+    analyser.smoothingTimeConstant=.65;
+    source.connect(analyser);
+
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    const monitor={source,analyser,frame:null};
+
+    const tick=()=>{
+      analyser.getByteFrequencyData(data);
+      let total=0;
+      for(const value of data) total+=value;
+      const average=total/data.length;
+      document.getElementById('v-'+peerId)?.classList.toggle('speaking',average>18);
+      monitor.frame=requestAnimationFrame(tick);
+    };
+
+    monitor.frame=requestAnimationFrame(tick);
+    state.speakingMonitors.set(peerId,monitor);
+  }catch{}
+}
+
+function stopSpeakingMonitor(peerId){
+  const monitor=state.speakingMonitors.get(peerId);
+  if(!monitor) return;
+
+  try{cancelAnimationFrame(monitor.frame)}catch{}
+  try{monitor.source?.disconnect()}catch{}
+  try{monitor.analyser?.disconnect()}catch{}
+  state.speakingMonitors.delete(peerId);
+  document.getElementById('v-'+peerId)?.classList.remove('speaking');
 }
 
 function toast(text){
@@ -6147,6 +6351,8 @@ function renderServerPresence(){
       meta.append(name,status);
       row.append(avatarWrap,meta);
       row.addEventListener('click',()=>openServerMemberProfile(profile.id));
+      row.classList.toggle('blockedUser',state.blockedUsers.has(profile.id));
+      row.addEventListener('contextmenu',event=>openUserContextMenu(event,profile,true));
       wrap.appendChild(row);
     });
 
@@ -6637,7 +6843,9 @@ function appendMessage(m){
     openMessageContextMenu(event,m);
   });
 
-  $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
+  $('#messages').appendChild(row);
+  filterVisibleMessages();
+  $('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
 function sendMessage(){
@@ -6994,6 +7202,8 @@ function renderFriends(){
 
       meta.append(name,status);
       row.append(avatar,meta);
+      row.classList.toggle('blockedUser',state.blockedUsers.has(profile.id));
+      row.addEventListener('contextmenu',event=>openUserContextMenu(event,profile,false));
       box.appendChild(row);
     });
 
@@ -8050,10 +8260,12 @@ function createPeer(peerId, username, asOfferer = false){
     const name = state.peerNames.get(peerId) || 'Usuário';
 
     if(event.track.kind === 'audio'){
-      ensureRemoteAudio(peerId, event.track, event.streams?.[0] || null);
+      ensureRemoteAudio(peerId,event.track,event.streams?.[0]||null);
 
-      const visualStream = getRemoteStream(peerId);
-      ensureCard(peerId, name, visualStream, false);
+      const visualStream=getRemoteStream(peerId);
+      ensureCard(peerId,name,visualStream,false);
+
+      startSpeakingMonitor(peerId,event.streams?.[0] || new MediaStream([event.track]));
       return;
     }
 
@@ -8206,6 +8418,7 @@ async function enterPrivateCall(callId,peerName){
     syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
+    startSpeakingMonitor('local',state.localStream);
 
     socket.emit('join-private-call',{
       callId,
@@ -8310,6 +8523,7 @@ async function joinVoice(){
     syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
+    startSpeakingMonitor('local',state.localStream);
 
     unlockAllRemoteAudio();
 
@@ -8522,6 +8736,7 @@ async function toggleCamera(){
     $('#cameraBtn').textContent = 'Câmera';
     $('#cameraBtn').classList.toggle('off',!state.cameraTrack.enabled);
     ensureCard('local',state.username+' (você)',state.localStream,true);
+    startSpeakingMonitor('local',state.localStream);
     return;
   }
 
@@ -8564,6 +8779,7 @@ async function toggleCamera(){
     await applyCameraSenderQuality();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
+    startSpeakingMonitor('local',state.localStream);
     $('#cameraBtn').textContent = 'Câmera';
     $('#cameraBtn').classList.remove('off');
   }catch(err){
@@ -8931,6 +9147,7 @@ $('#authPassword').addEventListener('keydown',event=>{
 });
 $('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
+renderNotifications();
 if($('#addFriendBtn')){
   $('#addFriendBtn').textContent='Adicionar amigo';
 }
@@ -9203,6 +9420,93 @@ $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$(
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
+
+$('#chatSearchInput').addEventListener('input',event=>{
+  state.chatSearch=event.target.value||'';
+  filterVisibleMessages();
+});
+
+$('#messageInput').addEventListener('input',()=>{
+  if(!state.serverId||!state.textChannelId) return;
+  socket.emit('chat-typing',{serverId:state.serverId,channelId:state.textChannelId});
+});
+
+$('#notificationBtn').addEventListener('click',event=>{
+  event.stopPropagation();
+  $('#notificationPanel').classList.toggle('hidden');
+});
+
+$('#clearNotificationsBtn').addEventListener('click',()=>{
+  state.notifications=[];
+  renderNotifications();
+});
+
+$('#userContextProfileBtn').addEventListener('click',()=>{
+  const profile=state.userContextProfile;
+  closeUserContextMenu();
+  if(!profile) return;
+
+  const member=serverMemberProfiles().find(item=>item.id===profile.id);
+  if(member) openServerMemberProfile(profile.id);
+  else toast((profile.displayName||profile.username||'Usuário')+' · '+(profile.bio||'Sem bio'));
+});
+
+$('#userContextMessageBtn').addEventListener('click',()=>{
+  const profile=state.userContextProfile;
+  closeUserContextMenu();
+  if(!profile) return;
+
+  const friend=getFriends().find(item=>item.id===profile.id);
+  if(!friend){
+    toast('Adicione essa pessoa como amigo primeiro');
+    return;
+  }
+
+  state.dmTarget=profile.id;
+  setView('dm');
+  openDm(profile);
+});
+
+$('#userContextCallBtn').addEventListener('click',()=>{
+  const profile=state.userContextProfile;
+  closeUserContextMenu();
+  if(!profile) return;
+  socket.emit('private-call-request',{toUserId:profile.id});
+});
+
+$('#userContextBlockBtn').addEventListener('click',()=>{
+  const profile=state.userContextProfile;
+  if(!profile) return;
+
+  if(state.blockedUsers.has(profile.id)){
+    state.blockedUsers.delete(profile.id);
+    toast('Usuário desbloqueado');
+  }else{
+    state.blockedUsers.add(profile.id);
+    toast('Usuário bloqueado');
+  }
+
+  persistBlockedUsers();
+  closeUserContextMenu();
+  renderFriends();
+  if(currentServer() && state.currentView!=='voice') renderServerPresence();
+});
+
+$('#userContextKickBtn').addEventListener('click',()=>{
+  const profile=state.userContextProfile;
+  closeUserContextMenu();
+  if(!profile||!state.serverId) return;
+  if(!confirm('Expulsar '+(profile.username||'este membro')+' do servidor?')) return;
+
+  socket.emit('server-kick-member',{serverId:state.serverId,userId:profile.id});
+});
+
+document.addEventListener('click',event=>{
+  if(!event.target.closest('#notificationPanel')&&!event.target.closest('#notificationBtn')){
+    $('#notificationPanel').classList.add('hidden');
+  }
+  if(!event.target.closest('#userContextMenu')) closeUserContextMenu();
+});
 $('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
 $('#contextReplyBtn').addEventListener('click',()=>{
   const message=messageContextTarget;
@@ -9476,6 +9780,23 @@ socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
 socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
+socket.on('chat-typing',data=>{
+  if(
+    data?.serverId!==state.serverId ||
+    data?.channelId!==state.textChannelId ||
+    data?.userId===state.userId ||
+    state.blockedUsers.has(data?.userId)
+  ) return;
+
+  state.typingUsers.set(data.userId,{
+    username:data.username||'Usuário',
+    at:Date.now()
+  });
+
+  updateTypingIndicator();
+  setTimeout(updateTypingIndicator,2800);
+});
+
 socket.on('chat-message-updated',message=>{
   if(message?.serverId!==state.serverId||message?.channelId!==state.textChannelId)return;
   document.querySelector('.message[data-message-id="' + message.id + '"]')?.remove();
@@ -9484,7 +9805,7 @@ socket.on('chat-message-updated',message=>{
 socket.on('chat-message-deleted',({messageId})=>document.querySelector('.message[data-message-id="' + messageId + '"]')?.remove());
 socket.on('stage-hand-raised',data=>{
   toast('✋ '+(data?.username||'Alguém')+' pediu para falar');
-  maybeNotify('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
+  addNotification('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
 });
 socket.on('removed-from-server',({serverId})=>{
   toast('Você foi removido de um servidor');socket.emit('get-servers');
@@ -9604,7 +9925,7 @@ socket.on('friend-lookup-result',result=>{
 
 socket.on('incoming-private-call',data=>{
   showIncomingCall(data);
-  maybeNotify('Ligação no Acord',(data?.username||'Alguém')+' está ligando para você');
+  addNotification('Ligação no Acord',(data?.username||'Alguém')+' está ligando para você');
 });
 
 socket.on('private-call-accepted',data=>{
@@ -9659,7 +9980,9 @@ socket.on('dm-history',history=>{
 
 socket.on('dm-message',message=>{
   if(!message) return;
-  if(message.fromUserId!==state.userId) maybeNotify('Nova mensagem privada',message.fromUsername||'Acord');
+  if(message.fromUserId!==state.userId && !state.blockedUsers.has(message.fromUserId)){
+    addNotification('Nova mensagem privada',message.fromUsername||'Acord');
+  }
 
   const targetId = state.dmTarget?.id;
   const involvesCurrent =
@@ -10021,6 +10344,7 @@ socket.on('user-left',({id})=>{
   state.peerNames.delete(id);
   state.remoteStreams.delete(id);
   removeRemoteAudio(id);
+  stopSpeakingMonitor(id);
   document.getElementById('v-'+id)?.remove();
 });
 
@@ -11266,6 +11590,19 @@ io.on('connection', socket => {
     socket.join(room);
 
     socket.emit('text-history', s.messages.get(channelId) || []);
+  });
+
+  socket.on('chat-typing',({serverId,channelId})=>{
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    if(!s.textChannels.some(channel=>channel.id===channelId)) return;
+
+    socket.to(`text:${serverId}:${channelId}`).emit('chat-typing',{
+      serverId,
+      channelId,
+      userId:socket.data.userId,
+      username:socket.data.username||'Usuário'
+    });
   });
 
   socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment }) => {
