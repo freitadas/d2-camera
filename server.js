@@ -851,18 +851,18 @@ button{cursor:pointer}
 .channelBtn{width:100%;border:0;background:transparent;color:var(--muted);padding:8px 10px;border-radius:9px;text-align:left;display:flex;align-items:center;gap:8px;margin:1px 0}
 .channelBtn:hover,.channelBtn.active{background:var(--bg2);color:var(--text)}
 .channelBtn.voice.active{background:var(--mintbg);color:var(--mint)}
-.userbar{border-top:1px solid var(--line);background:#0a1613;padding:10px 12px;display:flex;align-items:center;gap:9px}
+.userbar{border-top:1px solid var(--line);background:var(--bg1);padding:10px 12px;display:flex;align-items:center;gap:9px}
 .avatar{width:34px;height:34px;border-radius:11px;background:var(--coral);color:#281009;display:grid;place-items:center;font-weight:900}
 .userMeta{min-width:0}.userMeta strong,.userMeta span{display:block}.userMeta strong{font-size:13px;overflow:hidden;text-overflow:ellipsis}.userMeta span{font-size:11px;color:var(--mint)}
 
 .main{min-width:0;display:flex;flex-direction:column;background:radial-gradient(circle at 20% 15%,rgba(65,217,154,.06),transparent 30%),radial-gradient(circle at 82% 75%,rgba(255,107,74,.07),transparent 35%),var(--bg0)}
-.topbar{height:54px;border-bottom:1px solid var(--line);padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(7,17,14,.93)}
+.topbar{height:54px;border-bottom:1px solid var(--line);padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--bg1)}
 .topLeft{display:flex;align-items:center;gap:9px;min-width:0}.topTitle{font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topSub{font-size:12px;color:var(--muted)}
 .content{flex:1;min-height:0;position:relative}
 .view{height:100%;min-height:0}
 
 .home{display:flex;align-items:center;justify-content:center;padding:24px}
-.homeCard{width:min(620px,100%);background:rgba(13,27,23,.96);border:1px solid var(--line);border-radius:22px;padding:32px;box-shadow:0 22px 70px rgba(0,0,0,.25)}
+.homeCard{width:min(620px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:22px;padding:32px;box-shadow:0 22px 70px rgba(0,0,0,.25)}
 .homeMark{width:62px;height:62px;border-radius:20px;background:var(--coral);color:#281009;display:grid;place-items:center;font-size:25px;font-weight:900}
 .homeCard h1{margin:20px 0 8px;font-size:30px;letter-spacing:-.035em}.homeCard p{color:var(--muted);line-height:1.55}
 .quick{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
@@ -895,7 +895,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .placeholder .bigAvatar{width:82px;height:82px;border-radius:28px;background:var(--coral);color:#281009;display:grid;place-items:center;font-size:30px;font-weight:900}
 .videoCard.hasVideo .placeholder{display:none}
 .videoName{position:absolute;left:10px;bottom:10px;background:rgba(5,8,7,.76);padding:6px 9px;border-radius:8px;font-size:12px;font-weight:800}
-.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:rgba(13,27,23,.95)}
+.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:var(--bg1)}
 .control{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:999px;padding:11px 15px;font-weight:800;min-width:120px}
 .control:hover{background:var(--bg4)}.control.off{background:#18211e;color:var(--muted)}.control.sharing{background:var(--mintbg);color:var(--mint)}.control.danger{background:var(--danger);border-color:transparent}
 
@@ -935,6 +935,29 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .modal{width:min(430px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 25px 80px rgba(0,0,0,.45)}
 .modal h2{margin:0 0 7px}.modal p{margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
 .modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.profileTabs{
+  display:flex;
+  gap:6px;
+  margin:0 0 18px;
+  padding:4px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+.profileTabBtn{
+  flex:1;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:9px 10px;
+  border-radius:9px;
+  font-weight:800;
+}
+.profileTabBtn:hover{background:var(--bg3);color:var(--text)}
+.profileTabBtn.active{background:var(--bg4);color:var(--text)}
+.profileTabPanel{display:none}
+.profileTabPanel.active{display:block}
+
 .profileThemeChoices{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:8px}
 .profileThemeBtn{
   border:1px solid var(--line);
@@ -977,7 +1000,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   overflow:hidden;
   border:1px solid var(--line);
   border-radius:28px;
-  background:rgba(13,27,23,.96);
+  background:var(--bg1);
   box-shadow:0 28px 100px rgba(0,0,0,.42);
 }
 .loginBrandPanel{
@@ -1276,7 +1299,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   padding:14px 18px 10px;
 }
 .friendsSearchWrap input{
-  background:#09130f;
+  background:var(--bg2);
 }
 .friendsListArea{
   min-height:0;
@@ -1330,12 +1353,12 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   height:100%;
   display:grid;
   grid-template-columns:220px minmax(0,1fr);
-  background:#091510;
+  background:var(--bg0);
 }
 .settingsMenu{
   border-right:1px solid var(--line);
   padding:22px 14px;
-  background:#0b1915;
+  background:var(--bg1);
   overflow:auto;
 }
 .settingsServerName{
@@ -2024,26 +2047,35 @@ body.locked{overflow:hidden!important}
 <div id="profileModalWrap" class="modalWrap hidden">
   <div class="modal">
     <h2>Meu perfil</h2>
-    <p>Troque sua foto, seu nome e escreva uma bio curta.</p>
+    <p>Edite seu perfil ou altere a aparência do site.</p>
 
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-      <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
-      <div style="flex:1;">
-        <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
-        <input id="profilePhotoInput" type="file" accept="image/*">
-        <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
-      </div>
+    <div class="profileTabs">
+      <button id="profileInfoTabBtn" class="profileTabBtn active" type="button">Perfil</button>
+      <button id="profileAppearanceTabBtn" class="profileTabBtn" type="button">Aparência</button>
     </div>
 
-    <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
-    <input id="profileNameInput" maxlength="30" placeholder="Seu nome">
+    <div id="profileInfoTab" class="profileTabPanel active">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+        <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
+        <div style="flex:1;">
+          <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
+          <input id="profilePhotoInput" type="file" accept="image/*">
+          <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
+        </div>
+      </div>
 
-    <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
-    <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+      <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
+      <input id="profileNameInput" maxlength="30" placeholder="Seu nome">
 
-    <div style="margin-top:16px;">
-      <div style="color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Aparência do site</div>
-      <div style="color:var(--muted);font-size:11px;">Opcional. Escolha uma cor ou deixe em Padrão.</div>
+      <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
+      <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+    </div>
+
+    <div id="profileAppearanceTab" class="profileTabPanel">
+      <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Cor do site</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px;">
+        Essa opção é só para você. Se não quiser mudar, deixe em Padrão.
+      </div>
 
       <div id="profileThemeChoices" class="profileThemeChoices">
         <button type="button" class="profileThemeBtn" data-profile-theme="default">
@@ -2066,7 +2098,7 @@ body.locked{overflow:hidden!important}
 
     <div class="modalActions">
       <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
-      <button id="profileSaveBtn" class="btn primary">Salvar perfil</button>
+      <button id="profileSaveBtn" class="btn primary">Salvar</button>
     </div>
   </div>
 </div>
@@ -2329,6 +2361,17 @@ function refreshOwnProfileUI(){
   }
 }
 
+
+function setProfileTab(tab){
+  const appearance = tab === 'appearance';
+
+  $('#profileInfoTabBtn').classList.toggle('active',!appearance);
+  $('#profileAppearanceTabBtn').classList.toggle('active',appearance);
+
+  $('#profileInfoTab').classList.toggle('active',!appearance);
+  $('#profileAppearanceTab').classList.toggle('active',appearance);
+}
+
 function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
   state.pendingTheme = normalizeProfileTheme(state.theme);
@@ -2343,6 +2386,7 @@ function openProfileModal(){
   );
 
   updateProfileThemeButtons();
+  setProfileTab('profile');
   $('#profileModalWrap').classList.remove('hidden');
 }
 
@@ -5483,6 +5527,14 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
+
+$('#profileInfoTabBtn').addEventListener('click',()=>{
+  setProfileTab('profile');
+});
+
+$('#profileAppearanceTabBtn').addEventListener('click',()=>{
+  setProfileTab('appearance');
+});
 
 document.querySelectorAll('[data-profile-theme]').forEach(button=>{
   button.addEventListener('click',()=>{
