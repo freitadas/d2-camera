@@ -1038,7 +1038,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-social-tools-v6';
+const CACHE='acord-music-fix-v7';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3932,7 +3932,7 @@ html[data-palette="candy"]{
             </div>
 
             <div class="localMusicBody">
-              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*" multiple>
+              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.oga,.opus,.flac,.webm" multiple>
 
               <div class="localMusicAdd">
                 <button id="localMusicChooseBtn" class="localMusicChoose" type="button">+ Escolher música</button>
@@ -4580,20 +4580,80 @@ async function playLocalMusicTrack(index,autoplay=true){
 
   state.localMusicIndex = index;
 
-  if(audio.src !== track.url){
-    audio.src = track.url;
-    audio.load();
-  }
-
   $('#localMusicTrack').textContent = track.name || 'Música';
+  $('#localMusicCurrent').textContent = '0:00';
+  $('#localMusicDuration').textContent = 'Carregando...';
+  $('#localMusicSeek').value = 0;
+
   renderLocalMusicQueue();
 
-  if(autoplay){
-    try{
+  try{
+    if(audio.src !== track.url){
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+
+      audio.src = track.url;
+      audio.preload = 'auto';
+      audio.load();
+    }
+
+    if(audio.readyState < 2){
+      await new Promise((resolve,reject)=>{
+        let finished=false;
+
+        const cleanup=()=>{
+          audio.removeEventListener('canplay',onReady);
+          audio.removeEventListener('loadeddata',onReady);
+          audio.removeEventListener('error',onError);
+        };
+
+        const onReady=()=>{
+          if(finished) return;
+          finished=true;
+          cleanup();
+          resolve();
+        };
+
+        const onError=()=>{
+          if(finished) return;
+          finished=true;
+          cleanup();
+          reject(audio.error || new Error('Formato de áudio não suportado'));
+        };
+
+        audio.addEventListener('canplay',onReady,{once:true});
+        audio.addEventListener('loadeddata',onReady,{once:true});
+        audio.addEventListener('error',onError,{once:true});
+
+        setTimeout(()=>{
+          if(finished) return;
+
+          // Alguns navegadores já estão prontos mas não dispararam
+          // o evento após uma troca muito rápida de src.
+          if(audio.readyState >= 2){
+            onReady();
+          }
+        },1200);
+      });
+    }
+
+    if(autoplay){
       await audio.play();
-    }catch(error){
-      console.warn('Não foi possível iniciar a música:',error);
-      toast('Clique em ▶ para tocar a música');
+    }
+
+    $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
+  }catch(error){
+    console.warn('Não foi possível reproduzir a música:',error);
+
+    const code = audio.error?.code || 0;
+
+    if(code === 4){
+      toast('Esse formato de áudio não é suportado. Tente MP3, WAV ou OGG.');
+    }else if(track.local){
+      toast('Não consegui abrir esse arquivo. Tente outro MP3.');
+    }else{
+      toast('Esse link não fornece um áudio reproduzível diretamente.');
     }
   }
 
@@ -4601,10 +4661,15 @@ async function playLocalMusicTrack(index,autoplay=true){
 }
 
 function addLocalMusicFiles(files){
-  const list = Array.from(files || []).filter(file=>String(file.type || '').startsWith('audio/'));
+  const supportedExtensions = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|webm)$/i;
+
+  const list = Array.from(files || []).filter(file=>
+    String(file.type || '').startsWith('audio/') ||
+    supportedExtensions.test(String(file.name || ''))
+  );
 
   if(!list.length){
-    toast('Escolha um arquivo de áudio');
+    toast('Escolha um arquivo de áudio compatível');
     return;
   }
 
@@ -4617,17 +4682,19 @@ function addLocalMusicFiles(files){
     state.localMusicQueue.push({
       name:String(file.name || 'Música').replace(/\.[^.]+$/,''),
       url,
-      local:true
+      local:true,
+      type:String(file.type || ''),
+      size:Number(file.size || 0)
     });
   });
 
   renderLocalMusicQueue();
 
-  if(state.localMusicIndex < 0){
-    playLocalMusicTrack(firstNewIndex,false);
-  }
+  // A escolha do arquivo já é um gesto do usuário:
+  // podemos iniciar a reprodução imediatamente.
+  playLocalMusicTrack(firstNewIndex,true);
 
-  toast(list.length === 1 ? 'Música adicionada' : 'Músicas adicionadas');
+  toast(list.length === 1 ? 'Música adicionada e reproduzindo' : 'Músicas adicionadas');
 }
 
 function addLocalMusicUrl(){
@@ -4742,9 +4809,15 @@ async function toggleLocalMusicPlayback(){
 
   if(audio.paused){
     try{
+      if(audio.readyState < 2){
+        await playLocalMusicTrack(state.localMusicIndex,true);
+        return;
+      }
+
       await audio.play();
-    }catch{
-      toast('Não foi possível tocar essa música');
+    }catch(error){
+      console.warn('Falha ao tocar:',error);
+      toast('Não foi possível tocar. Tente um arquivo MP3.');
     }
   }else{
     audio.pause();
@@ -9637,6 +9710,7 @@ $('#localMusicSeek').addEventListener('input',event=>{
 $('#localMusicAudio').addEventListener('loadedmetadata',()=>{
   const audio = $('#localMusicAudio');
   $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
+  $('#localMusicSeek').value = 0;
 });
 
 $('#localMusicAudio').addEventListener('timeupdate',()=>{
@@ -9670,8 +9744,14 @@ $('#musicFavoriteBtn').addEventListener('click',()=>{
 });
 $('#localMusicAudio').addEventListener('ended',nextLocalMusic);
 $('#localMusicAudio').addEventListener('error',()=>{
+  const audio=$('#localMusicAudio');
   updateLocalMusicPlayButton();
-  toast('Não foi possível reproduzir essa música');
+
+  if(audio.error?.code===4){
+    $('#localMusicDuration').textContent='Formato inválido';
+  }else{
+    $('#localMusicDuration').textContent='Erro';
+  }
 });
 
 const savedLocalMusicVolume = Math.max(
