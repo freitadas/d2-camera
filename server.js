@@ -5003,6 +5003,14 @@ async function attachLocalTracks(pc){
       params.encodings[0].maxFramerate = preset.frameRate.max || preset.frameRate.ideal || 30;
       await videoTx.sender.setParameters(params);
     }catch{}
+  }else if(state.cameraTrack && activeVideoTrack === state.cameraTrack){
+    try{
+      const params = videoTx.sender.getParameters();
+      params.encodings = params.encodings?.length ? params.encodings : [{}];
+      params.encodings[0].maxBitrate = 5000000;
+      params.encodings[0].maxFramerate = 30;
+      await videoTx.sender.setParameters(params);
+    }catch{}
   }
 }
 
@@ -5625,6 +5633,26 @@ async function replaceVideoForAll(track){
   await Promise.allSettled(tasks);
 }
 
+
+async function applyCameraSenderQuality(){
+  for(const pc of state.peers.values()){
+    const tx = getTransceiverByKind(pc,'video');
+    const sender = tx?.sender;
+
+    if(!sender || !sender.track || sender.track !== state.cameraTrack) continue;
+
+    try{
+      const params = sender.getParameters();
+      params.encodings = params.encodings?.length ? params.encodings : [{}];
+      params.encodings[0].maxBitrate = 5000000;
+      params.encodings[0].maxFramerate = 30;
+      await sender.setParameters(params);
+    }catch(error){
+      console.warn('Não foi possível aplicar o bitrate Full HD da câmera:',error);
+    }
+  }
+}
+
 async function toggleCamera(){
   if(!state.joinedVoiceId) return;
 
@@ -5633,6 +5661,10 @@ async function toggleCamera(){
 
     if(!state.screenTrack){
       await replaceVideoForAll(state.cameraTrack.enabled ? state.cameraTrack : null);
+
+      if(state.cameraTrack.enabled){
+        await applyCameraSenderQuality();
+      }
     }
 
     $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : '📷 Ligar câmera';
@@ -5646,15 +5678,37 @@ async function toggleCamera(){
     $('#cameraBtn').textContent = 'Abrindo...';
 
     const cam = await navigator.mediaDevices.getUserMedia({
-      video:{width:{ideal:1280},height:{ideal:720}},
+      video:{
+        width:{ideal:1920},
+        height:{ideal:1080},
+        frameRate:{ideal:30,max:30},
+        aspectRatio:{ideal:16/9}
+      },
       audio:false
     });
 
     state.cameraTrack = cam.getVideoTracks()[0];
+
+    try{
+      state.cameraTrack.contentHint = 'motion';
+    }catch{}
+
+    try{
+      await state.cameraTrack.applyConstraints({
+        width:{ideal:1920},
+        height:{ideal:1080},
+        frameRate:{ideal:30,max:30},
+        aspectRatio:{ideal:16/9}
+      });
+    }catch(error){
+      console.warn('A câmera não aceitou todas as configurações Full HD:',error);
+    }
+
     if(!state.localStream) state.localStream = new MediaStream();
     state.localStream.addTrack(state.cameraTrack);
 
     await replaceVideoForAll(state.cameraTrack);
+    await applyCameraSenderQuality();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
     $('#cameraBtn').textContent = '📷 Câmera';
