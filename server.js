@@ -785,6 +785,19 @@ html[data-theme="purple"]{
   --line:#4a3761;--text:#faf7ff;--muted:#cabee0;--low:#9586ad;
   --coral:#9b6cff;--coral2:#b28cff;--mint:#a87dff;--mintbg:#2b1c48;--danger:#df4c67;
 }
+
+html[data-palette="ocean"]{
+  --coral:#3182ce;--coral2:#63b3ed;--mint:#38bdf8;--mintbg:#0f3057;
+}
+html[data-palette="sunset"]{
+  --coral:#ff7a59;--coral2:#ff9f68;--mint:#ffb347;--mintbg:#4a2430;
+}
+html[data-palette="forest"]{
+  --coral:#2f855a;--coral2:#48bb78;--mint:#68d391;--mintbg:#173d2c;
+}
+html[data-palette="candy"]{
+  --coral:#ec4899;--coral2:#f472b6;--mint:#a855f7;--mintbg:#321b47;
+}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:var(--bg0);color:var(--text)}
 body{overflow:hidden}
@@ -982,7 +995,56 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .profileThemeDot.white{background:linear-gradient(135deg,#ffffff,#dce2e9)}
 .profileThemeDot.blue{background:linear-gradient(135deg,#07101f,#4e8cff)}
 .profileThemeDot.purple{background:linear-gradient(135deg,#100b19,#9b6cff)}
-@media(max-width:560px){.profileThemeChoices{grid-template-columns:repeat(3,1fr)}}
+
+.profilePaletteChoices{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:7px;
+  margin-top:8px;
+}
+.profilePaletteBtn{
+  border:1px solid var(--line);
+  background:var(--bg2);
+  color:var(--text);
+  border-radius:10px;
+  padding:8px 5px;
+  font-size:11px;
+  font-weight:800;
+}
+.profilePaletteBtn:hover{background:var(--bg3)}
+.profilePaletteBtn.active{outline:2px solid var(--mint);outline-offset:1px}
+.profilePaletteSwatch{
+  display:flex;
+  justify-content:center;
+  gap:3px;
+  margin-bottom:6px;
+}
+.profilePaletteSwatch span{
+  width:13px;
+  height:24px;
+  border-radius:5px;
+  border:1px solid rgba(127,127,127,.25);
+}
+.paletteDefault span:nth-child(1){background:#ff6b4a}
+.paletteDefault span:nth-child(2){background:#41d99a}
+.paletteDefault span:nth-child(3){background:#24473b}
+.paletteOcean span:nth-child(1){background:#3182ce}
+.paletteOcean span:nth-child(2){background:#63b3ed}
+.paletteOcean span:nth-child(3){background:#0f3057}
+.paletteSunset span:nth-child(1){background:#ff7a59}
+.paletteSunset span:nth-child(2){background:#ffb347}
+.paletteSunset span:nth-child(3){background:#7b2cbf}
+.paletteForest span:nth-child(1){background:#2f855a}
+.paletteForest span:nth-child(2){background:#68d391}
+.paletteForest span:nth-child(3){background:#1c4532}
+.paletteCandy span:nth-child(1){background:#ec4899}
+.paletteCandy span:nth-child(2){background:#a855f7}
+.paletteCandy span:nth-child(3){background:#60a5fa}
+
+@media(max-width:560px){
+  .profileThemeChoices{grid-template-columns:repeat(3,1fr)}
+  .profilePaletteChoices{grid-template-columns:repeat(2,1fr)}
+}
 
 .login{
   position:fixed;inset:0;z-index:2000000;
@@ -2094,6 +2156,34 @@ body.locked{overflow:hidden!important}
           <span class="profileThemeDot purple"></span>Roxo
         </button>
       </div>
+
+      <div style="margin-top:20px;color:var(--text);font-size:14px;font-weight:900;">Paleta de cores</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin:5px 0 10px;">
+        A paleta muda as cores de destaque dos botões, chamadas e elementos do site.
+      </div>
+
+      <div id="profilePaletteChoices" class="profilePaletteChoices">
+        <button type="button" class="profilePaletteBtn" data-profile-palette="default">
+          <span class="profilePaletteSwatch paletteDefault"><span></span><span></span><span></span></span>
+          Padrão
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="ocean">
+          <span class="profilePaletteSwatch paletteOcean"><span></span><span></span><span></span></span>
+          Oceano
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="sunset">
+          <span class="profilePaletteSwatch paletteSunset"><span></span><span></span><span></span></span>
+          Pôr do sol
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="forest">
+          <span class="profilePaletteSwatch paletteForest"><span></span><span></span><span></span></span>
+          Floresta
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="candy">
+          <span class="profilePaletteSwatch paletteCandy"><span></span><span></span><span></span></span>
+          Candy
+        </button>
+      </div>
     </div>
 
     <div class="modalActions">
@@ -2201,6 +2291,8 @@ const state = {
   avatar: localStorage.getItem('ecord-avatar') || '',
   theme: localStorage.getItem('ecord-theme') || 'default',
   pendingTheme: null,
+  palette: localStorage.getItem('ecord-palette') || 'default',
+  pendingPalette: null,
   servers: [],
   serverId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-server-id') || null) : null,
   textChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-text-channel-id') || null) : null,
@@ -2345,6 +2437,42 @@ function previewProfileTheme(theme){
 // Só aplica o tema salvo depois que todas as funções e constantes do tema existem.
 applyProfileTheme(state.theme);
 
+
+const PROFILE_PALETTES = ['default','ocean','sunset','forest','candy'];
+
+function normalizeProfilePalette(palette){
+  return PROFILE_PALETTES.includes(palette) ? palette : 'default';
+}
+
+function applyProfilePalette(palette){
+  const selected = normalizeProfilePalette(palette);
+
+  if(selected === 'default'){
+    document.documentElement.removeAttribute('data-palette');
+  }else{
+    document.documentElement.setAttribute('data-palette',selected);
+  }
+}
+
+function updateProfilePaletteButtons(){
+  const selected = normalizeProfilePalette(state.pendingPalette || state.palette);
+
+  document.querySelectorAll('[data-profile-palette]').forEach(button=>{
+    button.classList.toggle(
+      'active',
+      button.dataset.profilePalette === selected
+    );
+  });
+}
+
+function previewProfilePalette(palette){
+  state.pendingPalette = normalizeProfilePalette(palette);
+  applyProfilePalette(state.pendingPalette);
+  updateProfilePaletteButtons();
+}
+
+applyProfilePalette(state.palette);
+
 function refreshOwnProfileUI(){
   $('#userName').textContent = state.username || 'Você';
   $('#userBioMini').textContent = state.bio
@@ -2376,6 +2504,7 @@ function setProfileTab(tab){
 function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
   state.pendingTheme = normalizeProfileTheme(state.theme);
+  state.pendingPalette = normalizeProfilePalette(state.palette);
   $('#profileNameInput').value = state.username || '';
   $('#profileBioInput').value = state.bio || '';
   $('#profilePhotoInput').value = '';
@@ -2387,6 +2516,7 @@ function openProfileModal(){
   );
 
   updateProfileThemeButtons();
+  updateProfilePaletteButtons();
   setProfileTab('profile');
   $('#profileModalWrap').classList.remove('hidden');
 }
@@ -2398,8 +2528,13 @@ function closeProfileModal(){
     applyProfileTheme(state.theme);
   }
 
+  if(state.pendingPalette !== null){
+    applyProfilePalette(state.palette);
+  }
+
   state.pendingAvatar = null;
   state.pendingTheme = null;
+  state.pendingPalette = null;
 }
 
 function fileToAvatar(file){
@@ -2458,6 +2593,11 @@ function saveProfile(){
   localStorage.setItem('ecord-theme',state.theme);
   applyProfileTheme(state.theme);
   state.pendingTheme = null;
+
+  state.palette = normalizeProfilePalette(state.pendingPalette || state.palette);
+  localStorage.setItem('ecord-palette',state.palette);
+  applyProfilePalette(state.palette);
+  state.pendingPalette = null;
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -5540,6 +5680,12 @@ $('#profileAppearanceTabBtn').addEventListener('click',()=>{
 document.querySelectorAll('[data-profile-theme]').forEach(button=>{
   button.addEventListener('click',()=>{
     previewProfileTheme(button.dataset.profileTheme);
+  });
+});
+
+document.querySelectorAll('[data-profile-palette]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    previewProfilePalette(button.dataset.profilePalette);
   });
 });
 $('#removeProfilePhotoBtn').addEventListener('click',()=>{
