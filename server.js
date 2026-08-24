@@ -1038,7 +1038,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-music-fix-v7';
+const CACHE='acord-channels-discord-v8';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3500,6 +3500,301 @@ html[data-palette="candy"]{
 .videoCard.speaking{outline:3px solid var(--coral)!important;outline-offset:2px!important;box-shadow:0 0 26px color-mix(in srgb,var(--coral) 28%,transparent)!important}
 .serverMemberRow.blockedUser,.friendRow.blockedUser{opacity:.42!important}
 
+
+/* ===== CATEGORIAS E CANAIS — ESTILO DISCORD ===== */
+#channelTree{
+  padding:4px 2px 18px!important;
+  overflow:visible!important;
+}
+
+.discordUncategorized{
+  display:grid;
+  gap:2px;
+  margin:0 0 12px;
+}
+
+.discordCategory{
+  margin:12px 0 4px;
+}
+
+.discordCategoryHeader{
+  position:relative;
+  min-height:26px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 3px 0 0;
+  border-radius:5px;
+  color:var(--low);
+}
+
+.discordCategoryHeader.dragOver{
+  background:color-mix(in srgb,var(--coral) 12%,transparent);
+  outline:1px dashed color-mix(in srgb,var(--coral) 55%,transparent);
+}
+
+.discordCategoryToggle{
+  min-width:0;
+  flex:1;
+  height:26px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 4px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+}
+
+.discordCategoryToggle:hover{
+  color:var(--text);
+}
+
+.discordCategoryArrow{
+  width:12px;
+  flex:0 0 12px;
+  font-size:15px;
+  line-height:1;
+  text-align:center;
+}
+
+.discordCategoryName{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:.065em;
+  font-weight:900;
+}
+
+.discordCategoryActions{
+  display:flex;
+  align-items:center;
+  opacity:.35;
+  transition:opacity .12s ease;
+}
+
+.discordCategoryHeader:hover .discordCategoryActions{
+  opacity:1;
+}
+
+.discordCategoryAction{
+  width:23px;
+  height:23px;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  color:var(--muted);
+  font-size:17px;
+  line-height:1;
+  padding:0;
+}
+
+.discordCategoryAction:hover{
+  background:var(--bg3);
+  color:var(--text);
+}
+
+.discordCategoryChannels{
+  display:grid;
+  gap:2px;
+  min-height:2px;
+}
+
+.discordCategoryChannels.dragOver,
+.discordUncategorized.dragOver{
+  border-radius:7px;
+  background:color-mix(in srgb,var(--coral) 7%,transparent);
+}
+
+.discordChannel{
+  width:100%;
+  min-width:0;
+  min-height:34px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:5px 8px;
+  border:0;
+  border-radius:7px;
+  background:transparent;
+  color:var(--muted);
+  text-align:left;
+}
+
+.discordChannel:hover{
+  background:var(--bg3);
+  color:var(--text);
+}
+
+.discordChannel.active{
+  background:color-mix(in srgb,var(--coral) 14%,var(--bg3));
+  color:var(--text);
+}
+
+.discordChannel.dragging{
+  opacity:.45;
+}
+
+.discordChannel.dragOver{
+  box-shadow:inset 0 2px 0 var(--coral);
+}
+
+.discordChannelIcon{
+  width:20px;
+  flex:0 0 20px;
+  display:grid;
+  place-items:center;
+  color:var(--low);
+  font-size:19px;
+  font-weight:500;
+}
+
+.discordChannel.active .discordChannelIcon,
+.discordChannel:hover .discordChannelIcon{
+  color:var(--muted);
+}
+
+.discordChannelBody{
+  min-width:0;
+  flex:1;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.discordChannelName{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  line-height:1.2;
+  font-weight:650;
+}
+
+.discordChannelSub{
+  flex:0 0 auto;
+  padding:2px 5px;
+  border-radius:999px;
+  background:color-mix(in srgb,var(--coral) 12%,transparent);
+  color:var(--coral);
+  font-size:8px;
+  font-weight:900;
+  text-transform:uppercase;
+}
+
+.discordChannelCount{
+  flex:0 0 auto;
+  min-width:19px;
+  height:19px;
+  display:grid;
+  place-items:center;
+  border-radius:999px;
+  background:var(--bg4);
+  color:var(--muted);
+  font-size:9px;
+  font-weight:900;
+}
+
+.discordEmptyCategory,
+.discordCreateCategory{
+  width:100%;
+  min-height:32px;
+  border:1px dashed color-mix(in srgb,var(--line) 78%,transparent);
+  border-radius:7px;
+  background:transparent;
+  color:var(--low);
+  text-align:left;
+  padding:6px 9px;
+  font-size:10px;
+}
+
+.discordEmptyCategory:not(:disabled):hover,
+.discordCreateCategory:hover{
+  border-color:color-mix(in srgb,var(--coral) 45%,var(--line));
+  color:var(--text);
+  background:color-mix(in srgb,var(--coral) 6%,transparent);
+}
+
+.categoryAddMenu{
+  position:fixed;
+  z-index:2200000;
+  width:190px;
+  padding:5px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:var(--bg1);
+  box-shadow:0 16px 38px rgba(0,0,0,.34);
+}
+
+.categoryAddMenu button{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:var(--text);
+  padding:8px 9px;
+  text-align:left;
+  font-size:11px;
+}
+
+.categoryAddMenu button:hover{
+  background:var(--bg3);
+}
+
+.categoryAddMenuIcon{
+  width:20px;
+  flex:0 0 20px;
+  display:grid;
+  place-items:center;
+  color:var(--muted);
+  font-size:16px;
+}
+
+/* Os botões rápidos viram uma barra compacta de criação. */
+.sideScroll > div[style*="grid-template-columns:repeat(3,1fr)"]{
+  display:flex!important;
+  gap:5px!important;
+  margin-bottom:10px!important;
+}
+
+#createTextQuickBtn,
+#createVoiceQuickBtn,
+#createStageQuickBtn{
+  flex:1 1 0!important;
+  min-width:0!important;
+  min-height:30px!important;
+  padding:6px!important;
+  font-size:10px!important;
+  border-radius:6px!important;
+}
+
+/* A ação de categoria fica parecida com uma ação discreta do Discord. */
+#createCategoryBtn{
+  width:100%!important;
+  min-height:30px!important;
+  justify-content:flex-start!important;
+  border:0!important;
+  background:transparent!important;
+  color:var(--low)!important;
+  padding:6px 8px!important;
+  font-size:10px!important;
+}
+
+#createCategoryBtn:hover{
+  color:var(--text)!important;
+  background:var(--bg3)!important;
+}
+
 </style>
 </head>
 <body>
@@ -4495,7 +4790,14 @@ const state = {
   typingTimer:null,
   typingUsers:new Map(),
   chatSearch:'',
-  speakingMonitors:new Map()
+  speakingMonitors:new Map(),
+  pendingChannelCategoryId:null,
+  collapsedCategories:new Set((()=>{
+    try{
+      const value=JSON.parse(localStorage.getItem('acord-collapsed-categories')||'[]');
+      return Array.isArray(value)?value:[];
+    }catch{return []}
+  })())
 };
 
 const rtcConfig = {
@@ -6018,36 +6320,60 @@ function renderServers(){
 }
 
 function renderSidebar(){
-  const s = currentServer();
+  const s=currentServer();
 
   if(!s){
-    $('#serverTitle').textContent = 'Nenhum servidor';
-    $('#channelTree').innerHTML = '';
-    $('#inviteBtn').disabled = true;
-    $('#serverSettingsBtn').disabled = true;
-    $('#deleteServerBtn').disabled = true;
+    $('#serverTitle').textContent='Nenhum servidor';
+    $('#channelTree').innerHTML='';
+    $('#inviteBtn').disabled=true;
+    $('#serverSettingsBtn').disabled=true;
+    $('#deleteServerBtn').disabled=true;
     return;
   }
 
-  $('#inviteBtn').disabled = false;
-  $('#serverSettingsBtn').disabled = false;
-  $('#deleteServerBtn').disabled = false;
-  $('#serverTitle').textContent = s.name;
+  $('#inviteBtn').disabled=false;
+  $('#serverSettingsBtn').disabled=false;
+  $('#deleteServerBtn').disabled=false;
+  $('#serverTitle').textContent=s.name;
 
-  const tree = $('#channelTree');
-  tree.innerHTML = '';
+  const tree=$('#channelTree');
+  tree.innerHTML='';
 
-  const categories = Array.isArray(s.categories)
+  const categories=Array.isArray(s.categories)
     ? [...s.categories].sort((a,b)=>(a.order||0)-(b.order||0))
     : [];
 
-  const textChannels = Array.isArray(s.textChannels)
+  const textChannels=Array.isArray(s.textChannels)
     ? [...s.textChannels].sort((a,b)=>(a.order||0)-(b.order||0))
     : [];
 
-  const voiceChannels = Array.isArray(s.voiceChannels)
+  const voiceChannels=Array.isArray(s.voiceChannels)
     ? [...s.voiceChannels].sort((a,b)=>(a.order||0)-(b.order||0))
     : [];
+
+  const canManageChannels=()=>{
+    if(s.ownerId===state.userId) return true;
+
+    const username=String(state.username||'').toLowerCase();
+
+    return (s.roles||[]).some(role=>{
+      const member=(role.members||[]).some(
+        name=>String(name||'').toLowerCase()===username
+      );
+
+      return member && (
+        role.permissions?.administrator ||
+        role.permissions?.manageChannels
+      );
+    });
+  };
+
+  function persistCollapsedCategories(){
+    localStorage.setItem(
+      'acord-collapsed-categories',
+      JSON.stringify([...state.collapsedCategories])
+    );
+  }
 
   function dragData(event){
     try{
@@ -6062,8 +6388,8 @@ function renderSidebar(){
   }
 
   function setDragData(event,data){
-    const raw = JSON.stringify(data);
-    event.dataTransfer.effectAllowed = 'move';
+    const raw=JSON.stringify(data);
+    event.dataTransfer.effectAllowed='move';
     event.dataTransfer.setData('application/x-ecord',raw);
     event.dataTransfer.setData('text/plain',raw);
   }
@@ -6075,70 +6401,136 @@ function renderSidebar(){
       serverId:state.serverId,
       type:data.type,
       channelId:data.channelId,
-      targetCategoryId:targetCategoryId || null,
-      beforeChannelId:beforeChannelId || null
+      targetCategoryId:targetCategoryId||null,
+      beforeChannelId:beforeChannelId||null
     });
   }
 
+  function openCreateChannel(type,categoryId=null){
+    state.pendingChannelCategoryId=categoryId||null;
+    openModal(type);
+  }
+
+  function createAddMenu(categoryId,anchor){
+    document.querySelectorAll('.categoryAddMenu').forEach(menu=>menu.remove());
+
+    const menu=document.createElement('div');
+    menu.className='categoryAddMenu';
+
+    const options=[
+      ['text','#','Canal de texto'],
+      ['voice','◖','Canal de voz'],
+      ['stage','◉','Palco']
+    ];
+
+    options.forEach(([type,icon,label])=>{
+      const button=document.createElement('button');
+      button.type='button';
+
+      const symbol=document.createElement('span');
+      symbol.className='categoryAddMenuIcon';
+      symbol.textContent=icon;
+
+      const text=document.createElement('span');
+      text.textContent=label;
+
+      button.append(symbol,text);
+      button.addEventListener('click',event=>{
+        event.stopPropagation();
+        menu.remove();
+        openCreateChannel(type,categoryId);
+      });
+
+      menu.appendChild(button);
+    });
+
+    document.body.appendChild(menu);
+
+    const rect=anchor.getBoundingClientRect();
+    const menuRect=menu.getBoundingClientRect();
+
+    menu.style.left=Math.min(
+      rect.right-menuRect.width,
+      window.innerWidth-menuRect.width-8
+    )+'px';
+
+    menu.style.top=Math.min(
+      rect.bottom+4,
+      window.innerHeight-menuRect.height-8
+    )+'px';
+
+    setTimeout(()=>{
+      const close=event=>{
+        if(!menu.contains(event.target)){
+          menu.remove();
+          document.removeEventListener('pointerdown',close,true);
+        }
+      };
+
+      document.addEventListener('pointerdown',close,true);
+    },0);
+  }
+
   function makeChannelButton(channel,type){
-    const isStage = type === 'voice' && channel.mode === 'stage';
+    const isStage=type==='voice' && channel.mode==='stage';
 
-    const b = document.createElement('button');
-    b.className =
-      'channelBtn' +
-      (type==='voice' ? ' voice' : '') +
-      (isStage ? ' stage' : '') +
-      (
-        (type==='text' && channel.id===state.textChannelId) ||
-        (type==='voice' && channel.id===state.voiceChannelId)
-          ? ' active'
-          : ''
-      );
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='discordChannel' + (
+      (type==='text' && channel.id===state.textChannelId) ||
+      (type==='voice' && channel.id===state.voiceChannelId)
+        ? ' active'
+        : ''
+    );
 
-    b.draggable = true;
-    b.dataset.channelId = channel.id;
-    b.dataset.channelType = type;
+    button.draggable=true;
+    button.dataset.channelId=channel.id;
+    button.dataset.channelType=type;
 
-    const grip = document.createElement('span');
-    grip.className = 'channelGrip';
-    grip.textContent = '⠿';
+    const icon=document.createElement('span');
+    icon.className='discordChannelIcon';
+    icon.textContent=isStage ? '◉' : (type==='text' ? '#' : '◖');
 
-    const icon = document.createElement('span');
+    const body=document.createElement('span');
+    body.className='discordChannelBody';
 
-    if(isStage){
-      icon.className = 'stageIcon';
-      icon.textContent = '◉';
-    }else{
-      icon.className = type==='text' ? 'hash' : '';
-      icon.textContent = type==='text' ? '#' : '))';
-    }
+    const title=document.createElement('span');
+    title.className='discordChannelName';
+    title.textContent=channel.name;
+
+    body.appendChild(title);
 
     if(isStage){
-      const stageText = document.createElement('span');
-      stageText.className = 'stageText';
-
-      const title = document.createElement('strong');
-      title.textContent = channel.name;
-
-      const subtitle = document.createElement('small');
-      subtitle.textContent = 'Eventos, painéis e conversas para uma plateia';
-
-      stageText.append(title,subtitle);
-      b.append(grip,icon,stageText);
-    }else{
-      const label = document.createElement('span');
-      label.textContent = channel.name;
-      label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
-      b.append(grip,icon,label);
+      const subtitle=document.createElement('span');
+      subtitle.className='discordChannelSub';
+      subtitle.textContent='Palco';
+      body.appendChild(subtitle);
     }
 
-    b.addEventListener('click',()=>{
+    button.append(icon,body);
+
+    if(type==='voice'){
+      const users=[...state.voiceUsers.values()]
+        .filter(user=>
+          user.serverId===state.serverId &&
+          user.channelId===channel.id
+        );
+
+      if(users.length){
+        const count=document.createElement('span');
+        count.className='discordChannelCount';
+        count.textContent=String(users.length);
+        button.appendChild(count);
+      }
+    }
+
+    button.addEventListener('click',()=>{
       if(type==='text') selectText(channel.id);
       else selectVoice(channel.id);
     });
 
-    b.addEventListener('dragstart',event=>{
-      b.classList.add('dragging');
+    button.addEventListener('dragstart',event=>{
+      button.classList.add('dragging');
       setDragData(event,{
         kind:'channel',
         type,
@@ -6146,68 +6538,126 @@ function renderSidebar(){
       });
     });
 
-    b.addEventListener('dragend',()=>{
-      b.classList.remove('dragging');
+    button.addEventListener('dragend',()=>{
+      button.classList.remove('dragging');
       document.querySelectorAll('.dragOver').forEach(el=>el.classList.remove('dragOver'));
     });
 
-    b.addEventListener('dragover',event=>{
-      const data = dragData(event);
+    button.addEventListener('dragover',event=>{
+      const data=dragData(event);
       if(!data || data.kind!=='channel') return;
+
       event.preventDefault();
-      b.classList.add('dragOver');
+      button.classList.add('dragOver');
     });
 
-    b.addEventListener('dragleave',()=>b.classList.remove('dragOver'));
+    button.addEventListener('dragleave',()=>{
+      button.classList.remove('dragOver');
+    });
 
-    b.addEventListener('drop',event=>{
+    button.addEventListener('drop',event=>{
       event.preventDefault();
-      b.classList.remove('dragOver');
+      button.classList.remove('dragOver');
 
-      const data = dragData(event);
+      const data=dragData(event);
       if(!data || data.kind!=='channel') return;
-
-      const categoryId = channel.categoryId || null;
 
       sendMoveChannel(
         data,
-        categoryId,
+        channel.categoryId||null,
         data.type===type ? channel.id : null
       );
     });
 
-    return b;
+    return button;
   }
 
-  function makeCategory(category,isUncategorized=false){
-    const block = document.createElement('div');
-    block.className = 'categoryBlock';
+  function appendUncategorized(){
+    const uncatText=textChannels.filter(channel=>!channel.categoryId);
+    const uncatVoice=voiceChannels.filter(channel=>!channel.categoryId);
 
-    const header = document.createElement('div');
-    header.className = 'categoryHeader';
+    if(!uncatText.length && !uncatVoice.length) return;
 
-    const arrow = document.createElement('span');
-    arrow.textContent = '⌄';
+    const box=document.createElement('div');
+    box.className='discordUncategorized';
 
-    const name = document.createElement('span');
-    name.className = 'categoryName';
-    name.textContent = isUncategorized ? 'Sem categoria' : category.name;
+    [...uncatText.map(channel=>[channel,'text']),
+     ...uncatVoice.map(channel=>[channel,'voice'])]
+      .forEach(([channel,type])=>{
+        box.appendChild(makeChannelButton(channel,type));
+      });
 
-    header.append(arrow,name);
+    box.addEventListener('dragover',event=>{
+      const data=dragData(event);
+      if(data?.kind==='channel'){
+        event.preventDefault();
+        box.classList.add('dragOver');
+      }
+    });
 
-    if(!isUncategorized){
-      header.draggable = true;
+    box.addEventListener('dragleave',()=>box.classList.remove('dragOver'));
 
-      const del = document.createElement('button');
-      del.className = 'categoryDelete';
-      del.type = 'button';
-      del.textContent = '×';
-      del.title = 'Excluir categoria';
+    box.addEventListener('drop',event=>{
+      event.preventDefault();
+      box.classList.remove('dragOver');
+      sendMoveChannel(dragData(event),null,null);
+    });
 
-      del.addEventListener('click',event=>{
+    tree.appendChild(box);
+  }
+
+  function makeCategory(category){
+    const block=document.createElement('section');
+    block.className='discordCategory';
+    block.dataset.categoryId=category.id;
+
+    const header=document.createElement('div');
+    header.className='discordCategoryHeader';
+    header.draggable=canManageChannels();
+
+    const left=document.createElement('button');
+    left.type='button';
+    left.className='discordCategoryToggle';
+
+    const arrow=document.createElement('span');
+    arrow.className='discordCategoryArrow';
+
+    const collapsed=state.collapsedCategories.has(category.id);
+    arrow.textContent=collapsed ? '›' : '⌄';
+
+    const name=document.createElement('span');
+    name.className='discordCategoryName';
+    name.textContent=String(category.name||'Categoria').toUpperCase();
+
+    left.append(arrow,name);
+
+    const actions=document.createElement('div');
+    actions.className='discordCategoryActions';
+
+    if(canManageChannels()){
+      const add=document.createElement('button');
+      add.type='button';
+      add.className='discordCategoryAction';
+      add.title='Criar canal nesta categoria';
+      add.textContent='+';
+
+      add.addEventListener('click',event=>{
+        event.stopPropagation();
+        createAddMenu(category.id,add);
+      });
+
+      const more=document.createElement('button');
+      more.type='button';
+      more.className='discordCategoryAction';
+      more.title='Excluir categoria';
+      more.textContent='⋯';
+
+      more.addEventListener('click',event=>{
         event.stopPropagation();
 
-        if(confirm('Excluir a categoria "' + category.name + '"? Os canais não serão apagados.')){
+        if(confirm(
+          'Excluir a categoria "'+category.name+'"? Os canais irão para fora da categoria.'
+        )){
           socket.emit('delete-category',{
             serverId:state.serverId,
             categoryId:category.id
@@ -6215,55 +6665,104 @@ function renderSidebar(){
         }
       });
 
-      header.appendChild(del);
-
-      header.addEventListener('dragstart',event=>{
-        header.classList.add('dragging');
-        setDragData(event,{
-          kind:'category',
-          categoryId:category.id
-        });
-      });
-
-      header.addEventListener('dragend',()=>{
-        header.classList.remove('dragging');
-        document.querySelectorAll('.dragOver').forEach(el=>el.classList.remove('dragOver'));
-      });
+      actions.append(add,more);
     }
 
+    header.append(left,actions);
+
+    const channels=document.createElement('div');
+    channels.className='discordCategoryChannels';
+    channels.classList.toggle('hidden',collapsed);
+
+    const items=[
+      ...textChannels
+        .filter(channel=>(channel.categoryId||null)===category.id)
+        .map(channel=>[channel,'text']),
+      ...voiceChannels
+        .filter(channel=>(channel.categoryId||null)===category.id)
+        .map(channel=>[channel,'voice'])
+    ];
+
+    items.forEach(([channel,type])=>{
+      channels.appendChild(makeChannelButton(channel,type));
+    });
+
+    if(!items.length){
+      const empty=document.createElement('button');
+      empty.type='button';
+      empty.className='discordEmptyCategory';
+      empty.textContent=canManageChannels()
+        ? '+ Criar primeiro canal'
+        : 'Categoria vazia';
+
+      if(canManageChannels()){
+        empty.addEventListener('click',()=>{
+          state.pendingChannelCategoryId=category.id;
+          openModal('text');
+        });
+      }else{
+        empty.disabled=true;
+      }
+
+      channels.appendChild(empty);
+    }
+
+    left.addEventListener('click',()=>{
+      const willCollapse=!state.collapsedCategories.has(category.id);
+
+      if(willCollapse) state.collapsedCategories.add(category.id);
+      else state.collapsedCategories.delete(category.id);
+
+      persistCollapsedCategories();
+      arrow.textContent=willCollapse ? '›' : '⌄';
+      channels.classList.toggle('hidden',willCollapse);
+    });
+
+    header.addEventListener('dragstart',event=>{
+      if(!canManageChannels()){
+        event.preventDefault();
+        return;
+      }
+
+      header.classList.add('dragging');
+      setDragData(event,{
+        kind:'category',
+        categoryId:category.id
+      });
+    });
+
+    header.addEventListener('dragend',()=>{
+      header.classList.remove('dragging');
+      document.querySelectorAll('.dragOver').forEach(el=>el.classList.remove('dragOver'));
+    });
+
     header.addEventListener('dragover',event=>{
-      const data = dragData(event);
+      const data=dragData(event);
       if(!data) return;
 
-      if(data.kind==='channel' || (!isUncategorized && data.kind==='category')){
+      if(data.kind==='channel' || data.kind==='category'){
         event.preventDefault();
         header.classList.add('dragOver');
       }
     });
 
-    header.addEventListener('dragleave',()=>header.classList.remove('dragOver'));
+    header.addEventListener('dragleave',()=>{
+      header.classList.remove('dragOver');
+    });
 
     header.addEventListener('drop',event=>{
       event.preventDefault();
       header.classList.remove('dragOver');
 
-      const data = dragData(event);
+      const data=dragData(event);
       if(!data) return;
 
       if(data.kind==='channel'){
-        sendMoveChannel(
-          data,
-          isUncategorized ? null : category.id,
-          null
-        );
+        sendMoveChannel(data,category.id,null);
         return;
       }
 
-      if(
-        data.kind==='category' &&
-        !isUncategorized &&
-        data.categoryId !== category.id
-      ){
+      if(data.kind==='category' && data.categoryId!==category.id){
         socket.emit('move-category',{
           serverId:state.serverId,
           categoryId:data.categoryId,
@@ -6272,53 +6771,43 @@ function renderSidebar(){
       }
     });
 
-    const channelsBox = document.createElement('div');
-    channelsBox.className = 'categoryChannels';
-
-    channelsBox.addEventListener('dragover',event=>{
-      const data = dragData(event);
+    channels.addEventListener('dragover',event=>{
+      const data=dragData(event);
       if(data?.kind==='channel'){
         event.preventDefault();
-        channelsBox.classList.add('dragOver');
+        channels.classList.add('dragOver');
       }
     });
 
-    channelsBox.addEventListener('dragleave',()=>channelsBox.classList.remove('dragOver'));
-
-    channelsBox.addEventListener('drop',event=>{
-      event.preventDefault();
-      channelsBox.classList.remove('dragOver');
-      const data = dragData(event);
-
-      sendMoveChannel(
-        data,
-        isUncategorized ? null : category.id,
-        null
-      );
+    channels.addEventListener('dragleave',()=>{
+      channels.classList.remove('dragOver');
     });
 
-    const categoryId = isUncategorized ? null : category.id;
+    channels.addEventListener('drop',event=>{
+      event.preventDefault();
+      channels.classList.remove('dragOver');
+      sendMoveChannel(dragData(event),category.id,null);
+    });
 
-    textChannels
-      .filter(channel => (channel.categoryId || null) === categoryId)
-      .forEach(channel=>channelsBox.appendChild(makeChannelButton(channel,'text')));
-
-    voiceChannels
-      .filter(channel => (channel.categoryId || null) === categoryId)
-      .forEach(channel=>channelsBox.appendChild(makeChannelButton(channel,'voice')));
-
-    block.append(header,channelsBox);
+    block.append(header,channels);
     return block;
   }
 
-  tree.appendChild(makeCategory({id:null,name:'Sem categoria'},true));
+  appendUncategorized();
 
   categories.forEach(category=>{
-    tree.appendChild(makeCategory(category,false));
+    tree.appendChild(makeCategory(category));
   });
+
+  if(!categories.length && canManageChannels()){
+    const starter=document.createElement('button');
+    starter.type='button';
+    starter.className='discordCreateCategory';
+    starter.textContent='+ Criar categoria';
+    starter.addEventListener('click',()=>openModal('category'));
+    tree.appendChild(starter);
+  }
 }
-
-
 
 function serverMemberProfiles(server = currentServer()){
   if(!server) return [];
@@ -7804,8 +8293,14 @@ function openModal(type){
     assignRole:['Atribuir cargo','Digite exatamente o nome da pessoa que receberá o cargo.','Ex.: Davi']
   }[type];
 
+  const targetCategory = state.pendingChannelCategoryId
+    ? currentServer()?.categories?.find(category=>category.id===state.pendingChannelCategoryId)
+    : null;
+
   $('#modalTitle').textContent = cfg[0];
-  $('#modalText').textContent = cfg[1];
+  $('#modalText').textContent = targetCategory && ['text','voice','stage'].includes(type)
+    ? cfg[1] + ' Categoria: ' + targetCategory.name + '.'
+    : cfg[1];
   $('#modalInput').placeholder = cfg[2];
   $('#modalInput').value = '';
 
@@ -7849,6 +8344,7 @@ function openModal(type){
 function closeModal(){
   $('#modalWrap').classList.add('hidden');
   state.modalAction = null;
+  state.pendingChannelCategoryId = null;
   $('#roleColorWrap').classList.add('hidden');
   $('#rolePermissionsWrap').classList.add('hidden');
   $('#modalOk').textContent = 'Criar';
@@ -7860,11 +8356,26 @@ function confirmModal(){
   if(state.modalAction==='server'){
     socket.emit('create-server',{name:value});
   } else if(state.modalAction==='text'){
-    socket.emit('create-channel',{serverId:state.serverId,type:'text',name:value});
+    socket.emit('create-channel',{
+      serverId:state.serverId,
+      type:'text',
+      name:value,
+      categoryId:state.pendingChannelCategoryId
+    });
   } else if(state.modalAction==='voice'){
-    socket.emit('create-channel',{serverId:state.serverId,type:'voice',name:value});
+    socket.emit('create-channel',{
+      serverId:state.serverId,
+      type:'voice',
+      name:value,
+      categoryId:state.pendingChannelCategoryId
+    });
   } else if(state.modalAction==='stage'){
-    socket.emit('create-channel',{serverId:state.serverId,type:'stage',name:value});
+    socket.emit('create-channel',{
+      serverId:state.serverId,
+      type:'stage',
+      name:value,
+      categoryId:state.pendingChannelCategoryId
+    });
   } else if(state.modalAction==='category'){
     socket.emit('create-category',{serverId:state.serverId,name:value});
   } else if(state.modalAction==='friend'){
@@ -9238,9 +9749,9 @@ $('#homeCreateServer').addEventListener('click',()=>openModal('server'));
 $('#serverRolesBtn').addEventListener('click',()=>setView('roles'));
 
 $('#createCategoryQuickBtn').addEventListener('click',()=>openModal('category'));
-$('#createTextQuickBtn').addEventListener('click',()=>openModal('text'));
-$('#createVoiceQuickBtn').addEventListener('click',()=>openModal('voice'));
-$('#createStageQuickBtn').addEventListener('click',()=>openModal('stage'));
+$('#createTextQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('text')});
+$('#createVoiceQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('voice')});
+$('#createStageQuickBtn').addEventListener('click',()=>{state.pendingChannelCategoryId=null;openModal('stage')});
 
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
 $('#homeCreateVoice').addEventListener('click',()=>openModal('voice'));
@@ -11539,7 +12050,7 @@ io.on('connection', socket => {
     socket.emit('category-updated', { message: 'Canal movido' });
   });
 
-  socket.on('create-channel', ({ serverId, type, name }) => {
+  socket.on('create-channel', ({ serverId, type, name, categoryId }) => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
@@ -11548,11 +12059,17 @@ io.on('connection', socket => {
       return;
     }
 
+    const safeCategoryId =
+      categoryId &&
+      s.categories.some(category=>category.id===String(categoryId))
+        ? String(categoryId)
+        : null;
+
     if (type === 'text') {
       const channel = {
         id: id(),
         name: cleanChannel(name, 'novo-chat'),
-        categoryId: null,
+        categoryId: safeCategoryId,
         order: s.textChannels.length
       };
       s.textChannels.push(channel);
@@ -11569,7 +12086,7 @@ io.on('connection', socket => {
       const channel = {
         id: id(),
         name: cleanName(name, isStage ? 'Palco' : 'Nova voz'),
-        categoryId: null,
+        categoryId: safeCategoryId,
         order: s.voiceChannels.length,
         mode: isStage ? 'stage' : 'voice'
       };
