@@ -677,11 +677,13 @@ function publicServersForUser(userId) {
 }
 
 function sendServerList(socket) {
+  if (!socket?.data?.userId) return;
   socket.emit('server-list', publicServersForUser(socket.data.userId));
 }
 
 function broadcastServerLists() {
   for (const client of io.sockets.sockets.values()) {
+    if (!client?.data?.userId) continue;
     sendServerList(client);
   }
 }
@@ -887,6 +889,33 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .rightTitle{color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
 .member{display:flex;align-items:center;gap:9px;padding:9px;border-radius:10px;color:var(--muted)}
 .memberDot{width:8px;height:8px;border-radius:50%;background:var(--mint)}
+.memberInfo{min-width:0;flex:1}
+.memberVolume{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  flex:0 0 auto;
+}
+.memberVolume button{
+  width:25px;
+  height:25px;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:var(--bg2);
+  color:var(--text);
+  font-size:14px;
+  font-weight:900;
+  padding:0;
+}
+.memberVolume button:hover{background:var(--bg3)}
+.memberVolumeValue{
+  min-width:38px;
+  text-align:center;
+  font-size:10px;
+  font-weight:800;
+  color:var(--muted);
+}
 
 .modalWrap{position:fixed;inset:0;z-index:1000000;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:18px}
 .modal{width:min(430px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 25px 80px rgba(0,0,0,.45)}
@@ -2092,6 +2121,9 @@ const state = {
   peerNames: new Map(),
   remoteStreams: new Map(),
   remoteAudio: new Map(),
+  peerVolumes: new Map(),
+  peerAudioNodes: new Map(),
+  audioContext: null,
   pendingCandidates: new Map(),
   modalAction: null,
   selectedRoleId: null,
@@ -2118,7 +2150,8 @@ const state = {
     ? (localStorage.getItem('ecord-last-view') || 'friends')
     : 'friends',
   appInitialized: false,
-  restoringReload: PAGE_WAS_RELOADED
+  restoringReload: PAGE_WAS_RELOADED,
+  profileReady: false
 };
 
 const rtcConfig = {
@@ -3191,6 +3224,7 @@ function selectServer(serverId){
 
   state.serverId = serverId;
   localStorage.setItem('ecord-last-server-id',serverId);
+  localStorage.setItem('ecord-last-view','chat');
   const s = currentServer();
   state.textChannelId = s?.textChannels[0]?.id || null;
   state.voiceChannelId = s?.voiceChannels[0]?.id || null;
@@ -4372,7 +4406,113 @@ function ensureCard(peerId,name,stream,isLocal=false){
 }
 
 
+
+function getPeerVolume(peerId){
+  const current = Number(state.peerVolumes.get(peerId));
+  return Number.isFinite(current) ? Math.max(0,Math.min(2,current)) : 1;
+}
+
+function getSharedAudioContext(){
+  if(state.audioContext) return state.audioContext;
+
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if(!AudioCtx) return null;
+
+  try{
+    state.audioContext = new AudioCtx();
+  }catch{
+    state.audioContext = null;
+  }
+
+  return state.audioContext;
+}
+
+function disconnectPeerAudioNode(peerId){
+  const node = state.peerAudioNodes.get(peerId);
+
+  if(node){
+    try{node.source?.disconnect()}catch{}
+    try{node.gain?.disconnect()}catch{}
+  }
+
+  state.peerAudioNodes.delete(peerId);
+}
+
+async function setupPeerAudioGain(peerId,stream){
+  if(!stream?.getAudioTracks?.().length) return false;
+
+  const context = getSharedAudioContext();
+  if(!context) return false;
+
+  const existing = state.peerAudioNodes.get(peerId);
+
+  if(existing?.stream === stream){
+    existing.gain.gain.value = getPeerVolume(peerId);
+
+    try{
+      if(context.state === 'suspended') await context.resume();
+    }catch{}
+
+    return context.state === 'running';
+  }
+
+  disconnectPeerAudioNode(peerId);
+
+  try{
+    const source = context.createMediaStreamSource(stream);
+    const gain = context.createGain();
+
+    gain.gain.value = getPeerVolume(peerId);
+
+    source.connect(gain);
+    gain.connect(context.destination);
+
+    state.peerAudioNodes.set(peerId,{
+      source,
+      gain,
+      stream
+    });
+
+    if(context.state === 'suspended'){
+      try{await context.resume()}catch{}
+    }
+
+    return context.state === 'running';
+  }catch(error){
+    console.warn('Áudio individual indisponível:',error);
+    disconnectPeerAudioNode(peerId);
+    return false;
+  }
+}
+
+function setPeerVolume(peerId,value){
+  const volume = Math.max(0,Math.min(2,Number(value) || 0));
+  state.peerVolumes.set(peerId,volume);
+
+  const node = state.peerAudioNodes.get(peerId);
+  if(node?.gain){
+    node.gain.gain.value = volume;
+  }
+
+  const audio = state.remoteAudio.get(peerId);
+
+  // Fallback dos navegadores sem Web Audio:
+  // até 100% usa o volume nativo. Acima disso precisa do GainNode.
+  if(audio && !node){
+    audio.volume = Math.min(1,volume);
+  }
+
+  renderMembers(state.lastVoiceMembers || []);
+}
+
+function changePeerVolume(peerId,delta){
+  const next = Math.round((getPeerVolume(peerId) + delta) * 100) / 100;
+  setPeerVolume(peerId,next);
+}
+
 function removeRemoteAudio(peerId){
+  disconnectPeerAudioNode(peerId);
+
   const audio = state.remoteAudio.get(peerId);
   if(audio){
     try{
@@ -4412,13 +4552,33 @@ function ensureRemoteAudio(peerId, track, sourceStream = null){
     audio.srcObject = stream;
   }
 
-  audio.muted = false;
-  audio.volume = 1;
+  const volume = getPeerVolume(peerId);
 
   const tryPlay = async () => {
+    const usingGain = await setupPeerAudioGain(peerId,stream);
+
+    if(usingGain){
+      // O áudio é reproduzido pelo Web Audio para permitir até 200%.
+      audio.muted = true;
+      audio.volume = 1;
+
+      $('#audioGateBtn').classList.add('hidden');
+
+      if(state.joinedVoiceId && !state.screenTrack){
+        $('#voiceStatus').textContent = 'Conectado';
+      }
+
+      return;
+    }
+
+    // Fallback comum: controle individual até 100%.
+    audio.muted = false;
+    audio.volume = Math.min(1,volume);
+
     try{
       await audio.play();
       $('#audioGateBtn').classList.add('hidden');
+
       if(state.joinedVoiceId && !state.screenTrack){
         $('#voiceStatus').textContent = 'Conectado';
       }
@@ -4439,9 +4599,23 @@ function ensureRemoteAudio(peerId, track, sourceStream = null){
 async function unlockAllRemoteAudio(){
   let blocked = false;
 
-  for(const audio of state.remoteAudio.values()){
+  const context = getSharedAudioContext();
+
+  if(context?.state === 'suspended'){
+    try{await context.resume()}catch{}
+  }
+
+  for(const [peerId,audio] of state.remoteAudio.entries()){
+    const node = state.peerAudioNodes.get(peerId);
+
+    if(node && context?.state === 'running'){
+      node.gain.gain.value = getPeerVolume(peerId);
+      audio.muted = true;
+      continue;
+    }
+
     audio.muted = false;
-    audio.volume = 1;
+    audio.volume = Math.min(1,getPeerVolume(peerId));
 
     try{
       await audio.play();
@@ -4727,6 +4901,10 @@ function closePeers(){
   state.peers.clear();
   state.peerNames.clear();
   state.remoteStreams.clear();
+
+  for(const peerId of [...state.peerAudioNodes.keys()]){
+    disconnectPeerAudioNode(peerId);
+  }
   state.pendingCandidates.clear();
   $('#videoGrid').innerHTML = '';
 }
@@ -4752,6 +4930,7 @@ function leaveVoice(){
   }
 
   state.joinedVoiceId = null;
+  state.peerVolumes.clear();
   state.activeVoiceServerId = null;
   state.activeVoiceChannelId = null;
   state.activeVoiceName = '';
@@ -4959,9 +5138,12 @@ async function toggleScreen(){
 
 function renderMembers(list){
   state.lastVoiceMembers = Array.isArray(list) ? list : [];
+
   if($('#rightTitle')) $('#rightTitle').textContent = 'Na chamada';
+
   const box = $('#members');
   box.innerHTML = '';
+
   if(!list?.length){
     const p = document.createElement('div');
     p.style.color='var(--low)';
@@ -4970,13 +5152,16 @@ function renderMembers(list){
     box.appendChild(p);
     return;
   }
+
   list.forEach(u=>{
     const row = document.createElement('div');
     row.className='member';
+
     const dot=document.createElement('span');
     dot.className='memberDot';
+
     const info=document.createElement('div');
-    info.style.minWidth='0';
+    info.className='memberInfo';
 
     const name=document.createElement('span');
     name.textContent=u.username;
@@ -5005,6 +5190,41 @@ function renderMembers(list){
     }
 
     row.append(dot,info);
+
+    // Volume individual apenas para as outras pessoas.
+    if(u.id && u.id !== socket.id){
+      const controls=document.createElement('div');
+      controls.className='memberVolume';
+      controls.title='Volume individual desta pessoa';
+
+      const minus=document.createElement('button');
+      minus.type='button';
+      minus.textContent='−';
+      minus.title='Diminuir volume';
+
+      const value=document.createElement('span');
+      value.className='memberVolumeValue';
+      value.textContent=Math.round(getPeerVolume(u.id) * 100) + '%';
+
+      const plus=document.createElement('button');
+      plus.type='button';
+      plus.textContent='+';
+      plus.title='Aumentar volume';
+
+      minus.addEventListener('click',event=>{
+        event.stopPropagation();
+        changePeerVolume(u.id,-0.25);
+      });
+
+      plus.addEventListener('click',event=>{
+        event.stopPropagation();
+        changePeerVolume(u.id,0.25);
+      });
+
+      controls.append(minus,value,plus);
+      row.appendChild(controls);
+    }
+
     box.appendChild(row);
   });
 }
@@ -5281,6 +5501,7 @@ socket.on('online-users', users => {
 socket.on('profile-saved',profile=>{
   if(!profile) return;
 
+  state.profileReady = true;
   state.userId = profile.id || state.userId;
   state.username = profile.username || state.username;
   state.bio = profile.bio || '';
@@ -5443,6 +5664,10 @@ socket.on('server-updated',updatedServer=>{
 });
 
 socket.on('server-list',list=>{
+  // Ignora listas recebidas antes da identificação do usuário.
+  // Isso impede o F5 de limpar os servidores por uma atualização concorrente.
+  if(!state.profileReady) return;
+
   const incoming = Array.isArray(list) ? list : [];
 
   if(!incoming.length && !state.restoreAttempted){
@@ -5464,7 +5689,10 @@ socket.on('server-list',list=>{
   const previousView = state.currentView || 'friends';
 
   state.servers = incoming;
-  cacheServers(state.servers);
+
+  if(incoming.length){
+    cacheServers(state.servers);
+  }
 
   const params = new URLSearchParams(location.search);
   const requested =
@@ -5510,12 +5738,20 @@ socket.on('server-list',list=>{
     state.textChannelId = selected.textChannels?.[0]?.id || null;
   }
 
+  if(state.textChannelId){
+    localStorage.setItem('ecord-last-text-channel-id',state.textChannelId);
+  }
+
   const voiceStillExists = selected.voiceChannels?.some(
     channel=>channel.id===state.voiceChannelId
   );
 
   if(!voiceStillExists){
     state.voiceChannelId = selected.voiceChannels?.[0]?.id || null;
+  }
+
+  if(state.voiceChannelId){
+    localStorage.setItem('ecord-last-voice-channel-id',state.voiceChannelId);
   }
 
   renderServers();
@@ -5547,14 +5783,21 @@ socket.on('permission-error',data=>{
 });
 
 socket.on('server-settings-updated',({serverId,message})=>{
+  const keepView = state.currentView;
+  const keepServer = state.serverId;
+
   renderServers();
   renderSidebar();
 
+  state.currentView = keepView;
+  state.serverId = keepServer;
+
   if(state.serverId===serverId && state.currentView==='settings'){
     openServerSettings();
+  }else{
+    restoreCurrentView();
   }
 
-  restoreCurrentView();
   toast(message || 'Servidor atualizado');
 });
 
