@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-login-theme-fix-v17';
+const CACHE='acord-power-pack-v18';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4045,6 +4045,197 @@ html[data-palette="candy"]{
   background:var(--coral)!important;
 }
 
+
+/* ===== ACORD POWER PACK ===== */
+.chatPowerRow{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.quickSwitcherModal{
+  width:min(650px,calc(100vw - 30px))!important;
+  max-height:min(720px,calc(100vh - 40px))!important;
+  display:flex!important;
+  flex-direction:column!important;
+  padding:12px!important;
+}
+.quickSwitcherHead{
+  display:flex;
+  gap:8px;
+  margin-bottom:10px;
+}
+.quickSwitcherHead input{flex:1}
+.quickSwitcherList{
+  overflow:auto;
+  display:grid;
+  gap:5px;
+}
+.quickSwitcherItem{
+  width:100%;
+  min-height:46px;
+  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
+  background:var(--bg2);
+  color:var(--text);
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  text-align:left;
+}
+.quickSwitcherItem:hover{
+  background:color-mix(in srgb,var(--coral) 10%,var(--bg3));
+  border-color:var(--coral);
+}
+.quickSwitcherKind{
+  width:54px;
+  flex:0 0 54px;
+  color:var(--coral);
+  font-size:9px;
+  font-weight:900;
+  text-transform:uppercase;
+}
+.quickSwitcherMeta{
+  min-width:0;
+  flex:1;
+}
+.quickSwitcherMeta strong,
+.quickSwitcherMeta span{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.quickSwitcherMeta span{
+  color:var(--muted);
+  font-size:10px;
+  margin-top:2px;
+}
+.messageUtilityModal{
+  width:min(760px,calc(100vw - 30px))!important;
+  max-height:min(760px,calc(100vh - 40px))!important;
+  display:flex!important;
+  flex-direction:column!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+.messageUtilityHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  padding:16px 18px;
+  border-bottom:1px solid color-mix(in srgb,var(--coral) 28%,var(--line));
+}
+.messageUtilityHead h3{margin:0 0 4px}
+.messageUtilityHead p{margin:0;color:var(--muted);font-size:11px}
+.messageUtilityList{
+  padding:10px;
+  overflow:auto;
+}
+.utilityMessage{
+  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
+  border-radius:9px;
+  background:var(--bg2);
+  padding:10px;
+  margin-bottom:7px;
+}
+.utilityMessage strong{
+  display:block;
+  font-size:11px;
+  color:var(--coral);
+  margin-bottom:5px;
+}
+.utilityMessage p{
+  margin:0;
+  white-space:pre-wrap;
+  font-size:12px;
+  line-height:1.45;
+}
+.utilityMessageActions{
+  display:flex;
+  gap:6px;
+  margin-top:8px;
+}
+.messagePinned{
+  box-shadow:inset 3px 0 0 var(--coral)!important;
+}
+.messageSavedMark{
+  position:absolute;
+  top:6px;
+  right:7px;
+  color:var(--coral);
+  font-size:10px;
+  font-weight:900;
+}
+.channelUnreadBadge{
+  margin-left:auto;
+  min-width:18px;
+  height:18px;
+  display:grid;
+  place-items:center;
+  border-radius:999px;
+  background:var(--coral);
+  color:var(--accent-contrast);
+  font-size:9px;
+  font-weight:900;
+}
+.channelFavoriteMark{
+  color:var(--coral);
+  font-size:11px;
+  margin-left:4px;
+}
+.pollCard{
+  border:1px solid color-mix(in srgb,var(--coral) 35%,var(--line));
+  border-radius:11px;
+  background:color-mix(in srgb,var(--coral) 6%,var(--bg2));
+  padding:10px;
+  margin-top:6px;
+}
+.pollCard strong{display:block;margin-bottom:8px}
+.pollOption{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  border:1px solid color-mix(in srgb,var(--coral) 20%,var(--line));
+  border-radius:8px;
+  background:var(--bg3);
+  color:var(--text);
+  padding:8px;
+  margin-top:5px;
+}
+.pollOption:hover{border-color:var(--coral)}
+.pollBar{
+  height:4px;
+  flex:1;
+  background:var(--bg4);
+  border-radius:99px;
+  overflow:hidden;
+}
+.pollBar > span{
+  display:block;
+  height:100%;
+  background:var(--coral);
+}
+.unreadSeparator{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:var(--coral);
+  font-size:9px;
+  font-weight:900;
+  text-transform:uppercase;
+  margin:8px 0;
+}
+.unreadSeparator:before,
+.unreadSeparator:after{
+  content:"";
+  height:1px;
+  flex:1;
+  background:var(--coral);
+}
+
 </style>
 </head>
 <body>
@@ -4445,7 +4636,11 @@ html[data-palette="candy"]{
       <section id="chatView" class="view chatView hidden">
         <div class="chatHead" style="display:flex;align-items:center;gap:10px;">
           <div style="min-width:0;flex:1;"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
-          <input id="chatSearchInput" class="chatSearchInput" type="search" placeholder="Pesquisar mensagens">
+          <button id="chatPinsBtn" class="btn secondary small" type="button" title="Mensagens fixadas">Fixadas</button>
+        <button id="chatSavedBtn" class="btn secondary small" type="button" title="Mensagens salvas">Salvas</button>
+        <button id="chatPollBtn" class="btn secondary small" type="button" title="Criar enquete">Enquete</button>
+        <button id="markChannelReadBtn" class="btn secondary small" type="button" title="Marcar canal como lido">Lido</button>
+        <input id="chatSearchInput" class="chatSearchInput" type="search" placeholder="Pesquisar mensagens">
         </div>
         <div id="messages" class="messages"></div>
         <div id="typingIndicator" class="typingIndicator hidden"></div>
@@ -4553,6 +4748,47 @@ html[data-palette="candy"]{
     <div id="rightTitle" class="rightTitle">Ativo agora</div>
     <div id="members"></div>
   </aside>
+</div>
+
+
+<div id="quickSwitcherWrap" class="modalWrap hidden">
+  <div class="modal quickSwitcherModal">
+    <div class="quickSwitcherHead">
+      <input id="quickSwitcherInput" placeholder="Buscar servidor, canal ou amigo..." autocomplete="off">
+      <button id="quickSwitcherCloseBtn" class="btn secondary small" type="button">Fechar</button>
+    </div>
+    <div id="quickSwitcherList" class="quickSwitcherList"></div>
+  </div>
+</div>
+
+<div id="messageUtilityWrap" class="modalWrap hidden">
+  <div class="modal messageUtilityModal">
+    <div class="messageUtilityHead">
+      <div>
+        <h3 id="messageUtilityTitle">Mensagens</h3>
+        <p id="messageUtilitySub">Itens salvos</p>
+      </div>
+      <button id="messageUtilityCloseBtn" class="btn secondary small" type="button">Fechar</button>
+    </div>
+    <div id="messageUtilityList" class="messageUtilityList"></div>
+  </div>
+</div>
+
+<div id="pollWrap" class="modalWrap hidden">
+  <div class="modal">
+    <h2>Criar enquete</h2>
+    <p>Pergunta e até 5 opções.</p>
+    <input id="pollQuestionInput" placeholder="Pergunta">
+    <input id="pollOption1" placeholder="Opção 1">
+    <input id="pollOption2" placeholder="Opção 2">
+    <input id="pollOption3" placeholder="Opção 3">
+    <input id="pollOption4" placeholder="Opção 4">
+    <input id="pollOption5" placeholder="Opção 5">
+    <div class="modalActions">
+      <button id="pollCancelBtn" class="btn secondary" type="button">Cancelar</button>
+      <button id="pollCreateBtn" class="btn primary" type="button">Criar</button>
+    </div>
+  </div>
 </div>
 
 <div id="sharePickerWrap" class="sharePickerWrap hidden">
@@ -4955,6 +5191,20 @@ function pageWasReloaded(){
 
 const PAGE_WAS_RELOADED=pageWasReloaded();
 
+
+function safeStoredEntries(key){
+  try{
+    const value=JSON.parse(localStorage.getItem(key)||'[]');
+    return Array.isArray(value) ? value.filter(item=>Array.isArray(item)&&item.length>=2) : [];
+  }catch{return []}
+}
+function safeStoredList(key){
+  try{
+    const value=JSON.parse(localStorage.getItem(key)||'[]');
+    return Array.isArray(value) ? value : [];
+  }catch{return []}
+}
+
 const state = {
   authToken:localStorage.getItem('acord-auth-token')||'',
   authMode:'login',
@@ -5063,6 +5313,21 @@ const state = {
   typingUsers:new Map(),
   chatSearch:'',
   speakingMonitors:new Map(),
+  savedMessages:new Map((()=>{
+    try{return JSON.parse(localStorage.getItem('acord-saved-messages')||'[]')}catch{return []}
+  })()),
+  pinnedMessages:new Map((()=>{
+    try{return JSON.parse(localStorage.getItem('acord-pinned-messages')||'[]')}catch{return []}
+  })()),
+  unreadChannels:new Map((()=>{
+    try{return JSON.parse(localStorage.getItem('acord-unread-channels')||'[]')}catch{return []}
+  })()),
+  favoriteChannels:new Set(safeStoredList('acord-favorite-channels')),
+  messageDrafts:new Map((()=>{
+    try{return JSON.parse(localStorage.getItem('acord-message-drafts')||'[]')}catch{return []}
+  })()),
+  quickSwitcherItems:[],
+  activeUtilityMode:null,
   pendingChannelCategoryId:null,
   collapsedCategories:new Set((()=>{
     try{
@@ -5667,6 +5932,326 @@ function openUserContextMenu(event,profile,serverMode=false){
   const rect=menu.getBoundingClientRect();
   menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-rect.width-8))+'px';
   menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-rect.height-8))+'px';
+}
+
+
+function persistPowerState(){
+  try{
+    localStorage.setItem('acord-saved-messages',JSON.stringify([...state.savedMessages.entries()]));
+    localStorage.setItem('acord-pinned-messages',JSON.stringify([...state.pinnedMessages.entries()]));
+    localStorage.setItem('acord-unread-channels',JSON.stringify([...state.unreadChannels.entries()]));
+    localStorage.setItem('acord-favorite-channels',JSON.stringify([...state.favoriteChannels]));
+    localStorage.setItem('acord-message-drafts',JSON.stringify([...state.messageDrafts.entries()]));
+  }catch{}
+}
+
+function messageStorageKey(message){
+  return [
+    message?.serverId || state.serverId || '',
+    message?.channelId || state.textChannelId || '',
+    message?.id || ''
+  ].join(':');
+}
+
+function saveMessageToggle(message){
+  const key=messageStorageKey(message);
+  if(!message?.id) return;
+
+  if(state.savedMessages.has(key)){
+    state.savedMessages.delete(key);
+    toast('Removida das mensagens salvas');
+  }else{
+    state.savedMessages.set(key,{
+      ...message,
+      serverName:currentServer()?.name||'',
+      channelName:currentText()?.name||''
+    });
+    toast('Mensagem salva');
+  }
+
+  persistPowerState();
+  renderMessagePowerMarks();
+}
+
+function pinMessageToggle(message){
+  const key=messageStorageKey(message);
+  if(!message?.id) return;
+
+  if(state.pinnedMessages.has(key)){
+    state.pinnedMessages.delete(key);
+    toast('Mensagem desafixada');
+  }else{
+    state.pinnedMessages.set(key,{
+      ...message,
+      serverName:currentServer()?.name||'',
+      channelName:currentText()?.name||''
+    });
+    toast('Mensagem fixada');
+  }
+
+  persistPowerState();
+  renderMessagePowerMarks();
+}
+
+function renderMessagePowerMarks(){
+  document.querySelectorAll('#messages .message').forEach(row=>{
+    const id=row.dataset.messageId;
+    if(!id) return;
+
+    const key=[state.serverId||'',state.textChannelId||'',id].join(':');
+    row.classList.toggle('messagePinned',state.pinnedMessages.has(key));
+
+    row.querySelector('.messageSavedMark')?.remove();
+
+    if(state.savedMessages.has(key)){
+      const mark=document.createElement('span');
+      mark.className='messageSavedMark';
+      mark.textContent='SALVA';
+      row.appendChild(mark);
+    }
+  });
+}
+
+function openMessageUtility(mode){
+  state.activeUtilityMode=mode;
+  $('#messageUtilityTitle').textContent=mode==='pins'?'Mensagens fixadas':'Mensagens salvas';
+  $('#messageUtilitySub').textContent=mode==='pins'
+    ? 'Fixadas por você'
+    : 'Salvas por você';
+
+  const map=mode==='pins'?state.pinnedMessages:state.savedMessages;
+  const list=$('#messageUtilityList');
+  list.innerHTML='';
+
+  const values=[...map.values()].reverse();
+
+  if(!values.length){
+    const empty=document.createElement('div');
+    empty.className='serverManagerEmpty';
+    empty.textContent='Nenhuma mensagem aqui.';
+    list.appendChild(empty);
+  }
+
+  values.forEach(message=>{
+    const card=document.createElement('div');
+    card.className='utilityMessage';
+
+    const meta=document.createElement('strong');
+    meta.textContent=(message.serverName||'Servidor')+' · #'+(message.channelName||'chat');
+
+    const body=document.createElement('p');
+    body.textContent=message.text||'[anexo/mensagem]';
+
+    const actions=document.createElement('div');
+    actions.className='utilityMessageActions';
+
+    const remove=document.createElement('button');
+    remove.className='btn secondary small';
+    remove.type='button';
+    remove.textContent='Remover';
+    remove.addEventListener('click',()=>{
+      map.delete(messageStorageKey(message));
+      persistPowerState();
+      openMessageUtility(mode);
+      renderMessagePowerMarks();
+    });
+
+    actions.append(remove);
+    card.append(meta,body,actions);
+    list.appendChild(card);
+  });
+
+  $('#messageUtilityWrap').classList.remove('hidden');
+}
+
+function closeMessageUtility(){
+  $('#messageUtilityWrap').classList.add('hidden');
+}
+
+function quickSwitcherCollect(){
+  const items=[];
+
+  state.servers.forEach(server=>{
+    items.push({
+      kind:'Servidor',
+      title:server.name,
+      subtitle:'Abrir servidor',
+      action:()=>selectServer(server.id)
+    });
+
+    (server.textChannels||[]).forEach(channel=>{
+      items.push({
+        kind:'Chat',
+        title:'# '+channel.name,
+        subtitle:server.name,
+        action:()=>{
+          state.serverId=server.id;
+          selectText(channel.id);
+        }
+      });
+    });
+
+    (server.voiceChannels||[]).forEach(channel=>{
+      items.push({
+        kind:'Voz',
+        title:channel.name,
+        subtitle:server.name,
+        action:()=>{
+          state.serverId=server.id;
+          selectVoice(channel.id);
+        }
+      });
+    });
+  });
+
+  getFriends().forEach(friend=>{
+    items.push({
+      kind:'Amigo',
+      title:friend.username,
+      subtitle:'Mensagem privada',
+      action:()=>{
+        setView('dm');
+        openDm(friend);
+      }
+    });
+  });
+
+  state.quickSwitcherItems=items;
+  return items;
+}
+
+function renderQuickSwitcher(){
+  const q=String($('#quickSwitcherInput')?.value||'').trim().toLowerCase();
+  const box=$('#quickSwitcherList');
+  if(!box) return;
+
+  box.innerHTML='';
+
+  const items=quickSwitcherCollect()
+    .filter(item=>!q || (item.title+' '+item.subtitle+' '+item.kind).toLowerCase().includes(q))
+    .slice(0,80);
+
+  items.forEach(item=>{
+    const button=document.createElement('button');
+    button.className='quickSwitcherItem';
+    button.type='button';
+
+    const kind=document.createElement('span');
+    kind.className='quickSwitcherKind';
+    kind.textContent=item.kind;
+
+    const meta=document.createElement('span');
+    meta.className='quickSwitcherMeta';
+
+    const title=document.createElement('strong');
+    title.textContent=item.title;
+
+    const sub=document.createElement('span');
+    sub.textContent=item.subtitle||'';
+
+    meta.append(title,sub);
+    button.append(kind,meta);
+
+    button.addEventListener('click',()=>{
+      $('#quickSwitcherWrap').classList.add('hidden');
+      item.action();
+    });
+
+    box.appendChild(button);
+  });
+}
+
+function openQuickSwitcher(){
+  $('#quickSwitcherWrap').classList.remove('hidden');
+  $('#quickSwitcherInput').value='';
+  renderQuickSwitcher();
+  setTimeout(()=>$('#quickSwitcherInput').focus(),0);
+}
+
+function closeQuickSwitcher(){
+  $('#quickSwitcherWrap').classList.add('hidden');
+}
+
+function channelKey(serverId=state.serverId,channelId=state.textChannelId){
+  return String(serverId||'')+':'+String(channelId||'');
+}
+
+function markCurrentChannelRead(){
+  const key=channelKey();
+  state.unreadChannels.delete(key);
+  persistPowerState();
+  renderSidebar();
+  toast('Canal marcado como lido');
+}
+
+function addUnread(serverId,channelId){
+  if(
+    serverId===state.serverId &&
+    channelId===state.textChannelId &&
+    state.currentView==='chat' &&
+    document.visibilityState==='visible'
+  ) return;
+
+  const key=channelKey(serverId,channelId);
+  state.unreadChannels.set(key,(state.unreadChannels.get(key)||0)+1);
+  persistPowerState();
+  renderSidebar();
+}
+
+function saveDraft(){
+  const input=$('#messageInput');
+  if(!input) return;
+
+  const key=channelKey();
+  const value=input.value;
+
+  if(value) state.messageDrafts.set(key,value);
+  else state.messageDrafts.delete(key);
+
+  persistPowerState();
+}
+
+function restoreDraft(){
+  const input=$('#messageInput');
+  if(!input) return;
+
+  input.value=state.messageDrafts.get(channelKey())||'';
+}
+
+function sendPoll(){
+  const question=$('#pollQuestionInput').value.trim();
+  const options=[
+    '#pollOption1','#pollOption2','#pollOption3','#pollOption4','#pollOption5'
+  ].map(sel=>$(sel).value.trim()).filter(Boolean);
+
+  if(!question || options.length<2){
+    toast('Digite uma pergunta e pelo menos 2 opções');
+    return;
+  }
+
+  const token='[ENQUETE]'+JSON.stringify({
+    question,
+    options,
+    votes:{}
+  });
+
+  socket.emit('chat-message',{
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    text:token,
+    replyTo:state.replyToMessageId||null
+  });
+
+  $('#pollWrap').classList.add('hidden');
+  ['#pollQuestionInput','#pollOption1','#pollOption2','#pollOption3','#pollOption4','#pollOption5']
+    .forEach(sel=>$(sel).value='');
+}
+
+function parsePoll(text){
+  if(!String(text||'').startsWith('[ENQUETE]')) return null;
+  try{
+    return JSON.parse(String(text).slice(9));
+  }catch{return null}
 }
 
 function filterVisibleMessages(){
@@ -6774,12 +7359,50 @@ function renderSidebar(){
       label.textContent = channel.name;
       label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
       b.append(grip,icon,label);
+
+      if(type==='text'){
+        const key=channelKey(state.serverId,channel.id);
+
+        if(state.favoriteChannels.has(key)){
+          const fav=document.createElement('span');
+          fav.className='channelFavoriteMark';
+          fav.textContent='★';
+          b.appendChild(fav);
+        }
+
+        const unread=state.unreadChannels.get(key)||0;
+
+        if(unread>0){
+          const badge=document.createElement('span');
+          badge.className='channelUnreadBadge';
+          badge.textContent=unread>99?'99+':String(unread);
+          b.appendChild(badge);
+        }
+      }
     }
 
     b.addEventListener('click',()=>{
       if(type==='text') selectText(channel.id);
       else selectVoice(channel.id);
     });
+
+    if(type==='text'){
+      b.addEventListener('contextmenu',event=>{
+        event.preventDefault();
+        const key=channelKey(state.serverId,channel.id);
+
+        if(state.favoriteChannels.has(key)){
+          state.favoriteChannels.delete(key);
+          toast('Canal removido dos favoritos');
+        }else{
+          state.favoriteChannels.add(key);
+          toast('Canal favoritado');
+        }
+
+        persistPowerState();
+        renderSidebar();
+      });
+    }
 
     b.addEventListener('dragstart',event=>{
       b.classList.add('dragging');
@@ -6842,7 +7465,22 @@ function renderSidebar(){
     if(!isUncategorized){
       header.draggable = true;
 
-      const del = document.createElement('button');
+      
+  const save = document.createElement('button');
+  save.textContent = 'Salvar mensagem';
+  save.addEventListener('click',()=>{
+    saveMessageToggle(message);
+    closeMessageContextMenu();
+  });
+
+  const pin = document.createElement('button');
+  pin.textContent = 'Fixar / desafixar';
+  pin.addEventListener('click',()=>{
+    pinMessageToggle(message);
+    closeMessageContextMenu();
+  });
+
+const del = document.createElement('button');
       del.className = 'categoryDelete';
       del.type = 'button';
       del.textContent = '×';
@@ -7442,12 +8080,15 @@ function selectText(channelId){
     localStorage.setItem('ecord-server-' + state.serverId + '-text',channelId);
   }
 
+  state.unreadChannels.delete(channelKey(state.serverId,channelId));
+  persistPowerState();
   renderSidebar();
   const c = currentText();
   $('#chatTitle').textContent = c?.name || 'chat';
   $('#messageInput').placeholder = 'Mensagem em #' + (c?.name || 'chat');
   socket.emit('join-text',{serverId:state.serverId,channelId});
   setView('chat');
+  restoreDraft();
   $('#messageInput').focus();
 }
 
@@ -7500,6 +8141,7 @@ function appendMessage(m){
   const row=document.createElement('div');
   row.className='message'+(m.userId===state.userId || m.senderId===socket.id?' mine':'');
   row.dataset.messageId=m.id||'';
+  row._messageData=m;
 
   if(m.replyTo){
     const reply=document.createElement('div');reply.className='messageReply';
@@ -7896,6 +8538,7 @@ function renderFriends(){
       actions.append(accept,decline);
       row.append(avatar,meta,actions);
       box.appendChild(row);
+  setTimeout(renderMessagePowerMarks,0);
     });
 
     outgoing.forEach(item=>{
@@ -10068,6 +10711,50 @@ $('#modalOk').addEventListener('click',confirmModal);
 $('#modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')confirmModal();if(e.key==='Escape')closeModal()});
 $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))closeModal()});
 
+
+$('#chatPinsBtn').addEventListener('click',()=>openMessageUtility('pins'));
+$('#chatSavedBtn').addEventListener('click',()=>openMessageUtility('saved'));
+$('#chatPollBtn').addEventListener('click',()=>$('#pollWrap').classList.remove('hidden'));
+$('#markChannelReadBtn').addEventListener('click',markCurrentChannelRead);
+
+$('#messageUtilityCloseBtn').addEventListener('click',closeMessageUtility);
+$('#messageUtilityWrap').addEventListener('click',event=>{
+  if(event.target===$('#messageUtilityWrap')) closeMessageUtility();
+});
+
+$('#quickSwitcherCloseBtn').addEventListener('click',closeQuickSwitcher);
+$('#quickSwitcherInput').addEventListener('input',renderQuickSwitcher);
+$('#quickSwitcherWrap').addEventListener('click',event=>{
+  if(event.target===$('#quickSwitcherWrap')) closeQuickSwitcher();
+});
+
+$('#pollCancelBtn').addEventListener('click',()=>$('#pollWrap').classList.add('hidden'));
+$('#pollCreateBtn').addEventListener('click',sendPoll);
+$('#pollWrap').addEventListener('click',event=>{
+  if(event.target===$('#pollWrap')) $('#pollWrap').classList.add('hidden');
+});
+
+document.addEventListener('keydown',event=>{
+  if((event.ctrlKey||event.metaKey) && String(event.key).toLowerCase()==='k'){
+    event.preventDefault();
+    openQuickSwitcher();
+    return;
+  }
+
+  if((event.ctrlKey||event.metaKey) && String(event.key).toLowerCase()==='f'){
+    if(state.currentView==='chat'){
+      event.preventDefault();
+      $('#chatSearchInput').focus();
+    }
+  }
+
+  if(event.key==='Escape'){
+    closeQuickSwitcher();
+    closeMessageUtility();
+    $('#pollWrap').classList.add('hidden');
+  }
+});
+
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
 $('#friendsServersBtn').addEventListener('click',openServerManager);
@@ -10324,6 +11011,7 @@ $('#chatSearchInput').addEventListener('input',event=>{
   filterVisibleMessages();
 });
 
+$('#messageInput').addEventListener('input',saveDraft);
 $('#messageInput').addEventListener('input',()=>{
   if(!state.serverId||!state.textChannelId) return;
   socket.emit('chat-typing',{serverId:state.serverId,channelId:state.textChannelId});
@@ -11334,7 +12022,11 @@ socket.on('channel-created',payload=>{
 
 socket.on('text-history',history=>showMessages(history));
 socket.on('chat-message',m=>{
-  if(m.serverId===state.serverId && m.channelId===state.textChannelId) appendMessage(m);
+  addUnread(m.serverId,m.channelId);
+
+  if(m.serverId===state.serverId && m.channelId===state.textChannelId){
+    appendMessage(m);
+  }
 });
 
 socket.on('voice-participants',async participants=>{
