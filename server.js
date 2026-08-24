@@ -763,6 +763,28 @@ const APP_HTML = String.raw`<!doctype html>
   --coral:#ff6b4a;--coral2:#ff8062;--mint:#41d99a;--mintbg:#153d2c;--danger:#df4c4c;
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
+
+/* Temas opcionais. Sem escolha, o site continua exatamente no tema original. */
+html[data-theme="black"]{
+  --bg0:#050506;--bg1:#0b0b0d;--bg2:#141417;--bg3:#1d1d21;--bg4:#28282e;
+  --line:#35353c;--text:#f4f4f5;--muted:#b3b3ba;--low:#7d7d87;
+  --coral:#e5e5e7;--coral2:#ffffff;--mint:#bfc3ca;--mintbg:#202126;--danger:#df4c4c;
+}
+html[data-theme="white"]{
+  --bg0:#edf1f5;--bg1:#ffffff;--bg2:#f4f6f8;--bg3:#e7ebf0;--bg4:#dce2e9;
+  --line:#c9d1da;--text:#171a1f;--muted:#505966;--low:#788391;
+  --coral:#4d6fff;--coral2:#6683ff;--mint:#3d67d9;--mintbg:#e2e9ff;--danger:#c93c48;
+}
+html[data-theme="blue"]{
+  --bg0:#07101f;--bg1:#0b172b;--bg2:#10213b;--bg3:#162c4b;--bg4:#1d385e;
+  --line:#285079;--text:#f3f8ff;--muted:#adc3dd;--low:#7896b7;
+  --coral:#4e8cff;--coral2:#6fa2ff;--mint:#53a7ff;--mintbg:#102e52;--danger:#e25264;
+}
+html[data-theme="purple"]{
+  --bg0:#100b19;--bg1:#181123;--bg2:#221830;--bg3:#2c1f40;--bg4:#38284f;
+  --line:#4a3761;--text:#faf7ff;--muted:#cabee0;--low:#9586ad;
+  --coral:#9b6cff;--coral2:#b28cff;--mint:#a87dff;--mintbg:#2b1c48;--danger:#df4c67;
+}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:var(--bg0);color:var(--text)}
 body{overflow:hidden}
@@ -829,18 +851,18 @@ button{cursor:pointer}
 .channelBtn{width:100%;border:0;background:transparent;color:var(--muted);padding:8px 10px;border-radius:9px;text-align:left;display:flex;align-items:center;gap:8px;margin:1px 0}
 .channelBtn:hover,.channelBtn.active{background:var(--bg2);color:var(--text)}
 .channelBtn.voice.active{background:var(--mintbg);color:var(--mint)}
-.userbar{border-top:1px solid var(--line);background:#0a1613;padding:10px 12px;display:flex;align-items:center;gap:9px}
+.userbar{border-top:1px solid var(--line);background:var(--bg1);padding:10px 12px;display:flex;align-items:center;gap:9px}
 .avatar{width:34px;height:34px;border-radius:11px;background:var(--coral);color:#281009;display:grid;place-items:center;font-weight:900}
 .userMeta{min-width:0}.userMeta strong,.userMeta span{display:block}.userMeta strong{font-size:13px;overflow:hidden;text-overflow:ellipsis}.userMeta span{font-size:11px;color:var(--mint)}
 
 .main{min-width:0;display:flex;flex-direction:column;background:radial-gradient(circle at 20% 15%,rgba(65,217,154,.06),transparent 30%),radial-gradient(circle at 82% 75%,rgba(255,107,74,.07),transparent 35%),var(--bg0)}
-.topbar{height:54px;border-bottom:1px solid var(--line);padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(7,17,14,.93)}
+.topbar{height:54px;border-bottom:1px solid var(--line);padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--bg1)}
 .topLeft{display:flex;align-items:center;gap:9px;min-width:0}.topTitle{font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topSub{font-size:12px;color:var(--muted)}
 .content{flex:1;min-height:0;position:relative}
 .view{height:100%;min-height:0}
 
 .home{display:flex;align-items:center;justify-content:center;padding:24px}
-.homeCard{width:min(620px,100%);background:rgba(13,27,23,.96);border:1px solid var(--line);border-radius:22px;padding:32px;box-shadow:0 22px 70px rgba(0,0,0,.25)}
+.homeCard{width:min(620px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:22px;padding:32px;box-shadow:0 22px 70px rgba(0,0,0,.25)}
 .homeMark{width:62px;height:62px;border-radius:20px;background:var(--coral);color:#281009;display:grid;place-items:center;font-size:25px;font-weight:900}
 .homeCard h1{margin:20px 0 8px;font-size:30px;letter-spacing:-.035em}.homeCard p{color:var(--muted);line-height:1.55}
 .quick{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
@@ -873,7 +895,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .placeholder .bigAvatar{width:82px;height:82px;border-radius:28px;background:var(--coral);color:#281009;display:grid;place-items:center;font-size:30px;font-weight:900}
 .videoCard.hasVideo .placeholder{display:none}
 .videoName{position:absolute;left:10px;bottom:10px;background:rgba(5,8,7,.76);padding:6px 9px;border-radius:8px;font-size:12px;font-weight:800}
-.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:rgba(13,27,23,.95)}
+.controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:12px;border-top:1px solid var(--line);background:var(--bg1)}
 .control{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:999px;padding:11px 15px;font-weight:800;min-width:120px}
 .control:hover{background:var(--bg4)}.control.off{background:#18211e;color:var(--muted)}.control.sharing{background:var(--mintbg);color:var(--mint)}.control.danger{background:var(--danger);border-color:transparent}
 
@@ -913,6 +935,54 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .modal{width:min(430px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 25px 80px rgba(0,0,0,.45)}
 .modal h2{margin:0 0 7px}.modal p{margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
 .modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.profileTabs{
+  display:flex;
+  gap:6px;
+  margin:0 0 18px;
+  padding:4px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+.profileTabBtn{
+  flex:1;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:9px 10px;
+  border-radius:9px;
+  font-weight:800;
+}
+.profileTabBtn:hover{background:var(--bg3);color:var(--text)}
+.profileTabBtn.active{background:var(--bg4);color:var(--text)}
+.profileTabPanel{display:none}
+.profileTabPanel.active{display:block}
+
+.profileThemeChoices{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:8px}
+.profileThemeBtn{
+  border:1px solid var(--line);
+  background:var(--bg2);
+  color:var(--text);
+  border-radius:10px;
+  padding:8px 5px;
+  font-size:11px;
+  font-weight:800;
+}
+.profileThemeBtn:hover{background:var(--bg3)}
+.profileThemeBtn.active{outline:2px solid var(--coral);outline-offset:1px}
+.profileThemeDot{
+  display:block;
+  width:25px;height:25px;
+  margin:0 auto 5px;
+  border-radius:8px;
+  border:1px solid rgba(127,127,127,.35);
+}
+.profileThemeDot.default{background:linear-gradient(135deg,#07110e,#41d99a)}
+.profileThemeDot.black{background:linear-gradient(135deg,#050506,#33343a)}
+.profileThemeDot.white{background:linear-gradient(135deg,#ffffff,#dce2e9)}
+.profileThemeDot.blue{background:linear-gradient(135deg,#07101f,#4e8cff)}
+.profileThemeDot.purple{background:linear-gradient(135deg,#100b19,#9b6cff)}
+@media(max-width:560px){.profileThemeChoices{grid-template-columns:repeat(3,1fr)}}
 
 .login{
   position:fixed;inset:0;z-index:2000000;
@@ -930,7 +1000,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   overflow:hidden;
   border:1px solid var(--line);
   border-radius:28px;
-  background:rgba(13,27,23,.96);
+  background:var(--bg1);
   box-shadow:0 28px 100px rgba(0,0,0,.42);
 }
 .loginBrandPanel{
@@ -1229,7 +1299,7 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   padding:14px 18px 10px;
 }
 .friendsSearchWrap input{
-  background:#09130f;
+  background:var(--bg2);
 }
 .friendsListArea{
   min-height:0;
@@ -1283,12 +1353,12 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   height:100%;
   display:grid;
   grid-template-columns:220px minmax(0,1fr);
-  background:#091510;
+  background:var(--bg0);
 }
 .settingsMenu{
   border-right:1px solid var(--line);
   padding:22px 14px;
-  background:#0b1915;
+  background:var(--bg1);
   overflow:auto;
 }
 .settingsServerName{
@@ -1977,26 +2047,58 @@ body.locked{overflow:hidden!important}
 <div id="profileModalWrap" class="modalWrap hidden">
   <div class="modal">
     <h2>Meu perfil</h2>
-    <p>Troque sua foto, seu nome e escreva uma bio curta.</p>
+    <p>Edite seu perfil ou altere a aparência do site.</p>
 
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-      <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
-      <div style="flex:1;">
-        <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
-        <input id="profilePhotoInput" type="file" accept="image/*">
-        <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
+    <div class="profileTabs">
+      <button id="profileInfoTabBtn" class="profileTabBtn active" type="button">Perfil</button>
+      <button id="profileAppearanceTabBtn" class="profileTabBtn" type="button">Aparência</button>
+    </div>
+
+    <div id="profileInfoTab" class="profileTabPanel active">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+        <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
+        <div style="flex:1;">
+          <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
+          <input id="profilePhotoInput" type="file" accept="image/*">
+          <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
+        </div>
+      </div>
+
+      <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
+      <input id="profileNameInput" maxlength="30" placeholder="Seu nome">
+
+      <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
+      <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+    </div>
+
+    <div id="profileAppearanceTab" class="profileTabPanel">
+      <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Cor do site</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px;">
+        Essa opção é só para você. Se não quiser mudar, deixe em Padrão.
+      </div>
+
+      <div id="profileThemeChoices" class="profileThemeChoices">
+        <button type="button" class="profileThemeBtn" data-profile-theme="default">
+          <span class="profileThemeDot default"></span>Padrão
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="black">
+          <span class="profileThemeDot black"></span>Preto
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="white">
+          <span class="profileThemeDot white"></span>Branco
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="blue">
+          <span class="profileThemeDot blue"></span>Azul
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="purple">
+          <span class="profileThemeDot purple"></span>Roxo
+        </button>
       </div>
     </div>
 
-    <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
-    <input id="profileNameInput" maxlength="30" placeholder="Seu nome">
-
-    <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
-    <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
-
     <div class="modalActions">
       <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
-      <button id="profileSaveBtn" class="btn primary">Salvar perfil</button>
+      <button id="profileSaveBtn" class="btn primary">Salvar</button>
     </div>
   </div>
 </div>
@@ -2097,6 +2199,8 @@ const state = {
   username: localStorage.getItem('ecord-name') || '',
   bio: localStorage.getItem('ecord-bio') || '',
   avatar: localStorage.getItem('ecord-avatar') || '',
+  theme: localStorage.getItem('ecord-theme') || 'default',
+  pendingTheme: null,
   servers: [],
   serverId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-server-id') || null) : null,
   textChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-text-channel-id') || null) : null,
@@ -2204,6 +2308,43 @@ function applyAvatar(el, profile, fallbackName){
   }
 }
 
+
+const PROFILE_THEMES = ['default','black','white','blue','purple'];
+
+function normalizeProfileTheme(theme){
+  return PROFILE_THEMES.includes(theme) ? theme : 'default';
+}
+
+function applyProfileTheme(theme){
+  const selected = normalizeProfileTheme(theme);
+
+  if(selected === 'default'){
+    document.documentElement.removeAttribute('data-theme');
+  }else{
+    document.documentElement.setAttribute('data-theme',selected);
+  }
+}
+
+function updateProfileThemeButtons(){
+  const selected = normalizeProfileTheme(state.pendingTheme || state.theme);
+
+  document.querySelectorAll('[data-profile-theme]').forEach(button=>{
+    button.classList.toggle(
+      'active',
+      button.dataset.profileTheme === selected
+    );
+  });
+}
+
+function previewProfileTheme(theme){
+  state.pendingTheme = normalizeProfileTheme(theme);
+  applyProfileTheme(state.pendingTheme);
+  updateProfileThemeButtons();
+}
+
+// Só aplica o tema salvo depois que todas as funções e constantes do tema existem.
+applyProfileTheme(state.theme);
+
 function refreshOwnProfileUI(){
   $('#userName').textContent = state.username || 'Você';
   $('#userBioMini').textContent = state.bio
@@ -2221,8 +2362,20 @@ function refreshOwnProfileUI(){
   }
 }
 
+
+function setProfileTab(tab){
+  const appearance = tab === 'appearance';
+
+  $('#profileInfoTabBtn').classList.toggle('active',!appearance);
+  $('#profileAppearanceTabBtn').classList.toggle('active',appearance);
+
+  $('#profileInfoTab').classList.toggle('active',!appearance);
+  $('#profileAppearanceTab').classList.toggle('active',appearance);
+}
+
 function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
+  state.pendingTheme = normalizeProfileTheme(state.theme);
   $('#profileNameInput').value = state.username || '';
   $('#profileBioInput').value = state.bio || '';
   $('#profilePhotoInput').value = '';
@@ -2233,12 +2386,20 @@ function openProfileModal(){
     state.username
   );
 
+  updateProfileThemeButtons();
+  setProfileTab('profile');
   $('#profileModalWrap').classList.remove('hidden');
 }
 
 function closeProfileModal(){
   $('#profileModalWrap').classList.add('hidden');
+
+  if(state.pendingTheme !== null){
+    applyProfileTheme(state.theme);
+  }
+
   state.pendingAvatar = null;
+  state.pendingTheme = null;
 }
 
 function fileToAvatar(file){
@@ -2292,6 +2453,11 @@ function saveProfile(){
     toast('Digite um nome');
     return;
   }
+
+  state.theme = normalizeProfileTheme(state.pendingTheme || state.theme);
+  localStorage.setItem('ecord-theme',state.theme);
+  applyProfileTheme(state.theme);
+  state.pendingTheme = null;
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -5362,6 +5528,20 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
+
+$('#profileInfoTabBtn').addEventListener('click',()=>{
+  setProfileTab('profile');
+});
+
+$('#profileAppearanceTabBtn').addEventListener('click',()=>{
+  setProfileTab('appearance');
+});
+
+document.querySelectorAll('[data-profile-theme]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    previewProfileTheme(button.dataset.profileTheme);
+  });
+});
 $('#removeProfilePhotoBtn').addEventListener('click',()=>{
   state.pendingAvatar = '';
   applyAvatar(
