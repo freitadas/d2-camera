@@ -34,6 +34,67 @@ function findProfileByUsername(username) {
   return null;
 }
 
+
+function areFriends(userA,userB) {
+  const a = String(userA || '');
+  const b = String(userB || '');
+
+  if (!a || !b || a === b) return false;
+
+  return friendships.some(pair =>
+    (pair.a === a && pair.b === b) ||
+    (pair.a === b && pair.b === a)
+  );
+}
+
+function friendStateForUser(userId) {
+  const safeId = String(userId || '').slice(0,100);
+  if (!safeId) {
+    return { friends:[], incoming:[], outgoing:[] };
+  }
+
+  const friendIds = friendships
+    .filter(pair => pair.a === safeId || pair.b === safeId)
+    .map(pair => pair.a === safeId ? pair.b : pair.a);
+
+  const friends = friendIds
+    .map(friendId => publicProfile(profiles.get(friendId)))
+    .filter(Boolean);
+
+  const incoming = friendRequests
+    .filter(request => request.toUserId === safeId)
+    .map(request => ({
+      id:request.id,
+      from:publicProfile(profiles.get(request.fromUserId)),
+      at:request.at
+    }))
+    .filter(item => item.from);
+
+  const outgoing = friendRequests
+    .filter(request => request.fromUserId === safeId)
+    .map(request => ({
+      id:request.id,
+      to:publicProfile(profiles.get(request.toUserId)),
+      at:request.at
+    }))
+    .filter(item => item.to);
+
+  return { friends, incoming, outgoing };
+}
+
+function emitFriendState(userId) {
+  const safeId = String(userId || '').slice(0,100);
+  if (!safeId) return;
+
+  const payload = friendStateForUser(safeId);
+
+  for (const client of io.sockets.sockets.values()) {
+    if (client.data.userId === safeId) {
+      client.emit('friend-state',payload);
+    }
+  }
+}
+
 function broadcastOnlineUsers() {
   const users = [...io.sockets.sockets.values()]
     .filter(s => s.data.username)
@@ -58,6 +119,8 @@ const DATA_FILE = process.env.ECORD_DATA_FILE || path.join(process.cwd(), 'ecord
 const servers = new Map();
 const profiles = new Map();
 const directMessages = [];
+const friendRequests = [];
+const friendships = [];
 
 function normalizeChannelList(list, fallbackName) {
   if (!Array.isArray(list) || !list.length) {
@@ -198,6 +261,23 @@ function serializeProfiles() {
   }));
 }
 
+function serializeFriendRequests() {
+  return friendRequests.slice(-5000).map(request => ({
+    id: String(request.id || '').slice(0,80),
+    fromUserId: String(request.fromUserId || '').slice(0,100),
+    toUserId: String(request.toUserId || '').slice(0,100),
+    at: Number(request.at || Date.now())
+  }));
+}
+
+function serializeFriendships() {
+  return friendships.slice(0,10000).map(pair => ({
+    a: String(pair.a || '').slice(0,100),
+    b: String(pair.b || '').slice(0,100),
+    at: Number(pair.at || Date.now())
+  }));
+}
+
 function serializeDirectMessages() {
   return directMessages.slice(-5000).map(message => ({
     id: String(message.id || '').slice(0,80),
@@ -234,10 +314,12 @@ function saveServersToDisk() {
     fs.writeFileSync(
       tmp,
       JSON.stringify({
-        version: 4,
+        version: 5,
         servers: serializeServers(),
         profiles: serializeProfiles(),
-        directMessages: serializeDirectMessages()
+        directMessages: serializeDirectMessages(),
+        friendRequests: serializeFriendRequests(),
+        friendships: serializeFriendships()
       }, null, 2),
       'utf8'
     );
@@ -255,8 +337,33 @@ function loadServersFromDisk() {
     const list = Array.isArray(parsed?.servers) ? parsed.servers : [];
     const savedProfiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
     const savedDirectMessages = Array.isArray(parsed?.directMessages) ? parsed.directMessages : [];
+    const savedFriendRequests = Array.isArray(parsed?.friendRequests) ? parsed.friendRequests : [];
+    const savedFriendships = Array.isArray(parsed?.friendships) ? parsed.friendships : [];
 
     directMessages.splice(0,directMessages.length);
+    friendRequests.splice(0,friendRequests.length);
+    friendships.splice(0,friendships.length);
+
+    for (const request of savedFriendRequests.slice(-5000)) {
+      if (!request?.fromUserId || !request?.toUserId) continue;
+
+      friendRequests.push({
+        id: String(request.id || id()).slice(0,80),
+        fromUserId: String(request.fromUserId).slice(0,100),
+        toUserId: String(request.toUserId).slice(0,100),
+        at: Number(request.at || Date.now())
+      });
+    }
+
+    for (const pair of savedFriendships.slice(0,10000)) {
+      if (!pair?.a || !pair?.b || pair.a === pair.b) continue;
+
+      friendships.push({
+        a: String(pair.a).slice(0,100),
+        b: String(pair.b).slice(0,100),
+        at: Number(pair.at || Date.now())
+      });
+    }
 
     for (const message of savedDirectMessages.slice(-5000)) {
       if (!message?.fromUserId || !message?.toUserId || !message?.text) continue;
@@ -1422,6 +1529,7 @@ body.locked{overflow:hidden!important}
             <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
+            <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -1859,6 +1967,10 @@ const state = {
   serverSettingsIcon: null,
   serverSettingsAccent: '#ff6b4a',
   friendsFilter: 'online',
+  serverFriends: [],
+  incomingFriendRequests: [],
+  outgoingFriendRequests: [],
+  friendStateLoaded: false,
   dmTarget: null,
   privateInviteHandled: false,
   currentView: 'friends',
@@ -2892,6 +3004,7 @@ function selectServer(serverId){
   setAppMode('server');
 
   state.serverId = serverId;
+  localStorage.setItem('ecord-last-server-id',serverId);
   const s = currentServer();
   state.textChannelId = s?.textChannels[0]?.id || null;
   state.voiceChannelId = s?.voiceChannels[0]?.id || null;
@@ -3005,6 +3118,14 @@ function sendMessage(){
 
 
 function getFriends(){
+  if(state.friendStateLoaded){
+    return Array.isArray(state.serverFriends)
+      ? state.serverFriends
+      : [];
+  }
+
+  // Cache apenas para mostrar algo enquanto o servidor sincroniza.
+  // A lista oficial vem do backend depois do login.
   try{
     const list = JSON.parse(localStorage.getItem('ecord-friends') || '[]');
 
@@ -3036,6 +3157,7 @@ function getFriends(){
   }
 }
 
+
 function saveFriends(list){
   localStorage.setItem('ecord-friends', JSON.stringify(list));
 }
@@ -3045,8 +3167,7 @@ function addFriendByName(name){
 
   if(!clean) return;
 
-  socket.emit('friend-lookup',{
-    userId:state.userId,
+  socket.emit('friend-request-send',{
     username:clean
   });
 }
@@ -3079,13 +3200,12 @@ function addResolvedFriend(profile){
 }
 
 function removeFriend(friend){
-  const friends = getFriends().filter(item => {
-    if(friend?.id && item.id) return item.id !== friend.id;
-    return String(item.username || '').toLowerCase() !== String(friend?.username || '').toLowerCase();
-  });
+  if(!friend) return;
 
-  saveFriends(friends);
-  renderFriends();
+  socket.emit('friend-remove',{
+    targetUserId:friend.id || null,
+    targetUsername:friend.username || ''
+  });
 }
 
 function callFriend(friend){
@@ -3176,6 +3296,123 @@ function renderFriends(){
   if(!box) return;
 
   const search = String($('#friendsSearch')?.value || '').trim().toLowerCase();
+
+  $('#friendsOnlineTab')?.classList.toggle('active',state.friendsFilter==='online');
+  $('#friendsAllTab')?.classList.toggle('active',state.friendsFilter==='all');
+  $('#friendsPendingTab')?.classList.toggle('active',state.friendsFilter==='pending');
+
+  const pendingCount =
+    (state.incomingFriendRequests?.length || 0) +
+    (state.outgoingFriendRequests?.length || 0);
+
+  if($('#friendsPendingTab')){
+    $('#friendsPendingTab').textContent = pendingCount
+      ? 'Pendentes (' + pendingCount + ')'
+      : 'Pendentes';
+  }
+
+  box.innerHTML = '';
+
+  if(state.friendsFilter === 'pending'){
+    const incoming = (state.incomingFriendRequests || []).filter(item=>{
+      const profile = item.from || {};
+      return !search ||
+        String(profile.username || '').toLowerCase().includes(search) ||
+        String(profile.bio || '').toLowerCase().includes(search);
+    });
+
+    const outgoing = (state.outgoingFriendRequests || []).filter(item=>{
+      const profile = item.to || {};
+      return !search ||
+        String(profile.username || '').toLowerCase().includes(search) ||
+        String(profile.bio || '').toLowerCase().includes(search);
+    });
+
+    if($('#friendsCountTitle')){
+      $('#friendsCountTitle').textContent =
+        'Solicitações — ' + (incoming.length + outgoing.length);
+    }
+
+    if(!incoming.length && !outgoing.length){
+      const empty = document.createElement('div');
+      empty.style.cssText='padding:26px 4px;color:var(--low);font-size:13px;';
+      empty.textContent='Nenhuma solicitação de amizade pendente.';
+      box.appendChild(empty);
+      renderActiveFriends();
+      return;
+    }
+
+    incoming.forEach(item=>{
+      const profile = item.from;
+      const row=document.createElement('div');
+      row.className='friendRow';
+
+      const avatar=document.createElement('div');
+      avatar.className='avatar';
+      applyAvatar(avatar,profile,profile.username);
+
+      const meta=document.createElement('div');
+      meta.style.cssText='flex:1;min-width:0;';
+
+      const name=document.createElement('strong');
+      name.textContent=profile.username;
+
+      const status=document.createElement('span');
+      status.style.cssText='display:block;font-size:11px;color:var(--mint);margin-top:3px;';
+      status.textContent='Quer adicionar você como amigo';
+
+      meta.append(name,status);
+
+      const actions=document.createElement('div');
+      actions.className='friendActions';
+
+      const accept=document.createElement('button');
+      accept.className='btn primary small';
+      accept.textContent='Aceitar';
+      accept.addEventListener('click',()=>{
+        socket.emit('friend-request-accept',{requestId:item.id});
+      });
+
+      const decline=document.createElement('button');
+      decline.className='btn secondary small';
+      decline.textContent='Recusar';
+      decline.addEventListener('click',()=>{
+        socket.emit('friend-request-decline',{requestId:item.id});
+      });
+
+      actions.append(accept,decline);
+      row.append(avatar,meta,actions);
+      box.appendChild(row);
+    });
+
+    outgoing.forEach(item=>{
+      const profile=item.to;
+      const row=document.createElement('div');
+      row.className='friendRow';
+
+      const avatar=document.createElement('div');
+      avatar.className='avatar';
+      applyAvatar(avatar,profile,profile.username);
+
+      const meta=document.createElement('div');
+      meta.style.cssText='flex:1;min-width:0;';
+
+      const name=document.createElement('strong');
+      name.textContent=profile.username;
+
+      const status=document.createElement('span');
+      status.style.cssText='display:block;font-size:11px;color:var(--low);margin-top:3px;';
+      status.textContent='Solicitação enviada · aguardando aceitar';
+
+      meta.append(name,status);
+      row.append(avatar,meta);
+      box.appendChild(row);
+    });
+
+    renderActiveFriends();
+    return;
+  }
+
   const allFriends = getFriends();
 
   const enriched = allFriends.map(friend=>{
@@ -3205,11 +3442,6 @@ function renderFriends(){
     );
   }
 
-  box.innerHTML = '';
-
-  $('#friendsOnlineTab')?.classList.toggle('active',state.friendsFilter==='online');
-  $('#friendsAllTab')?.classList.toggle('active',state.friendsFilter==='all');
-
   if($('#friendsCountTitle')){
     $('#friendsCountTitle').textContent =
       (state.friendsFilter==='online' ? 'Online' : 'Todos') +
@@ -3222,7 +3454,7 @@ function renderFriends(){
     empty.textContent =
       state.friendsFilter==='online'
         ? 'Nenhum amigo online agora.'
-        : 'Você ainda não adicionou nenhum amigo.';
+        : 'Você ainda não tem amigos adicionados.';
     box.appendChild(empty);
     renderActiveFriends();
     return;
@@ -4552,6 +4784,10 @@ $('#friendsAllTab').addEventListener('click',()=>{
   state.friendsFilter='all';
   renderFriends();
 });
+$('#friendsPendingTab').addEventListener('click',()=>{
+  state.friendsFilter='pending';
+  renderFriends();
+});
 $('#friendsSearch').addEventListener('input',renderFriends);
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#addRoleBtn').addEventListener('click',()=>openModal('role'));
@@ -4641,6 +4877,10 @@ socket.on('profile-saved',profile=>{
   renderFriends();
   restoreCurrentView();
 
+  // Garantia extra para F5: agora que o usuário está identificado,
+  // solicita novamente apenas os servidores aos quais ele tem acesso.
+  socket.emit('get-servers');
+
   if(!state.privateInviteHandled){
     const token = new URLSearchParams(location.search).get('invite');
 
@@ -4653,13 +4893,32 @@ socket.on('profile-saved',profile=>{
   toast('Perfil salvo');
 });
 
+socket.on('friend-request-result',result=>{
+  toast(result?.message || result?.error || 'Solicitação atualizada');
+
+  if(result?.ok){
+    state.friendsFilter='pending';
+    renderFriends();
+  }
+});
+
+socket.on('friend-state',payload=>{
+  state.serverFriends = Array.isArray(payload?.friends) ? payload.friends : [];
+  state.incomingFriendRequests = Array.isArray(payload?.incoming) ? payload.incoming : [];
+  state.outgoingFriendRequests = Array.isArray(payload?.outgoing) ? payload.outgoing : [];
+  state.friendStateLoaded = true;
+
+  saveFriends(state.serverFriends);
+  renderFriends();
+  renderActiveFriends();
+  renderDmContacts();
+});
+
+// Compatibilidade com resposta antiga, sem adicionar automaticamente.
 socket.on('friend-lookup-result',result=>{
   if(!result?.ok){
     toast(result?.error || 'Essa pessoa não existe no e-cord');
-    return;
   }
-
-  addResolvedFriend(result.profile);
 });
 
 socket.on('incoming-private-call',data=>{
@@ -4752,7 +5011,9 @@ socket.on('server-list',list=>{
   cacheServers(state.servers);
 
   const params = new URLSearchParams(location.search);
-  const requested = params.get('server');
+  const requested =
+    params.get('server') ||
+    localStorage.getItem('ecord-last-server-id');
 
   // Nenhum servidor disponível.
   if(!state.servers.length){
@@ -4782,6 +5043,7 @@ socket.on('server-list',list=>{
     state.servers[0];
 
   state.serverId = selected.id;
+  localStorage.setItem('ecord-last-server-id',state.serverId);
 
   // Mantém o mesmo canal se ele ainda existir.
   const textStillExists = selected.textChannels?.some(
@@ -4973,10 +5235,8 @@ socket.on('disconnect',()=>{
 socket.on('connect',()=>{
   const params = new URLSearchParams(location.search);
 
-  // O servidor privado só é liberado pelo token do convite.
-  // A entrada acontece depois que o perfil do usuário é identificado.
-  socket.emit('get-servers');
-
+  // No F5, primeiro identificamos o usuário.
+  // O backend envia a lista de servidores somente depois disso.
   if(state.username){
     socket.emit('set-profile',{
       userId:state.userId,
@@ -5083,33 +5343,163 @@ io.on('connection', socket => {
     saveServersToDisk();
     socket.emit('profile-saved', publicProfile(profile));
     sendServerList(socket);
+    emitFriendState(safeId);
     broadcastServerLists();
     broadcastOnlineUsers();
   });
 
+  socket.on('friend-request-send', ({ username }) => {
+    if (!socket.data.userId) return;
+
+    const target = findProfileByUsername(username);
+
+    if (!target) {
+      socket.emit('friend-request-result',{
+        ok:false,
+        error:'Essa pessoa não existe no e-cord'
+      });
+      return;
+    }
+
+    if (target.id === socket.data.userId) {
+      socket.emit('friend-request-result',{
+        ok:false,
+        error:'Você não pode adicionar você mesmo'
+      });
+      return;
+    }
+
+    if (areFriends(socket.data.userId,target.id)) {
+      socket.emit('friend-request-result',{
+        ok:false,
+        error:'Essa pessoa já é sua amiga'
+      });
+      return;
+    }
+
+    const reverse = friendRequests.find(request =>
+      request.fromUserId === target.id &&
+      request.toUserId === socket.data.userId
+    );
+
+    if (reverse) {
+      socket.emit('friend-request-result',{
+        ok:false,
+        error:'Essa pessoa já enviou uma solicitação para você. Abra Pendentes para aceitar.'
+      });
+      return;
+    }
+
+    const existing = friendRequests.find(request =>
+      request.fromUserId === socket.data.userId &&
+      request.toUserId === target.id
+    );
+
+    if (existing) {
+      socket.emit('friend-request-result',{
+        ok:false,
+        error:'Solicitação já enviada'
+      });
+      return;
+    }
+
+    friendRequests.push({
+      id:id(),
+      fromUserId:socket.data.userId,
+      toUserId:target.id,
+      at:Date.now()
+    });
+
+    saveServersToDisk();
+    emitFriendState(socket.data.userId);
+    emitFriendState(target.id);
+
+    socket.emit('friend-request-result',{
+      ok:true,
+      message:'Solicitação enviada. A pessoa precisa aceitar.'
+    });
+  });
+
+  socket.on('friend-request-accept', ({ requestId }) => {
+    if (!socket.data.userId) return;
+
+    const index = friendRequests.findIndex(request =>
+      request.id === requestId &&
+      request.toUserId === socket.data.userId
+    );
+
+    if (index < 0) return;
+
+    const request = friendRequests[index];
+
+    friendRequests.splice(index,1);
+
+    if (!areFriends(request.fromUserId,request.toUserId)) {
+      friendships.push({
+        a:request.fromUserId,
+        b:request.toUserId,
+        at:Date.now()
+      });
+    }
+
+    saveServersToDisk();
+    emitFriendState(request.fromUserId);
+    emitFriendState(request.toUserId);
+  });
+
+  socket.on('friend-request-decline', ({ requestId }) => {
+    if (!socket.data.userId) return;
+
+    const index = friendRequests.findIndex(request =>
+      request.id === requestId &&
+      request.toUserId === socket.data.userId
+    );
+
+    if (index < 0) return;
+
+    const request = friendRequests[index];
+    friendRequests.splice(index,1);
+
+    saveServersToDisk();
+    emitFriendState(request.fromUserId);
+    emitFriendState(request.toUserId);
+  });
+
+  socket.on('friend-remove', ({ targetUserId, targetUsername }) => {
+    if (!socket.data.userId) return;
+
+    let targetId = String(targetUserId || '').slice(0,100);
+
+    if (!targetId && targetUsername) {
+      targetId = findProfileByUsername(targetUsername)?.id || '';
+    }
+
+    if (!targetId) return;
+
+    for (let i = friendships.length - 1; i >= 0; i--) {
+      const pair = friendships[i];
+
+      if (
+        (pair.a === socket.data.userId && pair.b === targetId) ||
+        (pair.a === targetId && pair.b === socket.data.userId)
+      ) {
+        friendships.splice(i,1);
+      }
+    }
+
+    saveServersToDisk();
+    emitFriendState(socket.data.userId);
+    emitFriendState(targetId);
+  });
+
+  // Compatibilidade com versões antigas do cliente.
   socket.on('friend-lookup', ({ userId, username }) => {
     const profile = findProfileByUsername(username);
 
-    if (!profile) {
-      socket.emit('friend-lookup-result', {
-        ok: false,
-        error: 'Essa pessoa não existe no e-cord'
-      });
-      return;
-    }
-
-    if (String(profile.id) === String(userId || '')) {
-      socket.emit('friend-lookup-result', {
-        ok: false,
-        error: 'Você não pode adicionar você mesmo'
-      });
-      return;
-    }
-
-    socket.emit('friend-lookup-result', {
-      ok: true,
-      profile: publicProfile(profile)
-    });
+    socket.emit('friend-lookup-result', profile && profile.id !== String(userId || '')
+      ? {ok:true,profile:publicProfile(profile)}
+      : {ok:false,error:'Essa pessoa não existe no e-cord'}
+    );
   });
 
   socket.on('get-servers', () => {
