@@ -60,16 +60,44 @@ const profiles = new Map();
 
 function normalizeChannelList(list, fallbackName) {
   if (!Array.isArray(list) || !list.length) {
-    return [{ id: id(), name: fallbackName }];
+    return [{
+      id: id(),
+      name: fallbackName,
+      categoryId: null,
+      order: 0
+    }];
   }
 
   return list
     .filter(Boolean)
     .slice(0, 100)
-    .map(channel => ({
+    .map((channel, index) => ({
       id: String(channel.id || id()).slice(0, 80),
-      name: String(channel.name || fallbackName).trim().slice(0, 30) || fallbackName
-    }));
+      name: String(channel.name || fallbackName).trim().slice(0, 30) || fallbackName,
+      categoryId: channel.categoryId
+        ? String(channel.categoryId).slice(0, 80)
+        : null,
+      order: Number.isFinite(Number(channel.order))
+        ? Number(channel.order)
+        : index
+    }))
+    .sort((a,b) => a.order - b.order);
+}
+
+function normalizeCategories(list) {
+  if (!Array.isArray(list)) return [];
+
+  return list
+    .filter(Boolean)
+    .slice(0, 50)
+    .map((category, index) => ({
+      id: String(category.id || id()).slice(0, 80),
+      name: String(category.name || 'Categoria').trim().slice(0, 30) || 'Categoria',
+      order: Number.isFinite(Number(category.order))
+        ? Number(category.order)
+        : index
+    }))
+    .sort((a,b) => a.order - b.order);
 }
 
 function normalizeRoles(list) {
@@ -109,6 +137,7 @@ function makeServer(name = 'e-cord', options = {}) {
 
   const textChannels = normalizeChannelList(options.textChannels, 'geral');
   const voiceChannels = normalizeChannelList(options.voiceChannels, 'Geral');
+  const categories = normalizeCategories(options.categories);
   const roles = normalizeRoles(options.roles);
 
   const messages = new Map();
@@ -132,6 +161,7 @@ function makeServer(name = 'e-cord', options = {}) {
       : [],
     textChannels,
     voiceChannels,
+    categories,
     roles,
     messages
   };
@@ -159,6 +189,7 @@ function serializeServers() {
     tags: serverData.tags,
     textChannels: serverData.textChannels,
     voiceChannels: serverData.voiceChannels,
+    categories: serverData.categories,
     roles: serverData.roles,
     messages: Object.fromEntries(serverData.messages)
   }));
@@ -211,6 +242,7 @@ function loadServersFromDisk() {
         tags: item.tags,
         textChannels: item.textChannels,
         voiceChannels: item.voiceChannels,
+        categories: item.categories,
         roles: item.roles,
         messages: item.messages
       });
@@ -238,6 +270,7 @@ function mergeRestoredServer(item) {
       tags: item.tags,
       textChannels: item.textChannels,
       voiceChannels: item.voiceChannels,
+      categories: item.categories,
       roles: item.roles
     });
   }
@@ -275,7 +308,13 @@ function mergeRestoredServer(item) {
 
       target.push({
         id: channelId,
-        name: String(channel?.name || fallback).trim().slice(0, 30) || fallback
+        name: String(channel?.name || fallback).trim().slice(0, 30) || fallback,
+        categoryId: channel?.categoryId
+          ? String(channel.categoryId).slice(0,80)
+          : null,
+        order: Number.isFinite(Number(channel?.order))
+          ? Number(channel.order)
+          : target.length
       });
       known.add(channelId);
     }
@@ -283,6 +322,24 @@ function mergeRestoredServer(item) {
 
   mergeChannels(existing.textChannels, item.textChannels, 'chat');
   mergeChannels(existing.voiceChannels, item.voiceChannels, 'Voz');
+
+  if (Array.isArray(item.categories)) {
+    const knownCategories = new Set(existing.categories.map(category => category.id));
+
+    for (const category of normalizeCategories(item.categories)) {
+      const current = existing.categories.find(itemCategory => itemCategory.id === category.id);
+
+      if (current) {
+        current.name = category.name;
+        current.order = category.order;
+      } else if (!knownCategories.has(category.id)) {
+        existing.categories.push(category);
+        knownCategories.add(category.id);
+      }
+    }
+
+    existing.categories.sort((a,b) => a.order - b.order);
+  }
 
   if (Array.isArray(item.roles)) {
     const knownRoles = new Set(existing.roles.map(role => role.id));
@@ -324,6 +381,7 @@ function publicServers() {
     tags: s.tags,
     textChannels: s.textChannels,
     voiceChannels: s.voiceChannels,
+    categories: s.categories,
     roles: s.roles
   }));
 }
@@ -655,6 +713,160 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 }
 
 
+
+.categoryBlock{
+  margin:9px 0 14px;
+  border-radius:10px;
+}
+.categoryHeader{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-height:28px;
+  padding:4px 8px;
+  color:var(--low);
+  font-size:10px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  border-radius:8px;
+  user-select:none;
+}
+.categoryHeader:hover{
+  color:var(--muted);
+  background:rgba(255,255,255,.025);
+}
+.categoryHeader.dragOver,
+.channelBtn.dragOver{
+  outline:1px solid var(--mint);
+  background:rgba(65,217,154,.08)!important;
+}
+.categoryHeader .categoryName{
+  flex:1;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.categoryHeader .categoryDelete{
+  border:0;
+  background:transparent;
+  color:var(--low);
+  padding:2px 4px;
+  border-radius:5px;
+  opacity:0;
+}
+.categoryHeader:hover .categoryDelete{opacity:1}
+.categoryHeader .categoryDelete:hover{
+  color:#ff8d8d;
+  background:rgba(223,76,76,.10);
+}
+.categoryChannels{
+  min-height:8px;
+  padding:2px 0;
+}
+.channelBtn{
+  position:relative;
+}
+.channelBtn[draggable="true"]{
+  cursor:grab;
+}
+.channelBtn.dragging,
+.categoryHeader.dragging{
+  opacity:.38;
+}
+.channelGrip{
+  color:var(--low);
+  font-size:9px;
+  letter-spacing:-2px;
+  margin-right:1px;
+}
+.friendsHome{
+  height:100%;
+  display:grid;
+  grid-template-rows:auto auto 1fr;
+  min-height:0;
+}
+.friendsHomeTop{
+  min-height:54px;
+  padding:0 18px;
+  border-bottom:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.friendTab{
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:8px 11px;
+  border-radius:8px;
+  font-size:13px;
+  font-weight:750;
+}
+.friendTab:hover,
+.friendTab.active{
+  color:var(--text);
+  background:var(--bg3);
+}
+.friendTab.add{
+  background:var(--mint);
+  color:#082116;
+}
+.friendsSearchWrap{
+  padding:14px 18px 10px;
+}
+.friendsSearchWrap input{
+  background:#09130f;
+}
+.friendsListArea{
+  min-height:0;
+  overflow:auto;
+  padding:8px 18px 20px;
+}
+.friendsSectionTitle{
+  color:var(--low);
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  padding:8px 2px 10px;
+  border-bottom:1px solid var(--line);
+  margin-bottom:2px;
+}
+.friendRow{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:11px 7px;
+  border-bottom:1px solid rgba(36,71,59,.55);
+  border-radius:9px;
+}
+.friendRow:hover{
+  background:rgba(255,255,255,.025);
+}
+.friendActions{
+  display:flex;
+  gap:7px;
+}
+.activeFriendCard{
+  padding:12px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:13px;
+  margin-bottom:8px;
+}
+.activeFriendCard strong{
+  display:block;
+  font-size:12px;
+}
+.activeFriendCard span{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  margin-top:4px;
+}
+
 .serverSettings{
   height:100%;
   display:grid;
@@ -964,16 +1176,15 @@ body.locked{overflow:hidden!important}
       <button id="messagesBtn" class="navBtn">✉ Mensagens</button>
 
       <div class="groupHead">
-        <span>Canais de texto</span>
-        <button id="addTextBtn" class="addChannel" title="Criar canal de texto">+</button>
+        <span>Canais</span>
+        <span style="display:flex;align-items:center;gap:3px;">
+          <button id="addCategoryBtn" class="addChannel" title="Criar categoria">▣</button>
+          <button id="addTextBtn" class="addChannel" title="Criar chat">#</button>
+          <button id="addVoiceBtn" class="addChannel" title="Criar canal de voz">+</button>
+        </span>
       </div>
-      <div id="textChannels"></div>
 
-      <div class="groupHead">
-        <span>Canais de voz</span>
-        <button id="addVoiceBtn" class="addChannel" title="Criar canal de voz">+</button>
-      </div>
-      <div id="voiceChannels"></div>
+      <div id="channelTree"></div>
     </div>
 
     <button id="profileBtn" class="userbar" type="button" style="width:100%;border:0;color:inherit;text-align:left;cursor:pointer;">
@@ -1011,17 +1222,21 @@ body.locked{overflow:hidden!important}
       </section>
 
       <section id="friendsView" class="view hidden">
-        <div style="height:100%;display:grid;grid-template-rows:auto 1fr;">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;">
-            <div>
-              <strong>👥 Amigos</strong>
-              <div style="font-size:12px;color:var(--muted);margin-top:3px;">Sua lista de amigos do e-cord</div>
-            </div>
-            <button id="addFriendBtn" class="btn primary small">+ Adicionar amigo</button>
+        <div class="friendsHome">
+          <div class="friendsHomeTop">
+            <strong style="margin-right:6px;">👥 Amigos</strong>
+            <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
+            <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
+            <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
-          <div style="overflow:auto;padding:18px;">
-            <div id="friendsList" style="display:grid;gap:10px;"></div>
+          <div class="friendsSearchWrap">
+            <input id="friendsSearch" placeholder="Buscar amigo">
+          </div>
+
+          <div class="friendsListArea">
+            <div id="friendsCountTitle" class="friendsSectionTitle">Online</div>
+            <div id="friendsList"></div>
           </div>
         </div>
       </section>
@@ -1213,7 +1428,7 @@ body.locked{overflow:hidden!important}
   </main>
 
   <aside class="rightbar">
-    <div class="rightTitle">Online</div>
+    <div id="rightTitle" class="rightTitle">Ativo agora</div>
     <div id="members"></div>
   </aside>
 </div>
@@ -1366,7 +1581,8 @@ const state = {
   incomingCall: null,
   pendingAvatar: null,
   serverSettingsIcon: null,
-  serverSettingsAccent: '#ff6b4a'
+  serverSettingsAccent: '#ff6b4a',
+  friendsFilter: 'online'
 };
 
 const rtcConfig = {
@@ -1535,10 +1751,27 @@ function safeServerSnapshot(serverData){
       ? serverData.tags.map(tag=>String(tag||'').slice(0,22)).filter(Boolean).slice(0,5)
       : [],
     textChannels:Array.isArray(serverData.textChannels)
-      ? serverData.textChannels.map(c=>({id:String(c.id),name:String(c.name||'chat').slice(0,30)}))
+      ? serverData.textChannels.map(c=>({
+          id:String(c.id),
+          name:String(c.name||'chat').slice(0,30),
+          categoryId:c.categoryId ? String(c.categoryId) : null,
+          order:Number.isFinite(Number(c.order)) ? Number(c.order) : 0
+        }))
       : [],
     voiceChannels:Array.isArray(serverData.voiceChannels)
-      ? serverData.voiceChannels.map(c=>({id:String(c.id),name:String(c.name||'Voz').slice(0,30)}))
+      ? serverData.voiceChannels.map(c=>({
+          id:String(c.id),
+          name:String(c.name||'Voz').slice(0,30),
+          categoryId:c.categoryId ? String(c.categoryId) : null,
+          order:Number.isFinite(Number(c.order)) ? Number(c.order) : 0
+        }))
+      : [],
+    categories:Array.isArray(serverData.categories)
+      ? serverData.categories.map(category=>({
+          id:String(category.id),
+          name:String(category.name||'Categoria').slice(0,30),
+          order:Number.isFinite(Number(category.order)) ? Number(category.order) : 0
+        }))
       : [],
     roles:Array.isArray(serverData.roles)
       ? serverData.roles.map(role=>({
@@ -1679,8 +1912,7 @@ function renderSidebar(){
 
   if(!s){
     $('#serverTitle').textContent = 'Nenhum servidor';
-    $('#textChannels').innerHTML = '';
-    $('#voiceChannels').innerHTML = '';
+    $('#channelTree').innerHTML = '';
     $('#inviteBtn').disabled = true;
     $('#serverSettingsBtn').disabled = true;
     $('#deleteServerBtn').disabled = true;
@@ -1692,26 +1924,265 @@ function renderSidebar(){
   $('#deleteServerBtn').disabled = false;
   $('#serverTitle').textContent = s.name;
 
-  const textBox = $('#textChannels');
-  textBox.innerHTML = '';
-  s.textChannels.forEach(c=>{
-    const b = document.createElement('button');
-    b.className = 'channelBtn' + (c.id===state.textChannelId ? ' active' : '');
-    b.innerHTML = '<span class="hash">#</span><span></span>';
-    b.querySelector('span:last-child').textContent = c.name;
-    b.addEventListener('click', ()=>selectText(c.id));
-    textBox.appendChild(b);
-  });
+  const tree = $('#channelTree');
+  tree.innerHTML = '';
 
-  const voiceBox = $('#voiceChannels');
-  voiceBox.innerHTML = '';
-  s.voiceChannels.forEach(c=>{
+  const categories = Array.isArray(s.categories)
+    ? [...s.categories].sort((a,b)=>(a.order||0)-(b.order||0))
+    : [];
+
+  const textChannels = Array.isArray(s.textChannels)
+    ? [...s.textChannels].sort((a,b)=>(a.order||0)-(b.order||0))
+    : [];
+
+  const voiceChannels = Array.isArray(s.voiceChannels)
+    ? [...s.voiceChannels].sort((a,b)=>(a.order||0)-(b.order||0))
+    : [];
+
+  function dragData(event){
+    try{
+      return JSON.parse(event.dataTransfer.getData('application/x-ecord'));
+    }catch{
+      try{
+        return JSON.parse(event.dataTransfer.getData('text/plain'));
+      }catch{
+        return null;
+      }
+    }
+  }
+
+  function setDragData(event,data){
+    const raw = JSON.stringify(data);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-ecord',raw);
+    event.dataTransfer.setData('text/plain',raw);
+  }
+
+  function sendMoveChannel(data,targetCategoryId,beforeChannelId=null){
+    if(!data || data.kind!=='channel') return;
+
+    socket.emit('move-channel',{
+      serverId:state.serverId,
+      type:data.type,
+      channelId:data.channelId,
+      targetCategoryId:targetCategoryId || null,
+      beforeChannelId:beforeChannelId || null
+    });
+  }
+
+  function makeChannelButton(channel,type){
     const b = document.createElement('button');
-    b.className = 'channelBtn voice' + (c.id===state.voiceChannelId ? ' active' : '');
-    b.innerHTML = '<span>))</span><span></span>';
-    b.querySelector('span:last-child').textContent = c.name;
-    b.addEventListener('click', ()=>selectVoice(c.id));
-    voiceBox.appendChild(b);
+    b.className =
+      'channelBtn' +
+      (type==='voice' ? ' voice' : '') +
+      (
+        (type==='text' && channel.id===state.textChannelId) ||
+        (type==='voice' && channel.id===state.voiceChannelId)
+          ? ' active'
+          : ''
+      );
+
+    b.draggable = true;
+    b.dataset.channelId = channel.id;
+    b.dataset.channelType = type;
+
+    const grip = document.createElement('span');
+    grip.className = 'channelGrip';
+    grip.textContent = '⠿';
+
+    const icon = document.createElement('span');
+    icon.className = type==='text' ? 'hash' : '';
+    icon.textContent = type==='text' ? '#' : '))';
+
+    const label = document.createElement('span');
+    label.textContent = channel.name;
+    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+
+    b.append(grip,icon,label);
+
+    b.addEventListener('click',()=>{
+      if(type==='text') selectText(channel.id);
+      else selectVoice(channel.id);
+    });
+
+    b.addEventListener('dragstart',event=>{
+      b.classList.add('dragging');
+      setDragData(event,{
+        kind:'channel',
+        type,
+        channelId:channel.id
+      });
+    });
+
+    b.addEventListener('dragend',()=>{
+      b.classList.remove('dragging');
+      document.querySelectorAll('.dragOver').forEach(el=>el.classList.remove('dragOver'));
+    });
+
+    b.addEventListener('dragover',event=>{
+      const data = dragData(event);
+      if(!data || data.kind!=='channel') return;
+      event.preventDefault();
+      b.classList.add('dragOver');
+    });
+
+    b.addEventListener('dragleave',()=>b.classList.remove('dragOver'));
+
+    b.addEventListener('drop',event=>{
+      event.preventDefault();
+      b.classList.remove('dragOver');
+
+      const data = dragData(event);
+      if(!data || data.kind!=='channel') return;
+
+      const categoryId = channel.categoryId || null;
+
+      sendMoveChannel(
+        data,
+        categoryId,
+        data.type===type ? channel.id : null
+      );
+    });
+
+    return b;
+  }
+
+  function makeCategory(category,isUncategorized=false){
+    const block = document.createElement('div');
+    block.className = 'categoryBlock';
+
+    const header = document.createElement('div');
+    header.className = 'categoryHeader';
+
+    const arrow = document.createElement('span');
+    arrow.textContent = '⌄';
+
+    const name = document.createElement('span');
+    name.className = 'categoryName';
+    name.textContent = isUncategorized ? 'Sem categoria' : category.name;
+
+    header.append(arrow,name);
+
+    if(!isUncategorized){
+      header.draggable = true;
+
+      const del = document.createElement('button');
+      del.className = 'categoryDelete';
+      del.type = 'button';
+      del.textContent = '×';
+      del.title = 'Excluir categoria';
+
+      del.addEventListener('click',event=>{
+        event.stopPropagation();
+
+        if(confirm('Excluir a categoria "' + category.name + '"? Os canais não serão apagados.')){
+          socket.emit('delete-category',{
+            serverId:state.serverId,
+            categoryId:category.id
+          });
+        }
+      });
+
+      header.appendChild(del);
+
+      header.addEventListener('dragstart',event=>{
+        header.classList.add('dragging');
+        setDragData(event,{
+          kind:'category',
+          categoryId:category.id
+        });
+      });
+
+      header.addEventListener('dragend',()=>{
+        header.classList.remove('dragging');
+        document.querySelectorAll('.dragOver').forEach(el=>el.classList.remove('dragOver'));
+      });
+    }
+
+    header.addEventListener('dragover',event=>{
+      const data = dragData(event);
+      if(!data) return;
+
+      if(data.kind==='channel' || (!isUncategorized && data.kind==='category')){
+        event.preventDefault();
+        header.classList.add('dragOver');
+      }
+    });
+
+    header.addEventListener('dragleave',()=>header.classList.remove('dragOver'));
+
+    header.addEventListener('drop',event=>{
+      event.preventDefault();
+      header.classList.remove('dragOver');
+
+      const data = dragData(event);
+      if(!data) return;
+
+      if(data.kind==='channel'){
+        sendMoveChannel(
+          data,
+          isUncategorized ? null : category.id,
+          null
+        );
+        return;
+      }
+
+      if(
+        data.kind==='category' &&
+        !isUncategorized &&
+        data.categoryId !== category.id
+      ){
+        socket.emit('move-category',{
+          serverId:state.serverId,
+          categoryId:data.categoryId,
+          beforeCategoryId:category.id
+        });
+      }
+    });
+
+    const channelsBox = document.createElement('div');
+    channelsBox.className = 'categoryChannels';
+
+    channelsBox.addEventListener('dragover',event=>{
+      const data = dragData(event);
+      if(data?.kind==='channel'){
+        event.preventDefault();
+        channelsBox.classList.add('dragOver');
+      }
+    });
+
+    channelsBox.addEventListener('dragleave',()=>channelsBox.classList.remove('dragOver'));
+
+    channelsBox.addEventListener('drop',event=>{
+      event.preventDefault();
+      channelsBox.classList.remove('dragOver');
+      const data = dragData(event);
+
+      sendMoveChannel(
+        data,
+        isUncategorized ? null : category.id,
+        null
+      );
+    });
+
+    const categoryId = isUncategorized ? null : category.id;
+
+    textChannels
+      .filter(channel => (channel.categoryId || null) === categoryId)
+      .forEach(channel=>channelsBox.appendChild(makeChannelButton(channel,'text')));
+
+    voiceChannels
+      .filter(channel => (channel.categoryId || null) === categoryId)
+      .forEach(channel=>channelsBox.appendChild(makeChannelButton(channel,'voice')));
+
+    block.append(header,channelsBox);
+    return block;
+  }
+
+  tree.appendChild(makeCategory({id:null,name:'Sem categoria'},true));
+
+  categories.forEach(category=>{
+    tree.appendChild(makeCategory(category,false));
   });
 }
 
@@ -2090,32 +2561,134 @@ function callFriend(friend){
   toast('Chamando ' + online.username + '...');
 }
 
-function renderFriends(){
-  const box = $('#friendsList');
+function renderActiveFriends(){
+  const title = $('#rightTitle');
+  const box = $('#members');
+
+  if(title) title.textContent = 'Ativo agora';
   if(!box) return;
 
-  const friends = getFriends();
   box.innerHTML = '';
 
-  if(!friends.length){
+  const friends = getFriends();
+  const onlineFriends = friends
+    .map(friend=>{
+      const live = state.onlineUsers.find(user =>
+        (friend.id && user.id===friend.id) ||
+        String(user.username||'').toLowerCase() ===
+          String(friend.username||'').toLowerCase()
+      );
+
+      return live || null;
+    })
+    .filter(Boolean);
+
+  if(!onlineFriends.length){
     const empty = document.createElement('div');
-    empty.style.cssText = 'padding:20px;background:var(--bg2);border:1px dashed var(--line);border-radius:14px;color:var(--low);font-size:13px;';
-    empty.textContent = 'Você ainda não adicionou nenhum amigo.';
+    empty.style.cssText = 'color:var(--low);font-size:12px;line-height:1.5;padding:7px 3px;';
+    empty.textContent = 'Quando seus amigos estiverem online, eles vão aparecer aqui.';
     box.appendChild(empty);
     return;
   }
 
-  friends.forEach(friend => {
+  onlineFriends.forEach(friend=>{
+    const card = document.createElement('div');
+    card.className = 'activeFriendCard';
+
+    const top = document.createElement('div');
+    top.style.cssText = 'display:flex;align-items:center;gap:9px;';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    applyAvatar(avatar,friend,friend.username);
+
+    const meta = document.createElement('div');
+    meta.style.minWidth = '0';
+
+    const name = document.createElement('strong');
+    name.textContent = friend.username;
+
+    const status = document.createElement('span');
+    status.textContent = '● Online';
+
+    meta.append(name,status);
+    top.append(avatar,meta);
+
+    const call = document.createElement('button');
+    call.className = 'btn primary small';
+    call.style.cssText = 'width:100%;margin-top:10px;';
+    call.textContent = '☎ Ligar';
+    call.addEventListener('click',()=>callFriend(friend));
+
+    card.append(top,call);
+    box.appendChild(card);
+  });
+}
+
+function renderFriends(){
+  const box = $('#friendsList');
+  if(!box) return;
+
+  const search = String($('#friendsSearch')?.value || '').trim().toLowerCase();
+  const allFriends = getFriends();
+
+  const enriched = allFriends.map(friend=>{
     const live = state.onlineUsers.find(user =>
-      (friend.id && user.id === friend.id) ||
-      String(user.username || '').toLowerCase() === String(friend.username || '').toLowerCase()
+      (friend.id && user.id===friend.id) ||
+      String(user.username||'').toLowerCase() ===
+        String(friend.username||'').toLowerCase()
     );
 
-    const profile = live || friend;
-    const online = !!live;
+    return {
+      friend,
+      profile:live || friend,
+      online:!!live
+    };
+  });
+
+  let rows = enriched;
+
+  if(state.friendsFilter==='online'){
+    rows = rows.filter(item=>item.online);
+  }
+
+  if(search){
+    rows = rows.filter(item=>
+      String(item.profile.username||'').toLowerCase().includes(search) ||
+      String(item.profile.bio||'').toLowerCase().includes(search)
+    );
+  }
+
+  box.innerHTML = '';
+
+  $('#friendsOnlineTab')?.classList.toggle('active',state.friendsFilter==='online');
+  $('#friendsAllTab')?.classList.toggle('active',state.friendsFilter==='all');
+
+  if($('#friendsCountTitle')){
+    $('#friendsCountTitle').textContent =
+      (state.friendsFilter==='online' ? 'Online' : 'Todos') +
+      ' — ' + rows.length;
+  }
+
+  if(!rows.length){
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:26px 4px;color:var(--low);font-size:13px;';
+    empty.textContent =
+      state.friendsFilter==='online'
+        ? 'Nenhum amigo online agora.'
+        : 'Você ainda não adicionou nenhum amigo.';
+    box.appendChild(empty);
+    renderActiveFriends();
+    return;
+  }
+
+  rows.forEach(item=>{
+    const friend = item.friend;
+    const profile = item.profile;
+    const online = item.online;
 
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;';
+    row.className = 'friendRow';
 
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
@@ -2132,7 +2705,7 @@ function renderFriends(){
     const status = document.createElement('span');
     status.textContent = online ? '● Online' : '● Offline';
     status.style.cssText =
-      'display:block;font-size:12px;margin-top:3px;color:' +
+      'display:block;font-size:11px;margin-top:3px;color:' +
       (online ? 'var(--mint)' : 'var(--low)') + ';';
 
     meta.append(strong,status);
@@ -2140,25 +2713,38 @@ function renderFriends(){
     if(profile.bio){
       const bio = document.createElement('span');
       bio.textContent = profile.bio;
-      bio.style.cssText = 'display:block;font-size:11px;color:var(--low);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      bio.style.cssText =
+        'display:block;font-size:11px;color:var(--low);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       meta.appendChild(bio);
     }
 
+    const actions = document.createElement('div');
+    actions.className = 'friendActions';
+
     const call = document.createElement('button');
     call.className = 'btn primary small';
-    call.textContent = '☎ Ligar';
+    call.textContent = '☎';
+    call.title = 'Ligar';
     call.disabled = !online;
-    call.style.opacity = online ? '1' : '.45';
+    call.style.opacity = online ? '1' : '.4';
     call.addEventListener('click',()=>callFriend(profile));
 
     const remove = document.createElement('button');
     remove.className = 'btn secondary small';
-    remove.textContent = 'Remover';
-    remove.addEventListener('click',()=>removeFriend(friend));
+    remove.textContent = '⋮';
+    remove.title = 'Remover amigo';
+    remove.addEventListener('click',()=>{
+      if(confirm('Remover ' + profile.username + ' dos amigos?')){
+        removeFriend(friend);
+      }
+    });
 
-    row.append(avatar,meta,call,remove);
+    actions.append(call,remove);
+    row.append(avatar,meta,actions);
     box.appendChild(row);
   });
+
+  renderActiveFriends();
 }
 
 function roleNamesForUser(username){
@@ -2247,6 +2833,7 @@ function openModal(type){
     server:['Criar servidor','Digite o nome do novo servidor.','Ex.: Meus amigos'],
     text:['Criar chat','Digite o nome do novo canal de texto.','Ex.: memes'],
     voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos'],
+    category:['Criar categoria','Digite o nome da nova categoria.','Ex.: Jogos'],
     friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no e-cord.','Ex.: Davi'],
     role:['Criar cargo','Escolha um nome e uma cor para o cargo.','Ex.: Moderador'],
     assignRole:['Atribuir cargo','Digite exatamente o nome da pessoa que receberá o cargo.','Ex.: Davi']
@@ -2289,6 +2876,8 @@ function confirmModal(){
     socket.emit('create-channel',{serverId:state.serverId,type:'text',name:value});
   } else if(state.modalAction==='voice'){
     socket.emit('create-channel',{serverId:state.serverId,type:'voice',name:value});
+  } else if(state.modalAction==='category'){
+    socket.emit('create-category',{serverId:state.serverId,name:value});
   } else if(state.modalAction==='friend'){
     addFriendByName(value);
   } else if(state.modalAction==='role'){
@@ -2966,6 +3555,7 @@ async function toggleScreen(){
 
 function renderMembers(list){
   state.lastVoiceMembers = Array.isArray(list) ? list : [];
+  if($('#rightTitle')) $('#rightTitle').textContent = 'Na chamada';
   const box = $('#members');
   box.innerHTML = '';
   if(!list?.length){
@@ -3020,6 +3610,7 @@ $('#loginBtn').addEventListener('click',()=>{
   localStorage.setItem('ecord-name',name);
   refreshOwnProfileUI();
   $('#login').classList.add('hidden');
+  setView('friends');
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -3038,6 +3629,7 @@ if(state.username){
 
 $('#createServerBtn').addEventListener('click',()=>openModal('server'));
 $('#homeCreateServer').addEventListener('click',()=>openModal('server'));
+$('#addCategoryBtn').addEventListener('click',()=>openModal('category'));
 $('#addTextBtn').addEventListener('click',()=>openModal('text'));
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
 $('#addVoiceBtn').addEventListener('click',()=>openModal('voice'));
@@ -3162,6 +3754,15 @@ $('#declineCallBtn').addEventListener('click',()=>{
 
 $('#homeBtn').addEventListener('click',()=>setView('home'));
 $('#friendsBtn').addEventListener('click',()=>setView('friends'));
+$('#friendsOnlineTab').addEventListener('click',()=>{
+  state.friendsFilter='online';
+  renderFriends();
+});
+$('#friendsAllTab').addEventListener('click',()=>{
+  state.friendsFilter='all';
+  renderFriends();
+});
+$('#friendsSearch').addEventListener('input',renderFriends);
 $('#rolesBtn').addEventListener('click',()=>setView('roles'));
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#addRoleBtn').addEventListener('click',()=>openModal('role'));
@@ -3217,6 +3818,10 @@ document.addEventListener('keydown',e=>{
 socket.on('online-users', users => {
   state.onlineUsers = Array.isArray(users) ? users : [];
   renderFriends();
+
+  if(!$('#friendsView').classList.contains('hidden')){
+    renderActiveFriends();
+  }
 });
 
 socket.on('profile-saved',profile=>{
@@ -3366,6 +3971,11 @@ socket.on('role-updated',({message})=>{
   renderRoles();
   renderMembers(state.lastVoiceMembers || []);
   toast(message || 'Cargos atualizados');
+});
+
+socket.on('category-updated',({message})=>{
+  renderSidebar();
+  toast(message || 'Canais atualizados');
 });
 
 socket.on('channel-created',({serverId,type,channelId})=>{
@@ -3703,12 +4313,119 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('create-category', ({ serverId, name }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const category = {
+      id: id(),
+      name: cleanName(name, 'Categoria'),
+      order: s.categories.length
+    };
+
+    s.categories.push(category);
+    saveServersToDisk();
+
+    io.emit('server-list', publicServers());
+    socket.emit('category-updated', { message: 'Categoria criada' });
+  });
+
+  socket.on('delete-category', ({ serverId, categoryId }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const safeCategoryId = String(categoryId || '').slice(0,80);
+
+    s.categories = s.categories.filter(category => category.id !== safeCategoryId);
+
+    for (const channel of [...s.textChannels, ...s.voiceChannels]) {
+      if (channel.categoryId === safeCategoryId) {
+        channel.categoryId = null;
+      }
+    }
+
+    s.categories.forEach((category,index)=>category.order=index);
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+    socket.emit('category-updated', { message: 'Categoria excluída' });
+  });
+
+  socket.on('move-category', ({ serverId, categoryId, beforeCategoryId }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const sourceIndex = s.categories.findIndex(category => category.id === categoryId);
+    if (sourceIndex < 0) return;
+
+    const [moving] = s.categories.splice(sourceIndex,1);
+
+    let targetIndex = s.categories.findIndex(category => category.id === beforeCategoryId);
+    if (targetIndex < 0) targetIndex = s.categories.length;
+
+    s.categories.splice(targetIndex,0,moving);
+    s.categories.forEach((category,index)=>category.order=index);
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+    socket.emit('category-updated', { message: 'Categoria movida' });
+  });
+
+  socket.on('move-channel', ({ serverId, type, channelId, targetCategoryId, beforeChannelId }) => {
+    const s = servers.get(serverId);
+    if (!s) return;
+
+    const list = type === 'voice' ? s.voiceChannels : s.textChannels;
+    const sourceIndex = list.findIndex(channel => channel.id === channelId);
+    if (sourceIndex < 0) return;
+
+    const [moving] = list.splice(sourceIndex,1);
+
+    const validCategory =
+      targetCategoryId &&
+      s.categories.some(category => category.id === targetCategoryId)
+        ? targetCategoryId
+        : null;
+
+    moving.categoryId = validCategory;
+
+    let targetIndex = -1;
+
+    if (beforeChannelId) {
+      targetIndex = list.findIndex(channel => channel.id === beforeChannelId);
+    }
+
+    if (targetIndex < 0) {
+      const sameCategoryIndexes = list
+        .map((channel,index)=>({channel,index}))
+        .filter(item => (item.channel.categoryId || null) === validCategory)
+        .map(item=>item.index);
+
+      targetIndex = sameCategoryIndexes.length
+        ? Math.max(...sameCategoryIndexes) + 1
+        : list.length;
+    }
+
+    list.splice(Math.min(targetIndex,list.length),0,moving);
+
+    list.forEach((channel,index)=>channel.order=index);
+
+    saveServersToDisk();
+    io.emit('server-list', publicServers());
+    socket.emit('category-updated', { message: 'Canal movido' });
+  });
+
   socket.on('create-channel', ({ serverId, type, name }) => {
     const s = servers.get(serverId);
     if (!s) return;
 
     if (type === 'text') {
-      const channel = { id: id(), name: cleanChannel(name, 'novo-chat') };
+      const channel = {
+        id: id(),
+        name: cleanChannel(name, 'novo-chat'),
+        categoryId: null,
+        order: s.textChannels.length
+      };
       s.textChannels.push(channel);
       s.messages.set(channel.id, []);
       saveServersToDisk();
@@ -3718,7 +4435,12 @@ io.on('connection', socket => {
     }
 
     if (type === 'voice') {
-      const channel = { id: id(), name: cleanName(name, 'Nova voz') };
+      const channel = {
+        id: id(),
+        name: cleanName(name, 'Nova voz'),
+        categoryId: null,
+        order: s.voiceChannels.length
+      };
       s.voiceChannels.push(channel);
       saveServersToDisk();
       io.emit('server-list', publicServers());
