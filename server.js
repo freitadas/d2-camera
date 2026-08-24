@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-server-restore-fix-v10';
+const CACHE='acord-category-color-fix-v11';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3903,6 +3903,135 @@ html[data-palette="candy"]{
   background:color-mix(in srgb,var(--coral) 10%,transparent)!important;
 }
 
+
+/* ===== COR PRINCIPAL EM TODA A INTERFACE ===== */
+:root{
+  --accent-border:var(--line);
+}
+
+/* As estruturas principais seguem a cor principal, não o verde antigo. */
+.rail,
+.sidebar,
+.rightbar,
+.topbar,
+.sideHead,
+.userbar,
+.friendsAccountBar,
+.friendSearch,
+.friendsSearchWrap input,
+.compose input,
+.videoCard,
+.modal,
+.callSettingsPanel,
+.localMusicShell,
+.messageContextMenu,
+.notificationPanel,
+.categoryAddMenu,
+.profileTabs,
+.authSwitch,
+.customColorBox,
+.settingsCard,
+.memberProfileBio,
+.memberRoleToggle,
+.serverIcon,
+.homeHubIcon,
+.addServer,
+.discordEmptyCategory,
+.discordCreateCategory,
+.createCategoryMainBtn{
+  border-color:color-mix(
+    in srgb,
+    var(--coral) 34%,
+    var(--line)
+  )!important;
+}
+
+.rail{
+  border-right-color:color-mix(
+    in srgb,
+    var(--coral) 38%,
+    var(--line)
+  )!important;
+}
+
+.sidebar{
+  border-right-color:color-mix(
+    in srgb,
+    var(--coral) 34%,
+    var(--line)
+  )!important;
+}
+
+.rightbar{
+  border-left-color:color-mix(
+    in srgb,
+    var(--coral) 34%,
+    var(--line)
+  )!important;
+}
+
+.topbar,
+.sideHead,
+.userbar,
+.friendsAccountBar{
+  border-bottom-color:color-mix(
+    in srgb,
+    var(--coral) 30%,
+    var(--line)
+  )!important;
+}
+
+.friendsAccountBar,
+.userbar{
+  border-top-color:color-mix(
+    in srgb,
+    var(--coral) 30%,
+    var(--line)
+  )!important;
+}
+
+.railSep,
+.friendRow,
+.messageReply,
+.replyBar{
+  border-color:color-mix(
+    in srgb,
+    var(--coral) 25%,
+    var(--line)
+  )!important;
+}
+
+.discordChannel.active,
+.channelBtn.active,
+.profileThemeBtn.active,
+.profilePaletteBtn.active,
+.serverIcon.active,
+.homeHubIcon.active{
+  border-color:var(--coral)!important;
+}
+
+.discordCategoryHeader.dragOver,
+.discordChannel.dragOver,
+.discordEmptyCategory:hover,
+.discordCreateCategory:hover,
+.createCategoryMainBtn:hover{
+  border-color:var(--coral)!important;
+}
+
+.brandDot,
+.serverMemberStatusDot{
+  background:var(--coral)!important;
+}
+
+.addServer{
+  color:var(--coral)!important;
+}
+
+.addServer:hover{
+  background:var(--coral)!important;
+  color:var(--accent-contrast)!important;
+}
+
 </style>
 </head>
 <body>
@@ -5717,27 +5846,65 @@ function hexToRgb(hex){
 }
 function applyCustomColor(hex){
   const rgb=hexToRgb(hex);
+  const root=document.documentElement;
 
   if(!rgb){
-    document.documentElement.style.removeProperty('--coral');
-    document.documentElement.style.removeProperty('--coral2');
-    document.documentElement.style.removeProperty('--accent-contrast');
+    [
+      '--coral',
+      '--coral2',
+      '--accent-contrast',
+      '--line',
+      '--mint',
+      '--mintbg',
+      '--accent-border',
+      '--accent-soft'
+    ].forEach(property=>root.style.removeProperty(property));
+
     return;
   }
 
   const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
+
   const lighter=rgbToHex(
     Math.min(255,rgb.r+24),
     Math.min(255,rgb.g+24),
     Math.min(255,rgb.b+24)
   );
 
+  const dark=rgbToHex(
+    Math.round(rgb.r*.48),
+    Math.round(rgb.g*.48),
+    Math.round(rgb.b*.48)
+  );
+
+  const soft=rgbToHex(
+    Math.round(rgb.r*.22),
+    Math.round(rgb.g*.22),
+    Math.round(rgb.b*.22)
+  );
+
   const luminance=(0.299*rgb.r + 0.587*rgb.g + 0.114*rgb.b)/255;
   const contrast=luminance>0.62 ? '#07110e' : '#ffffff';
 
-  document.documentElement.style.setProperty('--coral',safe);
-  document.documentElement.style.setProperty('--coral2',lighter);
-  document.documentElement.style.setProperty('--accent-contrast',contrast);
+  root.style.setProperty('--coral',safe);
+  root.style.setProperty('--coral2',lighter);
+  root.style.setProperty('--accent-contrast',contrast);
+
+  // A cor principal agora também controla bordas e indicadores.
+  root.style.setProperty(
+    '--line',
+    'color-mix(in srgb, '+safe+' 42%, var(--bg3))'
+  );
+
+  root.style.setProperty('--mint',safe);
+
+  root.style.setProperty(
+    '--mintbg',
+    'color-mix(in srgb, '+safe+' 18%, var(--bg2))'
+  );
+
+  root.style.setProperty('--accent-border',dark);
+  root.style.setProperty('--accent-soft',soft);
 }
 function updateCustomColorUI(hex){
   const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
@@ -10976,27 +11143,138 @@ socket.on('category-updated',({message})=>{
 
 
 socket.on('category-created',payload=>{
-  if(payload?.serverId!==state.serverId) return;
+  if(!payload?.serverId || !payload?.category) return;
+
+  let server=state.servers.find(item=>item.id===payload.serverId);
+
+  if(!server){
+    const cached=getCachedServers().find(item=>item.id===payload.serverId);
+
+    if(cached){
+      state.servers.push(cached);
+      server=state.servers.find(item=>item.id===payload.serverId);
+    }
+  }
+
+  if(server){
+    server.categories=Array.isArray(server.categories)
+      ? server.categories
+      : [];
+
+    const existingIndex=server.categories.findIndex(
+      category=>category.id===payload.category.id
+    );
+
+    if(existingIndex>=0){
+      server.categories[existingIndex]=payload.category;
+    }else{
+      server.categories.push(payload.category);
+    }
+
+    server.categories.sort(
+      (a,b)=>(Number(a.order)||0)-(Number(b.order)||0)
+    );
+
+    cacheServers(state.servers);
+  }
+
+  if(payload.serverId===state.serverId){
+    // Garante que a nova categoria esteja aberta e apareça imediatamente.
+    state.collapsedCategories.delete(payload.category.id);
+
+    localStorage.setItem(
+      'acord-collapsed-categories',
+      JSON.stringify([...state.collapsedCategories])
+    );
+
+    renderSidebar();
+  }
 
   toast('Categoria criada');
   socket.emit('get-servers');
-
-  setTimeout(()=>{
-    renderSidebar();
-  },120);
 });
 
-socket.on('channel-created',({serverId,type,channelId})=>{
-  if(serverId!==state.serverId) return;
+socket.on('channel-created',payload=>{
+  const {
+    serverId,
+    type,
+    channelId,
+    categoryId,
+    channel
+  }=payload||{};
+
+  if(!serverId || !channelId) return;
+
+  const server=state.servers.find(item=>item.id===serverId);
+
+  if(server && channel){
+    if(type==='text'){
+      server.textChannels=Array.isArray(server.textChannels)
+        ? server.textChannels
+        : [];
+
+      const index=server.textChannels.findIndex(item=>item.id===channel.id);
+
+      if(index>=0) server.textChannels[index]=channel;
+      else server.textChannels.push(channel);
+    }else{
+      server.voiceChannels=Array.isArray(server.voiceChannels)
+        ? server.voiceChannels
+        : [];
+
+      const index=server.voiceChannels.findIndex(item=>item.id===channel.id);
+
+      if(index>=0) server.voiceChannels[index]=channel;
+      else server.voiceChannels.push(channel);
+    }
+
+    cacheServers(state.servers);
+  }
+
+  if(serverId!==state.serverId){
+    socket.emit('get-servers');
+    return;
+  }
+
+  if(categoryId){
+    state.collapsedCategories.delete(categoryId);
+
+    localStorage.setItem(
+      'acord-collapsed-categories',
+      JSON.stringify([...state.collapsedCategories])
+    );
+  }
+
+  renderSidebar();
+
   if(type==='text'){
     state.textChannelId=channelId;
-    setTimeout(()=>selectText(channelId),50);
+
+    setTimeout(()=>{
+      const exists=currentServer()?.textChannels?.some(
+        item=>item.id===channelId
+      );
+
+      if(exists) selectText(channelId);
+      else socket.emit('get-servers');
+    },80);
+
     toast('Chat criado');
   }else{
     state.voiceChannelId=channelId;
-    setTimeout(()=>selectVoice(channelId),50);
-    toast('Canal de voz criado');
+
+    setTimeout(()=>{
+      const exists=currentServer()?.voiceChannels?.some(
+        item=>item.id===channelId
+      );
+
+      if(exists) selectVoice(channelId);
+      else socket.emit('get-servers');
+    },80);
+
+    toast(type==='stage' ? 'Palco criado' : 'Canal de voz criado');
   }
+
   socket.emit('get-servers');
 });
 
@@ -12293,7 +12571,8 @@ io.on('connection', socket => {
         serverId:s.id,
         type:'text',
         channelId:channel.id,
-        categoryId:channel.categoryId
+        categoryId:channel.categoryId,
+        channel
       });
       return;
     }
@@ -12318,7 +12597,8 @@ io.on('connection', socket => {
         serverId:s.id,
         type:isStage ? 'stage' : 'voice',
         channelId:channel.id,
-        categoryId:channel.categoryId
+        categoryId:channel.categoryId,
+        channel
       });
     }
   });
