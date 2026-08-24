@@ -2135,6 +2135,7 @@ const state = {
   incomingFriendRequests: [],
   outgoingFriendRequests: [],
   friendStateLoaded: false,
+  friendsRestoreAttempted: false,
   privateGroups: [],
   activeGroupId: null,
   dmTarget: null,
@@ -3373,49 +3374,96 @@ function sendMessage(){
 }
 
 
-function getFriends(){
-  if(state.friendStateLoaded){
-    return Array.isArray(state.serverFriends)
-      ? state.serverFriends
-      : [];
+function normalizeFriendList(list){
+  if(!Array.isArray(list)) return [];
+
+  return list
+    .map(friend=>{
+      if(typeof friend === 'string'){
+        return {
+          id:null,
+          username:friend.slice(0,30),
+          bio:'',
+          avatar:''
+        };
+      }
+
+      if(!friend || !friend.username) return null;
+
+      return {
+        id:friend.id ? String(friend.id).slice(0,100) : null,
+        username:String(friend.username).slice(0,30),
+        bio:String(friend.bio || '').slice(0,160),
+        avatar:String(friend.avatar || '').slice(0,350000)
+      };
+    })
+    .filter(Boolean);
+}
+
+function readFriendCache(){
+  const parse = key => {
+    try{
+      const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      return normalizeFriendList(parsed);
+    }catch{
+      return [];
+    }
+  };
+
+  const primary = parse('ecord-friends');
+
+  if(primary.length){
+    return primary;
   }
 
-  // Cache apenas para mostrar algo enquanto o servidor sincroniza.
-  // A lista oficial vem do backend depois do login.
-  try{
-    const list = JSON.parse(localStorage.getItem('ecord-friends') || '[]');
+  return parse('ecord-friends-backup');
+}
 
-    if(!Array.isArray(list)) return [];
+function getFriends(){
+  if(state.friendStateLoaded && Array.isArray(state.serverFriends) && state.serverFriends.length){
+    return state.serverFriends;
+  }
 
-    return list
-      .map(friend=>{
-        if(typeof friend === 'string'){
-          return {
-            id:null,
-            username:friend.slice(0,30),
-            bio:'',
-            avatar:''
-          };
-        }
+  const cached = readFriendCache();
 
-        if(!friend || !friend.username) return null;
+  if(cached.length){
+    return cached;
+  }
 
-        return {
-          id:friend.id ? String(friend.id) : null,
-          username:String(friend.username).slice(0,30),
-          bio:String(friend.bio || '').slice(0,160),
-          avatar:String(friend.avatar || '').slice(0,350000)
-        };
-      })
-      .filter(Boolean);
-  }catch{
-    return [];
+  return Array.isArray(state.serverFriends)
+    ? state.serverFriends
+    : [];
+}
+
+function saveFriends(list){
+  const safe = normalizeFriendList(list);
+  const payload = JSON.stringify(safe);
+
+  localStorage.setItem('ecord-friends',payload);
+
+  // O backup só é substituído por uma lista que realmente contém amigos.
+  // Assim uma atualização vazia temporária não apaga amizades salvas.
+  if(safe.length){
+    localStorage.setItem('ecord-friends-backup',payload);
   }
 }
 
+function clearFriendFromLocalCache(friend){
+  const matches = item => {
+    if(friend?.id && item?.id){
+      return String(item.id) === String(friend.id);
+    }
 
-function saveFriends(list){
-  localStorage.setItem('ecord-friends', JSON.stringify(list));
+    return String(item?.username || '').toLowerCase() ===
+      String(friend?.username || '').toLowerCase();
+  };
+
+  const current = readFriendCache().filter(item=>!matches(item));
+
+  localStorage.setItem('ecord-friends',JSON.stringify(current));
+  localStorage.setItem('ecord-friends-backup',JSON.stringify(current));
+
+  state.serverFriends = (state.serverFriends || []).filter(item=>!matches(item));
 }
 
 function addFriendByName(name){
@@ -3457,6 +3505,11 @@ function addResolvedFriend(profile){
 
 function removeFriend(friend){
   if(!friend) return;
+
+  clearFriendFromLocalCache(friend);
+  renderFriends();
+  renderActiveFriends();
+  renderDmContacts();
 
   socket.emit('friend-remove',{
     targetUserId:friend.id || null,
@@ -5558,6 +5611,7 @@ socket.on('profile-saved',profile=>{
   // Garantia extra para F5: agora que o usuário está identificado,
   // solicita novamente apenas os servidores aos quais ele tem acesso.
   socket.emit('get-servers');
+  socket.emit('get-friend-state');
 
   if(!state.privateInviteHandled){
     const token = new URLSearchParams(location.search).get('invite');
@@ -5581,12 +5635,34 @@ socket.on('friend-request-result',result=>{
 });
 
 socket.on('friend-state',payload=>{
-  state.serverFriends = Array.isArray(payload?.friends) ? payload.friends : [];
+  const incomingFriends = normalizeFriendList(payload?.friends || []);
+  const cachedFriends = readFriendCache();
+
   state.incomingFriendRequests = Array.isArray(payload?.incoming) ? payload.incoming : [];
   state.outgoingFriendRequests = Array.isArray(payload?.outgoing) ? payload.outgoing : [];
   state.friendStateLoaded = true;
 
-  saveFriends(state.serverFriends);
+  if(incomingFriends.length){
+    state.serverFriends = incomingFriends;
+    saveFriends(incomingFriends);
+    state.friendsRestoreAttempted = false;
+  }else if(cachedFriends.length){
+    // Uma resposta vazia não apaga os amigos.
+    // Mantém o backup local e tenta reconstruir a relação no servidor.
+    state.serverFriends = cachedFriends;
+
+    if(!state.friendsRestoreAttempted){
+      state.friendsRestoreAttempted = true;
+
+      socket.emit('restore-friends',{
+        friends:cachedFriends
+      });
+    }
+  }else{
+    state.serverFriends = [];
+    localStorage.setItem('ecord-friends','[]');
+  }
+
   renderFriends();
   renderActiveFriends();
   renderDmContacts();
@@ -6130,6 +6206,52 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
+  socket.on('restore-friends', ({ friends }) => {
+    if (!socket.data.userId || !Array.isArray(friends)) return;
+
+    const ownerId = socket.data.userId;
+    let changed = false;
+
+    for (const rawFriend of friends.slice(0,500)) {
+      const friendId = String(rawFriend?.id || '').trim().slice(0,100);
+      const username = cleanName(rawFriend?.username,'Usuário');
+
+      if (!friendId || friendId === ownerId) continue;
+
+      // Se o perfil do amigo sumiu após reinício do servidor,
+      // restaura os dados públicos guardados no navegador.
+      if (!profiles.has(friendId)) {
+        profiles.set(friendId,{
+          id:friendId,
+          username,
+          bio:String(rawFriend?.bio || '').trim().slice(0,160),
+          avatar:String(rawFriend?.avatar || '').slice(0,350000)
+        });
+        changed = true;
+      }
+
+      if (!areFriends(ownerId,friendId)) {
+        friendships.push({
+          a:ownerId,
+          b:friendId,
+          at:Date.now()
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveServersToDisk();
+    }
+
+    emitFriendState(ownerId);
+
+    for (const friend of friends.slice(0,500)) {
+      const friendId = String(friend?.id || '').trim().slice(0,100);
+      if (friendId) emitFriendState(friendId);
+    }
+  });
+
   socket.on('friend-request-send', ({ username }) => {
     if (!socket.data.userId) return;
 
@@ -6222,6 +6344,24 @@ io.on('connection', socket => {
         b:request.toUserId,
         at:Date.now()
       });
+    }
+
+    // Remove qualquer solicitação duplicada entre as mesmas duas pessoas.
+    for (let i = friendRequests.length - 1; i >= 0; i--) {
+      const item = friendRequests[i];
+
+      if (
+        (
+          item.fromUserId === request.fromUserId &&
+          item.toUserId === request.toUserId
+        ) ||
+        (
+          item.fromUserId === request.toUserId &&
+          item.toUserId === request.fromUserId
+        )
+      ) {
+        friendRequests.splice(i,1);
+      }
     }
 
     saveServersToDisk();
@@ -6375,6 +6515,11 @@ io.on('connection', socket => {
         client.emit('group-message',message);
       }
     }
+  });
+
+  socket.on('get-friend-state', () => {
+    if (!socket.data.userId) return;
+    emitFriendState(socket.data.userId);
   });
 
   socket.on('get-servers', () => {
