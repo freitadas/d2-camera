@@ -95,6 +95,50 @@ function emitFriendState(userId) {
   }
 }
 
+
+function publicPrivateGroup(group) {
+  if (!group) return null;
+
+  return {
+    id:group.id,
+    name:group.name,
+    ownerId:group.ownerId,
+    members:(group.members || [])
+      .map(userId=>publicProfile(profiles.get(userId)))
+      .filter(Boolean),
+    memberCount:(group.members || []).length,
+    createdAt:group.createdAt
+  };
+}
+
+function groupsForUser(userId) {
+  const safeId = String(userId || '').slice(0,100);
+  if (!safeId) return [];
+
+  return [...privateGroups.values()]
+    .filter(group => (group.members || []).includes(safeId))
+    .map(publicPrivateGroup)
+    .filter(Boolean);
+}
+
+function emitGroupState(userId) {
+  const safeId = String(userId || '').slice(0,100);
+  if (!safeId) return;
+
+  const groups = groupsForUser(safeId);
+
+  for (const client of io.sockets.sockets.values()) {
+    if (client.data.userId === safeId) {
+      client.emit('group-state',groups);
+    }
+  }
+}
+
+function emitGroupStateToMembers(group) {
+  if (!group) return;
+  for (const userId of group.members || []) emitGroupState(userId);
+}
+
 function broadcastOnlineUsers() {
   const users = [...io.sockets.sockets.values()]
     .filter(s => s.data.username)
@@ -121,6 +165,7 @@ const profiles = new Map();
 const directMessages = [];
 const friendRequests = [];
 const friendships = [];
+const privateGroups = new Map();
 
 function normalizeChannelList(list, fallbackName) {
   if (!Array.isArray(list) || !list.length) {
@@ -278,6 +323,27 @@ function serializeFriendships() {
   }));
 }
 
+function serializePrivateGroups() {
+  return [...privateGroups.values()].map(group => ({
+    id:String(group.id || '').slice(0,80),
+    name:String(group.name || 'Grupo').slice(0,40),
+    ownerId:String(group.ownerId || '').slice(0,100),
+    members:Array.isArray(group.members)
+      ? group.members.map(value=>String(value || '').slice(0,100)).filter(Boolean).slice(0,10)
+      : [],
+    createdAt:Number(group.createdAt || Date.now()),
+    messages:Array.isArray(group.messages)
+      ? group.messages.slice(-500).map(message=>({
+          id:String(message.id || '').slice(0,80),
+          userId:String(message.userId || '').slice(0,100),
+          username:String(message.username || 'Usuário').slice(0,30),
+          text:String(message.text || '').slice(0,1000),
+          at:Number(message.at || Date.now())
+        }))
+      : []
+  }));
+}
+
 function serializeDirectMessages() {
   return directMessages.slice(-5000).map(message => ({
     id: String(message.id || '').slice(0,80),
@@ -314,12 +380,13 @@ function saveServersToDisk() {
     fs.writeFileSync(
       tmp,
       JSON.stringify({
-        version: 5,
+        version: 6,
         servers: serializeServers(),
         profiles: serializeProfiles(),
         directMessages: serializeDirectMessages(),
         friendRequests: serializeFriendRequests(),
-        friendships: serializeFriendships()
+        friendships: serializeFriendships(),
+        privateGroups: serializePrivateGroups()
       }, null, 2),
       'utf8'
     );
@@ -339,10 +406,40 @@ function loadServersFromDisk() {
     const savedDirectMessages = Array.isArray(parsed?.directMessages) ? parsed.directMessages : [];
     const savedFriendRequests = Array.isArray(parsed?.friendRequests) ? parsed.friendRequests : [];
     const savedFriendships = Array.isArray(parsed?.friendships) ? parsed.friendships : [];
+    const savedPrivateGroups = Array.isArray(parsed?.privateGroups) ? parsed.privateGroups : [];
 
     directMessages.splice(0,directMessages.length);
     friendRequests.splice(0,friendRequests.length);
     friendships.splice(0,friendships.length);
+    privateGroups.clear();
+
+    for (const rawGroup of savedPrivateGroups.slice(0,2000)) {
+      const groupId = String(rawGroup?.id || '').slice(0,80);
+      const ownerId = String(rawGroup?.ownerId || '').slice(0,100);
+      const members = Array.isArray(rawGroup?.members)
+        ? [...new Set(rawGroup.members.map(value=>String(value || '').slice(0,100)).filter(Boolean))].slice(0,10)
+        : [];
+
+      if (!groupId || !ownerId || !members.length) continue;
+      if (!members.includes(ownerId)) members.unshift(ownerId);
+
+      privateGroups.set(groupId,{
+        id:groupId,
+        name:String(rawGroup?.name || 'Grupo').trim().slice(0,40) || 'Grupo',
+        ownerId,
+        members:members.slice(0,10),
+        createdAt:Number(rawGroup?.createdAt || Date.now()),
+        messages:Array.isArray(rawGroup?.messages)
+          ? rawGroup.messages.slice(-500).map(message=>({
+              id:String(message?.id || id()).slice(0,80),
+              userId:String(message?.userId || '').slice(0,100),
+              username:cleanName(message?.username,'Usuário'),
+              text:String(message?.text || '').slice(0,1000),
+              at:Number(message?.at || Date.now())
+            })).filter(message=>message.userId && message.text)
+          : []
+      });
+    }
 
     for (const request of savedFriendRequests.slice(-5000)) {
       if (!request?.fromUserId || !request?.toUserId) continue;
@@ -621,6 +718,14 @@ function hasServerPermission(serverData, socket, permission) {
   if (roles.some(role => role.permissions?.administrator)) return true;
 
   return roles.some(role => !!role.permissions?.[permission]);
+}
+
+function isServerAdmin(serverData,socket) {
+  if (!serverData || !socket?.data?.userId) return false;
+  if (serverData.ownerId === socket.data.userId) return true;
+
+  return userRoles(serverData,socket)
+    .some(role => !!role.permissions?.administrator);
 }
 
 function requireServerAccess(serverData, socket) {
@@ -1530,6 +1635,7 @@ body.locked{overflow:hidden!important}
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
+            <button id="createPrivateGroupBtn" class="friendTab" type="button">👥 Criar grupo</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -1746,6 +1852,7 @@ body.locked{overflow:hidden!important}
 
         <div id="voiceControls" class="controls hidden">
           <button id="micBtn" class="control">🎤 Microfone</button>
+          <button id="muteAllBtn" class="control hidden">🔇 Mutar todos</button>
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
           <button id="screenBtn" class="control">🖥️ Compartilhar tela</button>
@@ -1913,6 +2020,26 @@ body.locked{overflow:hidden!important}
   <button id="dockLeaveCallBtn" class="btn danger small" type="button">Sair</button>
 </div>
 
+<div id="privateGroupModalWrap" class="modalWrap hidden">
+  <div class="modal" style="width:min(520px,100%);">
+    <h2>Criar grupo privado</h2>
+    <p>Escolha até 9 amigos. Com você, o grupo pode ter no máximo 10 pessoas.</p>
+
+    <label style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome do grupo</label>
+    <input id="privateGroupNameInput" maxlength="40" placeholder="Ex.: Os cria">
+
+    <div style="margin-top:16px;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;">Amigos</div>
+    <div id="privateGroupFriendsList" style="margin-top:8px;max-height:290px;overflow:auto;display:grid;gap:6px;"></div>
+
+    <div id="privateGroupCount" style="margin-top:10px;color:var(--muted);font-size:12px;">1/10 pessoas</div>
+
+    <div class="modalActions">
+      <button id="privateGroupCancelBtn" class="btn secondary">Cancelar</button>
+      <button id="privateGroupCreateBtn" class="btn primary">Criar grupo</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -1932,15 +2059,27 @@ function getOrCreateUserId(){
   return value;
 }
 
+function pageWasReloaded(){
+  try{
+    const navigation=performance.getEntriesByType('navigation')?.[0];
+    if(navigation?.type) return navigation.type==='reload';
+    return performance.navigation?.type===1;
+  }catch{
+    return false;
+  }
+}
+
+const PAGE_WAS_RELOADED=pageWasReloaded();
+
 const state = {
   userId: getOrCreateUserId(),
   username: localStorage.getItem('ecord-name') || '',
   bio: localStorage.getItem('ecord-bio') || '',
   avatar: localStorage.getItem('ecord-avatar') || '',
   servers: [],
-  serverId: null,
-  textChannelId: null,
-  voiceChannelId: null,
+  serverId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-server-id') || null) : null,
+  textChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-text-channel-id') || null) : null,
+  voiceChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-voice-channel-id') || null) : null,
   joinedVoiceId: null,
   activeVoiceServerId: null,
   activeVoiceChannelId: null,
@@ -1971,10 +2110,15 @@ const state = {
   incomingFriendRequests: [],
   outgoingFriendRequests: [],
   friendStateLoaded: false,
+  privateGroups: [],
+  activeGroupId: null,
   dmTarget: null,
   privateInviteHandled: false,
-  currentView: 'friends',
-  appInitialized: false
+  currentView: PAGE_WAS_RELOADED
+    ? (localStorage.getItem('ecord-last-view') || 'friends')
+    : 'friends',
+  appInitialized: false,
+  restoringReload: PAGE_WAS_RELOADED
 };
 
 const rtcConfig = {
@@ -2328,6 +2472,7 @@ function returnToActiveCall(){
 
 function setView(name){
   state.currentView = name;
+  localStorage.setItem('ecord-last-view',name);
 
   const hubView = name==='friends' || name==='dm';
 
@@ -2408,45 +2553,86 @@ function isServerView(view = state.currentView){
 function restoreCurrentView(){
   const view = state.currentView || 'friends';
 
-  // Só redesenha a tela que o usuário já escolheu.
-  // Nunca troca de aba por causa de uma atualização recebida.
+  if(!state.appInitialized && isServerView(view)){
+    return;
+  }
+
   if(view === 'friends'){
-    setAppMode('hub');
+    setView('friends');
     renderFriends();
     return;
   }
 
   if(view === 'dm'){
-    setAppMode('hub');
+    setView('dm');
     renderDmContacts();
     return;
   }
 
-  if(!state.serverId){
-    state.currentView = 'friends';
-    setView('friends');
+  const server = state.servers.find(item=>item.id===state.serverId);
+
+  if(!server){
+    if(state.appInitialized) setView('friends');
     return;
   }
 
   setAppMode('server');
 
-  if(view === 'roles'){
-    renderRoles();
-  }else if(view === 'settings'){
-    openServerSettings();
-  }else if(view === 'chat'){
-    const channel = currentText();
+  if(view === 'chat'){
+    const channel = server.textChannels?.find(item=>item.id===state.textChannelId);
 
     if(channel){
-      $('#chatTitle').textContent = channel.name;
+      setView('chat');
+      $('#chatTitle').textContent=channel.name;
+      $('#messageInput').placeholder='Mensagem em #' + channel.name;
+
+      socket.emit('join-text',{
+        serverId:state.serverId,
+        channelId:channel.id
+      });
+
+      return;
     }
-  }else if(view === 'voice'){
-    const channel = currentVoice();
 
-    if(channel){
-      $('#voiceTitle').textContent = channel.name;
+    const fallback=server.textChannels?.[0];
+
+    if(fallback){
+      state.textChannelId=fallback.id;
+      localStorage.setItem('ecord-last-text-channel-id',fallback.id);
+      selectText(fallback.id);
+      return;
     }
   }
+
+  if(view === 'voice'){
+    const channel = server.voiceChannels?.find(item=>item.id===state.voiceChannelId);
+
+    setView('voice');
+
+    if(channel){
+      $('#voiceTitle').textContent=channel.name;
+      $('#voiceControls').classList.add('hidden');
+      $('#joinVoiceBtn').classList.remove('hidden');
+      $('#joinVoiceBtn').textContent='Entrar na voz';
+      $('#voiceStatus').textContent='Fora da chamada';
+    }
+
+    return;
+  }
+
+  if(view === 'roles'){
+    setView('roles');
+    renderRoles();
+    return;
+  }
+
+  if(view === 'settings'){
+    setView('settings');
+    openServerSettings();
+    return;
+  }
+
+  setView('home');
 }
 
 function renderServers(){
@@ -3032,6 +3218,7 @@ function selectServer(serverId){
 function selectText(channelId){
   setAppMode('server');
   state.textChannelId = channelId;
+  localStorage.setItem('ecord-last-text-channel-id',channelId);
   renderSidebar();
   const c = currentText();
   $('#chatTitle').textContent = c?.name || 'chat';
@@ -3044,6 +3231,7 @@ function selectText(channelId){
 function selectVoice(channelId){
   setAppMode('server');
   state.voiceChannelId = channelId;
+  localStorage.setItem('ecord-last-voice-channel-id',channelId);
   renderSidebar();
 
   const c = currentVoice();
@@ -3526,6 +3714,129 @@ function renderFriends(){
 }
 
 
+
+function openPrivateGroupModal(){
+  const friends = getFriends();
+
+  $('#privateGroupNameInput').value = '';
+  $('#privateGroupFriendsList').innerHTML = '';
+
+  if(!friends.length){
+    const empty=document.createElement('div');
+    empty.style.cssText='padding:14px;color:var(--low);font-size:12px;border:1px dashed var(--line);border-radius:10px;';
+    empty.textContent='Você precisa ter amigos aceitos para criar um grupo.';
+    $('#privateGroupFriendsList').appendChild(empty);
+  }else{
+    friends.forEach(friend=>{
+      const row=document.createElement('label');
+      row.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 11px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;text-transform:none;letter-spacing:0;font-size:12px;cursor:pointer;';
+
+      const checkbox=document.createElement('input');
+      checkbox.type='checkbox';
+      checkbox.value=friend.id || '';
+      checkbox.style.cssText='width:auto;';
+
+      const avatar=document.createElement('div');
+      avatar.className='avatar';
+      avatar.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;';
+      applyAvatar(avatar,friend,friend.username);
+
+      const name=document.createElement('span');
+      name.textContent=friend.username;
+      name.style.flex='1';
+
+      checkbox.addEventListener('change',()=>{
+        const checked=[...document.querySelectorAll('#privateGroupFriendsList input[type="checkbox"]:checked')];
+
+        if(checked.length > 9){
+          checkbox.checked=false;
+          toast('Máximo de 10 pessoas contando com você');
+        }
+
+        updatePrivateGroupCount();
+      });
+
+      row.append(checkbox,avatar,name);
+      $('#privateGroupFriendsList').appendChild(row);
+    });
+  }
+
+  updatePrivateGroupCount();
+  $('#privateGroupModalWrap').classList.remove('hidden');
+  setTimeout(()=>$('#privateGroupNameInput').focus(),0);
+}
+
+function closePrivateGroupModal(){
+  $('#privateGroupModalWrap').classList.add('hidden');
+}
+
+function updatePrivateGroupCount(){
+  const selected=document.querySelectorAll('#privateGroupFriendsList input[type="checkbox"]:checked').length;
+  $('#privateGroupCount').textContent=(selected + 1) + '/10 pessoas';
+}
+
+function createPrivateGroup(){
+  const name=$('#privateGroupNameInput').value.trim().slice(0,40);
+  const checked=[...document.querySelectorAll('#privateGroupFriendsList input[type="checkbox"]:checked')];
+
+  if(!name){
+    toast('Digite o nome do grupo');
+    return;
+  }
+
+  if(!checked.length){
+    toast('Escolha pelo menos 1 amigo');
+    return;
+  }
+
+  if(checked.length > 9){
+    toast('O grupo pode ter no máximo 10 pessoas');
+    return;
+  }
+
+  socket.emit('group-create',{
+    name,
+    memberIds:checked.map(item=>item.value).filter(Boolean)
+  });
+}
+
+function openGroupChat(group){
+  if(!group?.id) return;
+
+  state.activeGroupId=group.id;
+  state.dmTarget=null;
+
+  $('#dmTitle').textContent=group.name || 'Grupo';
+  $('#dmSubtitle').textContent=
+    'Grupo privado · ' + String(group.memberCount || group.members?.length || 1) + '/10 pessoas';
+
+  $('#dmInput').disabled=false;
+  $('#dmSendBtn').disabled=false;
+  $('#dmInput').placeholder='Mensagem em ' + (group.name || 'grupo');
+  $('#dmMessages').innerHTML='';
+
+  socket.emit('group-history',{groupId:group.id});
+  $('#dmInput').focus();
+}
+
+function appendGroupMessage(message){
+  if(!message) return;
+
+  const mine=message.userId===state.userId;
+  const row=document.createElement('div');
+  row.className='message' + (mine ? ' mine' : '');
+
+  const strong=document.createElement('strong');
+  strong.textContent=mine ? state.username : (message.username || 'Usuário');
+
+  const span=document.createElement('span');
+  span.textContent=message.text || '';
+
+  row.append(strong,span);
+  $('#dmMessages').appendChild(row);
+  $('#dmMessages').scrollTop=$('#dmMessages').scrollHeight;
+}
+
 function renderDmContacts(){
   const box = $('#dmContacts');
   if(!box) return;
@@ -3535,45 +3846,92 @@ function renderDmContacts(){
     !search || String(friend.username || '').toLowerCase().includes(search)
   );
 
+  const groups = (state.privateGroups || []).filter(group =>
+    !search || String(group.name || '').toLowerCase().includes(search)
+  );
+
   box.innerHTML = '';
 
-  if(!friends.length){
-    const empty = document.createElement('div');
-    empty.style.cssText='color:var(--low);font-size:12px;padding:12px 5px;';
-    empty.textContent='Adicione amigos para iniciar conversas privadas.';
-    box.appendChild(empty);
-    return;
+  if(groups.length){
+    const title=document.createElement('div');
+    title.style.cssText='color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:6px 5px 7px;';
+    title.textContent='Grupos privados';
+    box.appendChild(title);
+
+    groups.forEach(group=>{
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='navBtn';
+      btn.style.cssText='display:flex;align-items:center;gap:9px;margin-bottom:3px;';
+
+      const icon=document.createElement('div');
+      icon.className='avatar';
+      icon.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;background:var(--mintbg);color:var(--mint);';
+      icon.textContent='👥';
+
+      const meta=document.createElement('div');
+      meta.style.cssText='min-width:0;flex:1;text-align:left;';
+
+      const name=document.createElement('div');
+      name.textContent=group.name || 'Grupo';
+      name.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+      const count=document.createElement('div');
+      count.textContent=String(group.memberCount || group.members?.length || 1) + '/10';
+      count.style.cssText='font-size:10px;color:var(--low);margin-top:2px;';
+
+      meta.append(name,count);
+      btn.append(icon,meta);
+      btn.addEventListener('click',()=>openGroupChat(group));
+      box.appendChild(btn);
+    });
   }
 
-  friends.forEach(friend=>{
-    const live = state.onlineUsers.find(user =>
-      (friend.id && user.id===friend.id) ||
-      String(user.username||'').toLowerCase()===String(friend.username||'').toLowerCase()
-    );
+  if(friends.length){
+    const title=document.createElement('div');
+    title.style.cssText='color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 5px 7px;';
+    title.textContent='Amigos';
+    box.appendChild(title);
 
-    const profile = live || friend;
-    const btn = document.createElement('button');
-    btn.type='button';
-    btn.className='navBtn';
-    btn.style.cssText='display:flex;align-items:center;gap:9px;margin-bottom:3px;';
+    friends.forEach(friend=>{
+      const live = state.onlineUsers.find(user =>
+        (friend.id && user.id===friend.id) ||
+        String(user.username||'').toLowerCase()===String(friend.username||'').toLowerCase()
+      );
 
-    const avatar=document.createElement('div');
-    avatar.className='avatar';
-    avatar.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;';
-    applyAvatar(avatar,profile,profile.username);
+      const profile = live || friend;
+      const btn = document.createElement('button');
+      btn.type='button';
+      btn.className='navBtn';
+      btn.style.cssText='display:flex;align-items:center;gap:9px;margin-bottom:3px;';
 
-    const name=document.createElement('span');
-    name.textContent=profile.username;
-    name.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      const avatar=document.createElement('div');
+      avatar.className='avatar';
+      avatar.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;';
+      applyAvatar(avatar,profile,profile.username);
 
-    btn.append(avatar,name);
-    btn.addEventListener('click',()=>openDm(profile));
-    box.appendChild(btn);
-  });
+      const name=document.createElement('span');
+      name.textContent=profile.username;
+      name.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+      btn.append(avatar,name);
+      btn.addEventListener('click',()=>openDm(profile));
+      box.appendChild(btn);
+    });
+  }
+
+  if(!groups.length && !friends.length){
+    const empty = document.createElement('div');
+    empty.style.cssText='color:var(--low);font-size:12px;padding:12px 5px;';
+    empty.textContent='Adicione amigos ou crie um grupo privado.';
+    box.appendChild(empty);
+  }
 }
 
 function openDm(profile){
   if(!profile?.username) return;
+
+  state.activeGroupId=null;
 
   const resolved = state.onlineUsers.find(user =>
     (profile.id && user.id===profile.id) ||
@@ -3622,7 +3980,20 @@ function sendDm(){
   const input = $('#dmInput');
   const text = input.value.trim().slice(0,1000);
 
-  if(!text || !state.dmTarget) return;
+  if(!text) return;
+
+  if(state.activeGroupId){
+    socket.emit('group-message',{
+      groupId:state.activeGroupId,
+      text
+    });
+
+    input.value='';
+    input.focus();
+    return;
+  }
+
+  if(!state.dmTarget) return;
 
   socket.emit('dm-message',{
     targetUserId:state.dmTarget.id,
@@ -3634,10 +4005,6 @@ function sendDm(){
   input.focus();
 }
 
-function primaryRoleForUser(username){
-  const roles = roleNamesForUser(username);
-  return roles.length ? roles[0] : null;
-}
 
 function roleNamesForUser(username){
   const server = currentServer();
@@ -4248,6 +4615,49 @@ function closeIncomingCall(){
   $('#incomingCallWrap').classList.add('hidden');
 }
 
+
+function currentUserIsServerAdmin(){
+  const server=state.servers.find(item=>item.id===state.activeVoiceServerId);
+  if(!server || state.privateCallId) return false;
+
+  if(server.ownerId===state.userId) return true;
+
+  const username=String(state.username || '').toLowerCase();
+
+  return (server.roles || []).some(role =>
+    !!role.permissions?.administrator &&
+    (role.members || []).some(member =>
+      String(member || '').toLowerCase()===username
+    )
+  );
+}
+
+function updateMuteAllButton(){
+  const button=$('#muteAllBtn');
+  if(!button) return;
+
+  const visible=
+    !!state.joinedVoiceId &&
+    !state.privateCallId &&
+    !!state.activeVoiceServerId &&
+    !!state.activeVoiceChannelId &&
+    currentUserIsServerAdmin();
+
+  button.classList.toggle('hidden',!visible);
+}
+
+function muteEveryone(){
+  if(!currentUserIsServerAdmin()){
+    toast('Apenas o dono ou um Administrador pode mutar todos');
+    return;
+  }
+
+  socket.emit('admin-mute-all',{
+    serverId:state.activeVoiceServerId,
+    channelId:state.activeVoiceChannelId
+  });
+}
+
 async function joinVoice(){
   const channel = currentVoice();
   if(!channel) return;
@@ -4297,6 +4707,7 @@ async function joinVoice(){
     });
 
     updateCallDock();
+    updateMuteAllButton();
   }catch(err){
     console.error(err);
     toast('Permita o microfone para entrar na voz');
@@ -4355,6 +4766,7 @@ function leaveVoice(){
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
   updateCallDock();
+  updateMuteAllButton();
 
   if(wasPrivate){
     setView('friends');
@@ -4605,9 +5017,14 @@ $('#loginBtn').addEventListener('click',()=>{
   refreshOwnProfileUI();
   $('#login').classList.add('hidden');
 
-  // Sempre entra na tela principal de Amigos, fora dos servidores.
-  setAppMode('hub');
-  setView('friends');
+  // Em abertura normal começa em Amigos.
+  // Em F5, mantém servidor/canal/aba que estavam abertos.
+  if(!state.restoringReload){
+    setAppMode('hub');
+    setView('friends');
+  }else{
+    setAppMode(isServerView(state.currentView) ? 'server' : 'hub');
+  }
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -4790,6 +5207,12 @@ $('#friendsPendingTab').addEventListener('click',()=>{
 });
 $('#friendsSearch').addEventListener('input',renderFriends);
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
+$('#createPrivateGroupBtn').addEventListener('click',openPrivateGroupModal);
+$('#privateGroupCancelBtn').addEventListener('click',closePrivateGroupModal);
+$('#privateGroupCreateBtn').addEventListener('click',createPrivateGroup);
+$('#privateGroupModalWrap').addEventListener('click',event=>{
+  if(event.target===$('#privateGroupModalWrap')) closePrivateGroupModal();
+});
 $('#addRoleBtn').addEventListener('click',()=>openModal('role'));
 $('#homeCreateRole').addEventListener('click',()=>openModal('role'));
 $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$('#roleColor').value;});
@@ -4809,6 +5232,7 @@ $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
 $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
 $('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
+$('#muteAllBtn').addEventListener('click',muteEveryone);
 $('#audioGateBtn').addEventListener('click',async()=>{
   await unlockAllRemoteAudio();
   $('#audioGateBtn').classList.add('hidden');
@@ -4936,6 +5360,38 @@ socket.on('private-call-declined',data=>{
 
 socket.on('private-call-error',data=>{
   toast(data?.error || 'Não foi possível fazer a chamada');
+});
+
+socket.on('group-state',groups=>{
+  state.privateGroups=Array.isArray(groups) ? groups : [];
+  renderDmContacts();
+});
+
+socket.on('group-created',({group})=>{
+  closePrivateGroupModal();
+  toast('Grupo privado criado');
+
+  if(group){
+    setView('dm');
+    setTimeout(()=>openGroupChat(group),40);
+  }
+});
+
+socket.on('group-error',data=>{
+  toast(data?.error || 'Não foi possível atualizar o grupo');
+});
+
+socket.on('group-history',payload=>{
+  if(!payload || payload.groupId!==state.activeGroupId) return;
+
+  $('#dmMessages').innerHTML='';
+  (Array.isArray(payload.messages) ? payload.messages : []).forEach(appendGroupMessage);
+});
+
+socket.on('group-message',message=>{
+  if(message?.groupId===state.activeGroupId){
+    appendGroupMessage(message);
+  }
 });
 
 socket.on('dm-history',history=>{
@@ -5066,12 +5522,10 @@ socket.on('server-list',list=>{
   renderSidebar();
   renderRoles();
 
-  // Ponto principal da correção:
-  // receber server-list NUNCA muda a tela escolhida pelo usuário.
+  // Atualizações de dados não mudam a navegação escolhida.
   state.currentView = previousView;
-  restoreCurrentView();
-
   state.appInitialized = true;
+  restoreCurrentView();
 });
 
 socket.on('invite-joined',({serverId,serverName})=>{
@@ -5124,6 +5578,7 @@ socket.on('role-updated',({message})=>{
   renderSidebar();
   renderRoles();
   renderMembers(state.lastVoiceMembers || []);
+  updateMuteAllButton();
   restoreCurrentView();
   toast(message || 'Cargos atualizados');
 });
@@ -5161,7 +5616,26 @@ socket.on('voice-participants',async participants=>{
   $('#voiceStatus').textContent='Conectado';
 });
 
-socket.on('voice-members',members=>renderMembers(members));
+socket.on('voice-members',members=>{
+  renderMembers(members);
+  updateMuteAllButton();
+});
+
+socket.on('force-mute',({by})=>{
+  const track=state.localStream?.getAudioTracks()[0];
+
+  if(track){
+    track.enabled=false;
+    $('#micBtn').textContent='🔇 Microfone';
+    $('#micBtn').classList.add('off');
+  }
+
+  toast('Seu microfone foi mutado por ' + (by || 'um administrador'));
+});
+
+socket.on('mute-all-complete',()=>{
+  toast('Todos os outros participantes foram mutados');
+});
 
 socket.on('user-joined',({id,username})=>{
   state.peerNames.set(id,username);
@@ -5344,6 +5818,7 @@ io.on('connection', socket => {
     socket.emit('profile-saved', publicProfile(profile));
     sendServerList(socket);
     emitFriendState(safeId);
+    emitGroupState(safeId);
     broadcastServerLists();
     broadcastOnlineUsers();
   });
@@ -5500,6 +5975,99 @@ io.on('connection', socket => {
       ? {ok:true,profile:publicProfile(profile)}
       : {ok:false,error:'Essa pessoa não existe no e-cord'}
     );
+  });
+
+  socket.on('group-create', ({ name, memberIds }) => {
+    if (!socket.data.userId) return;
+
+    const ownerId = socket.data.userId;
+    const requested = Array.isArray(memberIds)
+      ? [...new Set(memberIds.map(value=>String(value || '').slice(0,100)).filter(Boolean))]
+      : [];
+
+    if (requested.length > 9) {
+      socket.emit('group-error',{error:'O grupo pode ter no máximo 10 pessoas contando com você'});
+      return;
+    }
+
+    const selected = requested.filter(userId => userId !== ownerId);
+
+    if (!selected.length) {
+      socket.emit('group-error',{error:'Escolha pelo menos 1 amigo'});
+      return;
+    }
+
+    const invalid = selected.find(userId => !areFriends(ownerId,userId));
+
+    if (invalid) {
+      socket.emit('group-error',{error:'Só é possível adicionar amigos aceitos'});
+      return;
+    }
+
+    const group = {
+      id:id(),
+      name:String(name || 'Grupo privado').trim().slice(0,40) || 'Grupo privado',
+      ownerId,
+      members:[ownerId,...selected].slice(0,10),
+      createdAt:Date.now(),
+      messages:[]
+    };
+
+    privateGroups.set(group.id,group);
+    saveServersToDisk();
+    emitGroupStateToMembers(group);
+
+    socket.emit('group-created',{group:publicPrivateGroup(group)});
+  });
+
+  socket.on('group-history', ({ groupId }) => {
+    if (!socket.data.userId) return;
+
+    const group = privateGroups.get(String(groupId || '').slice(0,80));
+
+    if (!group || !(group.members || []).includes(socket.data.userId)) {
+      socket.emit('group-error',{error:'Você não faz parte deste grupo'});
+      return;
+    }
+
+    socket.emit('group-history',{
+      groupId:group.id,
+      messages:(group.messages || []).slice(-300)
+    });
+  });
+
+  socket.on('group-message', ({ groupId, text }) => {
+    if (!socket.data.userId) return;
+
+    const group = privateGroups.get(String(groupId || '').slice(0,80));
+
+    if (!group || !(group.members || []).includes(socket.data.userId)) {
+      socket.emit('group-error',{error:'Você não faz parte deste grupo'});
+      return;
+    }
+
+    const safeText = String(text || '').trim().slice(0,1000);
+    if (!safeText) return;
+
+    const message = {
+      id:id(),
+      groupId:group.id,
+      userId:socket.data.userId,
+      username:socket.data.username || 'Usuário',
+      text:safeText,
+      at:Date.now()
+    };
+
+    group.messages.push(message);
+    while (group.messages.length > 500) group.messages.shift();
+
+    saveServersToDisk();
+
+    for (const client of io.sockets.sockets.values()) {
+      if ((group.members || []).includes(client.data.userId)) {
+        client.emit('group-message',message);
+      }
+    }
   });
 
   socket.on('get-servers', () => {
@@ -6184,6 +6752,38 @@ io.on('connection', socket => {
       .filter(Boolean);
 
     io.to(room).emit('voice-members', members);
+  });
+
+  socket.on('admin-mute-all', ({ serverId, channelId }) => {
+    const serverData=servers.get(String(serverId || '').slice(0,80));
+
+    if (
+      !serverData ||
+      !requireServerAccess(serverData,socket) ||
+      !isServerAdmin(serverData,socket)
+    ) {
+      permissionDenied(socket);
+      return;
+    }
+
+    const channel=serverData.voiceChannels.find(
+      item=>item.id===String(channelId || '').slice(0,80)
+    );
+
+    if(!channel) return;
+
+    const expectedRoom='voice:' + serverData.id + ':' + channel.id;
+
+    if(socket.data.voiceRoom!==expectedRoom){
+      socket.emit('permission-error',{error:'Entre nesse canal de voz primeiro'});
+      return;
+    }
+
+    socket.to(expectedRoom).emit('force-mute',{
+      by:socket.data.username || 'Administrador'
+    });
+
+    socket.emit('mute-all-complete');
   });
 
   socket.on('leave-voice', leaveVoiceRoom);
