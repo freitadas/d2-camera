@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-old-create-restored-v15';
+const CACHE='acord-server-manager-v16';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3819,6 +3819,106 @@ html[data-palette="candy"]{
   pointer-events:auto!important;
 }
 
+
+.serverManagerModal{
+  width:min(620px,calc(100vw - 30px))!important;
+  max-height:min(720px,calc(100vh - 40px))!important;
+  display:flex!important;
+  flex-direction:column!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+.serverManagerHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:18px;
+  border-bottom:1px solid color-mix(in srgb,var(--coral) 28%,var(--line));
+}
+.serverManagerHead h3{
+  margin:0 0 4px;
+  font-size:18px;
+}
+.serverManagerHead p{
+  margin:0;
+  color:var(--muted);
+  font-size:11px;
+}
+.serverManagerList{
+  min-height:100px;
+  overflow:auto;
+  padding:10px;
+}
+.serverManagerRow{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-height:58px;
+  padding:9px 10px;
+  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
+  border-radius:9px;
+  margin-bottom:7px;
+  background:var(--bg2);
+}
+.serverManagerIcon{
+  width:40px;
+  height:40px;
+  flex:0 0 40px;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:11px;
+  background:var(--bg3);
+  font-weight:900;
+}
+.serverManagerIcon img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+}
+.serverManagerMeta{
+  min-width:0;
+  flex:1;
+}
+.serverManagerMeta strong{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+}
+.serverManagerMeta span{
+  display:block;
+  margin-top:3px;
+  color:var(--muted);
+  font-size:10px;
+}
+.serverManagerActions{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.dangerBtn{
+  border:1px solid color-mix(in srgb,var(--danger) 60%,var(--line))!important;
+  background:color-mix(in srgb,var(--danger) 16%,var(--bg2))!important;
+  color:#ffb4b4!important;
+}
+.dangerBtn:hover{
+  background:color-mix(in srgb,var(--danger) 28%,var(--bg2))!important;
+}
+.serverManagerFoot{
+  padding:12px 18px 18px;
+  border-top:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
+}
+.serverManagerEmpty{
+  padding:28px 12px;
+  text-align:center;
+  color:var(--low);
+  font-size:12px;
+}
+
 </style>
 </head>
 <body>
@@ -4012,6 +4112,7 @@ html[data-palette="candy"]{
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
             <button id="createPrivateGroupBtn" class="friendTab" type="button">Criar grupo</button>
             <button id="friendsProfileBtn" class="friendTab" type="button">Perfil</button>
+            <button id="friendsServersBtn" class="friendTab" type="button">Servidores</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -4381,6 +4482,27 @@ html[data-palette="candy"]{
 
     <div class="sharePickerFoot">
       A qualidade final também depende do navegador, da resolução da tela e da conexão dos participantes.
+    </div>
+  </div>
+</div>
+
+
+<div id="serverManagerWrap" class="modalWrap hidden">
+  <div class="modal serverManagerModal">
+    <div class="serverManagerHead">
+      <div>
+        <h3>Meus servidores</h3>
+        <p>Você pode apagar seus servidores mesmo estando na aba Amigos.</p>
+      </div>
+      <button id="serverManagerCloseBtn" class="btn secondary small" type="button">Fechar</button>
+    </div>
+
+    <div id="serverManagerList" class="serverManagerList"></div>
+
+    <div class="serverManagerFoot">
+      <button id="deleteAllOwnedServersBtn" class="btn dangerBtn" type="button">
+        Apagar todos os meus servidores
+      </button>
     </div>
   </div>
 </div>
@@ -8296,19 +8418,186 @@ function confirmModal(){
   closeModal();
 }
 
+
+function deleteServerFromAnywhere(server){
+  if(!server?.id) return;
+
+  const isOwner=server.ownerId===state.userId;
+
+  if(!isOwner){
+    toast('Só o dono pode apagar este servidor');
+    return;
+  }
+
+  if(!confirm('Apagar o servidor "'+server.name+'"? Esta ação não pode ser desfeita.')){
+    return;
+  }
+
+  // Remove na hora da interface e do cache.
+  state.servers=state.servers.filter(item=>item.id!==server.id);
+
+  if(state.serverId===server.id){
+    state.serverId=state.servers[0]?.id||null;
+    state.textChannelId=null;
+    state.voiceChannelId=null;
+  }
+
+  cacheServers(state.servers);
+  renderServers();
+  renderSidebar();
+  renderServerManager();
+
+  socket.emit('delete-server',{
+    serverId:server.id,
+    serverSnapshot:safeServerSnapshot(server),
+    legacyUserId:state.legacyUserId
+  });
+
+  toast('Servidor apagado');
+}
+
+function renderServerManager(){
+  const list=$('#serverManagerList');
+  const deleteAll=$('#deleteAllOwnedServersBtn');
+  if(!list || !deleteAll) return;
+
+  list.innerHTML='';
+
+  if(!state.servers.length){
+    const empty=document.createElement('div');
+    empty.className='serverManagerEmpty';
+    empty.textContent='Você não possui servidores.';
+    list.appendChild(empty);
+    deleteAll.disabled=true;
+    return;
+  }
+
+  const owned=state.servers.filter(server=>server.ownerId===state.userId);
+  deleteAll.disabled=!owned.length;
+
+  state.servers.forEach(server=>{
+    const row=document.createElement('div');
+    row.className='serverManagerRow';
+
+    const icon=document.createElement('div');
+    icon.className='serverManagerIcon';
+
+    if(server.icon){
+      const image=document.createElement('img');
+      image.src=server.icon;
+      image.alt='';
+      image.addEventListener('error',()=>{
+        image.remove();
+        icon.textContent=initials(server.name);
+      });
+      icon.appendChild(image);
+    }else{
+      icon.textContent=initials(server.name);
+    }
+
+    const meta=document.createElement('div');
+    meta.className='serverManagerMeta';
+
+    const name=document.createElement('strong');
+    name.textContent=server.name||'Servidor';
+
+    const role=document.createElement('span');
+    role.textContent=server.ownerId===state.userId
+      ? 'Você é o dono'
+      : 'Você é membro';
+
+    meta.append(name,role);
+
+    const actions=document.createElement('div');
+    actions.className='serverManagerActions';
+
+    const open=document.createElement('button');
+    open.className='btn secondary small';
+    open.type='button';
+    open.textContent='Abrir';
+    open.addEventListener('click',()=>{
+      $('#serverManagerWrap').classList.add('hidden');
+      selectServer(server.id);
+    });
+
+    actions.appendChild(open);
+
+    if(server.ownerId===state.userId){
+      const remove=document.createElement('button');
+      remove.className='btn dangerBtn small';
+      remove.type='button';
+      remove.textContent='Apagar';
+      remove.addEventListener('click',()=>deleteServerFromAnywhere(server));
+      actions.appendChild(remove);
+    }
+
+    row.append(icon,meta,actions);
+    list.appendChild(row);
+  });
+}
+
+function openServerManager(){
+  renderServerManager();
+  $('#serverManagerWrap').classList.remove('hidden');
+}
+
+function closeServerManager(){
+  $('#serverManagerWrap').classList.add('hidden');
+}
+
+function deleteAllOwnedServers(){
+  const owned=state.servers.filter(server=>server.ownerId===state.userId);
+
+  if(!owned.length){
+    toast('Você não possui servidores para apagar');
+    return;
+  }
+
+  if(!confirm(
+    'Apagar TODOS os seus '+owned.length+' servidor(es)? Esta ação não pode ser desfeita.'
+  )){
+    return;
+  }
+
+  if(!confirm('Tem certeza? Todos os seus servidores serão apagados.')){
+    return;
+  }
+
+  const ownedIds=new Set(owned.map(server=>server.id));
+
+  state.servers=state.servers.filter(server=>!ownedIds.has(server.id));
+
+  if(ownedIds.has(state.serverId)){
+    state.serverId=state.servers[0]?.id||null;
+    state.textChannelId=null;
+    state.voiceChannelId=null;
+  }
+
+  cacheServers(state.servers);
+  renderServers();
+  renderSidebar();
+  renderServerManager();
+
+  owned.forEach(server=>{
+    socket.emit('delete-server',{
+      serverId:server.id,
+      serverSnapshot:safeServerSnapshot(server),
+      legacyUserId:state.legacyUserId
+    });
+  });
+
+  toast('Todos os seus servidores foram apagados');
+}
+
 function deleteCurrentServer(){
-  const server = currentServer();
+  const server=currentServer();
 
   if(!server){
     toast('Nenhum servidor selecionado');
     return;
   }
 
-  if(!confirm('Apagar o servidor "' + server.name + '"? Esta ação não pode ser desfeita.')){
-    return;
-  }
-
-  socket.emit('delete-server',{serverId:server.id});
+  deleteServerFromAnywhere(server);
 }
 
 async function copyInvite(){
@@ -9643,6 +9932,12 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
+$('#friendsServersBtn').addEventListener('click',openServerManager);
+$('#serverManagerCloseBtn').addEventListener('click',closeServerManager);
+$('#deleteAllOwnedServersBtn').addEventListener('click',deleteAllOwnedServers);
+$('#serverManagerWrap').addEventListener('click',event=>{
+  if(event.target===$('#serverManagerWrap')) closeServerManager();
+});
 $('#friendsAccountBar').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
@@ -10721,13 +11016,22 @@ socket.on('server-settings-updated',({serverId,message})=>{
 });
 
 socket.on('server-deleted',({serverId})=>{
+  state.servers=state.servers.filter(server=>server.id!==serverId);
+
   if(state.serverId===serverId){
-    state.serverId = null;
-    state.textChannelId = null;
-    state.voiceChannelId = null;
+    state.serverId=state.servers[0]?.id||null;
+    state.textChannelId=null;
+    state.voiceChannelId=null;
   }
 
-  toast('Servidor apagado');
+  cacheServers(state.servers);
+  renderServers();
+  renderSidebar();
+  renderServerManager();
+
+  if(!state.serverId && isServerView(state.currentView)){
+    setView('friends');
+  }
 });
 
 socket.on('server-created',({serverId})=>{
@@ -11786,12 +12090,29 @@ io.on('connection', socket => {
     });
   });
 
-  socket.on('delete-server', ({ serverId }) => {
-    const safeId = String(serverId || '').slice(0, 80);
-    const serverData = servers.get(safeId);
-    if (!serverData) return;
+  socket.on('delete-server', ({ serverId, serverSnapshot, legacyUserId }) => {
+    const safeId=String(serverId||'').slice(0,80);
 
-    if (serverData.ownerId !== socket.data.userId) {
+    let serverData=servers.get(safeId);
+
+    if(!serverData && typeof recoverServerForWrite==='function'){
+      serverData=recoverServerForWrite(
+        socket,
+        safeId,
+        serverSnapshot,
+        legacyUserId
+      );
+    }
+
+    if(!serverData){
+      // Se já não existe no backend, para o usuário o resultado desejado
+      // já foi alcançado.
+      socket.emit('server-deleted',{serverId:safeId});
+      sendServerList(socket);
+      return;
+    }
+
+    if(serverData.ownerId!==socket.data.userId){
       permissionDenied(socket);
       return;
     }
@@ -11799,7 +12120,7 @@ io.on('connection', socket => {
     servers.delete(safeId);
     saveServersToDisk();
 
-    socket.emit('server-deleted', { serverId: safeId });
+    socket.emit('server-deleted',{serverId:safeId});
     broadcastServerLists();
   });
 
