@@ -81,7 +81,7 @@ app.use((req,res,next)=>{
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: blob:; " +
-    "media-src 'self' blob:; " +
+    "media-src 'self' blob: https:; " +
     "connect-src 'self' ws: wss:; " +
     "font-src 'self' data:; " +
     "object-src 'none'; " +
@@ -1103,6 +1103,174 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 }
 .control{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:999px;padding:11px 15px;font-weight:800;min-width:120px}
 .control:hover{background:var(--bg4)}.control.off{background:#18211e;color:var(--muted)}.control.sharing{background:var(--mintbg);color:var(--mint)}.control.danger{background:var(--danger);border-color:transparent}
+.control.musicActive{background:var(--mintbg);color:var(--mint);border-color:rgba(65,217,154,.35)}
+
+.localMusicPanel{
+  border-bottom:1px solid var(--line);
+  background:var(--bg1);
+  padding:14px;
+}
+.localMusicShell{
+  width:min(760px,100%);
+  margin:0 auto;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--bg2);
+  overflow:hidden;
+}
+.localMusicHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:13px 14px;
+  border-bottom:1px solid var(--line);
+}
+.localMusicTitle{font-weight:900;font-size:14px}
+.localMusicOnly{
+  font-size:10px;
+  font-weight:900;
+  color:var(--mint);
+  background:var(--mintbg);
+  border:1px solid rgba(65,217,154,.25);
+  padding:5px 8px;
+  border-radius:999px;
+}
+.localMusicBody{padding:14px}
+.localMusicAdd{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  gap:8px;
+}
+.localMusicChoose{
+  border:1px solid var(--line);
+  background:var(--bg3);
+  color:var(--text);
+  border-radius:10px;
+  padding:10px 12px;
+  font-weight:800;
+}
+.localMusicChoose:hover{background:var(--bg4)}
+.localMusicNow{
+  margin-top:12px;
+  padding:12px;
+  border-radius:12px;
+  background:var(--bg1);
+  border:1px solid var(--line);
+}
+.localMusicNowLabel{
+  color:var(--low);
+  font-size:10px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.localMusicTrack{
+  margin-top:4px;
+  color:var(--text);
+  font-size:13px;
+  font-weight:850;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.localMusicTimeline{
+  display:grid;
+  grid-template-columns:42px 1fr 42px;
+  align-items:center;
+  gap:8px;
+  margin-top:10px;
+}
+.localMusicTimeline span{
+  color:var(--low);
+  font-size:10px;
+  text-align:center;
+}
+.localMusicTimeline input{padding:0;border:0;box-shadow:none}
+.localMusicControls{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  margin-top:10px;
+  flex-wrap:wrap;
+}
+.localMusicControls button{
+  border:1px solid var(--line);
+  background:var(--bg3);
+  color:var(--text);
+  border-radius:999px;
+  min-width:42px;
+  height:38px;
+  padding:0 12px;
+  font-weight:900;
+}
+.localMusicControls button:hover{background:var(--bg4)}
+#localMusicPlayBtn{
+  min-width:54px;
+  background:var(--coral);
+  color:#281009;
+  border-color:transparent;
+}
+.localMusicVolume{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-left:8px;
+  color:var(--muted);
+  font-size:11px;
+}
+.localMusicVolume input{width:110px;padding:0;border:0;box-shadow:none}
+.localMusicList{
+  margin-top:12px;
+  display:grid;
+  gap:6px;
+  max-height:150px;
+  overflow:auto;
+}
+.localMusicItem{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  color:var(--muted);
+}
+.localMusicItem.active{
+  border-color:rgba(65,217,154,.38);
+  color:var(--text);
+  background:var(--mintbg);
+}
+.localMusicItemName{
+  min-width:0;
+  flex:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:11px;
+  font-weight:750;
+}
+.localMusicItem button{
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  font-weight:900;
+  padding:4px 6px;
+}
+.localMusicEmpty{
+  color:var(--low);
+  font-size:11px;
+  text-align:center;
+  padding:10px;
+}
+
+@media(max-width:760px){
+  .localMusicAdd{grid-template-columns:1fr auto}
+  .localMusicChoose{grid-column:1/-1}
+  .localMusicVolume{width:100%;justify-content:center;margin-left:0}
+}
 
 .rightbar{background:var(--bg1);border-left:1px solid var(--line);padding:18px 14px;overflow-y:auto}
 .rightTitle{color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
@@ -2248,10 +2416,59 @@ body.locked{overflow:hidden!important}
           <button id="joinVoiceBtn" class="btn primary small">Entrar na voz</button>
         </div>
 
+        <div id="localMusicPanel" class="localMusicPanel hidden">
+          <div class="localMusicShell">
+            <div class="localMusicHead">
+              <div class="localMusicTitle">🎵 Minha música</div>
+              <div class="localMusicOnly">SÓ VOCÊ OUVE</div>
+            </div>
+
+            <div class="localMusicBody">
+              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*" multiple>
+
+              <div class="localMusicAdd">
+                <button id="localMusicChooseBtn" class="localMusicChoose" type="button">+ Escolher música</button>
+                <input id="localMusicUrl" type="url" placeholder="Ou cole um link direto de áudio...">
+                <button id="localMusicAddUrlBtn" class="btn secondary small" type="button">Adicionar</button>
+              </div>
+
+              <div class="localMusicNow">
+                <div class="localMusicNowLabel">Tocando agora</div>
+                <div id="localMusicTrack" class="localMusicTrack">Nenhuma música selecionada</div>
+
+                <div class="localMusicTimeline">
+                  <span id="localMusicCurrent">0:00</span>
+                  <input id="localMusicSeek" type="range" min="0" max="1000" value="0">
+                  <span id="localMusicDuration">0:00</span>
+                </div>
+
+                <div class="localMusicControls">
+                  <button id="localMusicPrevBtn" type="button">⏮</button>
+                  <button id="localMusicPlayBtn" type="button">▶</button>
+                  <button id="localMusicNextBtn" type="button">⏭</button>
+
+                  <div class="localMusicVolume">
+                    <span>🔊</span>
+                    <input id="localMusicVolume" type="range" min="0" max="100" value="70">
+                    <span id="localMusicVolumeValue">70%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div id="localMusicList" class="localMusicList">
+                <div class="localMusicEmpty">Sua fila está vazia.</div>
+              </div>
+            </div>
+          </div>
+
+          <audio id="localMusicAudio" preload="metadata"></audio>
+        </div>
+
         <div id="videoGrid" class="videoGrid"></div>
 
         <div id="voiceControls" class="controls hidden">
           <button id="micBtn" class="control">🎤 Microfone</button>
+          <button id="musicBtn" class="control">🎵 Música</button>
           <button id="deafenBtn" class="control">🔊 Áudio</button>
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
@@ -2604,6 +2821,9 @@ const state = {
   screenStream: null,
   screenShareQuality: localStorage.getItem('ecord-screen-quality') || '1080p',
   pendingShareKind: null,
+  localMusicQueue: [],
+  localMusicIndex: -1,
+  localMusicObjectUrls: new Set(),
   peers: new Map(),
   peerNames: new Map(),
   remoteStreams: new Map(),
@@ -2651,6 +2871,260 @@ const rtcConfig = {
   ],
   iceCandidatePoolSize: 10
 };
+
+
+// Música pessoal: este <audio> é local ao navegador e nunca é adicionado ao WebRTC.
+function formatMusicTime(seconds){
+  const value = Number(seconds);
+  if(!Number.isFinite(value) || value < 0) return '0:00';
+
+  const minutes = Math.floor(value / 60);
+  const secs = Math.floor(value % 60).toString().padStart(2,'0');
+  return minutes + ':' + secs;
+}
+
+function currentLocalMusic(){
+  return state.localMusicQueue[state.localMusicIndex] || null;
+}
+
+function updateLocalMusicPlayButton(){
+  const audio = $('#localMusicAudio');
+  if(!audio) return;
+  $('#localMusicPlayBtn').textContent = audio.paused ? '▶' : '⏸';
+}
+
+function renderLocalMusicQueue(){
+  const list = $('#localMusicList');
+  if(!list) return;
+
+  list.innerHTML = '';
+
+  if(!state.localMusicQueue.length){
+    const empty = document.createElement('div');
+    empty.className = 'localMusicEmpty';
+    empty.textContent = 'Sua fila está vazia.';
+    list.appendChild(empty);
+    return;
+  }
+
+  state.localMusicQueue.forEach((track,index)=>{
+    const row = document.createElement('div');
+    row.className = 'localMusicItem' + (index === state.localMusicIndex ? ' active' : '');
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.textContent = index === state.localMusicIndex ? '♫' : '▶';
+    play.title = 'Tocar';
+
+    const name = document.createElement('div');
+    name.className = 'localMusicItemName';
+    name.textContent = track.name || 'Música';
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Remover';
+
+    play.addEventListener('click',()=>{
+      playLocalMusicTrack(index,true);
+    });
+
+    remove.addEventListener('click',()=>{
+      removeLocalMusicTrack(index);
+    });
+
+    row.append(play,name,remove);
+    list.appendChild(row);
+  });
+}
+
+async function playLocalMusicTrack(index,autoplay=true){
+  const audio = $('#localMusicAudio');
+  const track = state.localMusicQueue[index];
+  if(!audio || !track) return;
+
+  state.localMusicIndex = index;
+
+  if(audio.src !== track.url){
+    audio.src = track.url;
+    audio.load();
+  }
+
+  $('#localMusicTrack').textContent = track.name || 'Música';
+  renderLocalMusicQueue();
+
+  if(autoplay){
+    try{
+      await audio.play();
+    }catch(error){
+      console.warn('Não foi possível iniciar a música:',error);
+      toast('Clique em ▶ para tocar a música');
+    }
+  }
+
+  updateLocalMusicPlayButton();
+}
+
+function addLocalMusicFiles(files){
+  const list = Array.from(files || []).filter(file=>String(file.type || '').startsWith('audio/'));
+
+  if(!list.length){
+    toast('Escolha um arquivo de áudio');
+    return;
+  }
+
+  const firstNewIndex = state.localMusicQueue.length;
+
+  list.forEach(file=>{
+    const url = URL.createObjectURL(file);
+    state.localMusicObjectUrls.add(url);
+
+    state.localMusicQueue.push({
+      name:String(file.name || 'Música').replace(/\.[^.]+$/,''),
+      url,
+      local:true
+    });
+  });
+
+  renderLocalMusicQueue();
+
+  if(state.localMusicIndex < 0){
+    playLocalMusicTrack(firstNewIndex,false);
+  }
+
+  toast(list.length === 1 ? 'Música adicionada' : 'Músicas adicionadas');
+}
+
+function addLocalMusicUrl(){
+  const input = $('#localMusicUrl');
+  const value = String(input?.value || '').trim();
+
+  if(!/^https:\/\//i.test(value)){
+    toast('Use um link HTTPS direto de áudio');
+    return;
+  }
+
+  let name = 'Música por link';
+
+  try{
+    const parsed = new URL(value);
+    const last = decodeURIComponent(parsed.pathname.split('/').pop() || '');
+    if(last){
+      name = last.replace(/\.[^.]+$/,'') || name;
+    }
+  }catch{}
+
+  const index = state.localMusicQueue.length;
+
+  state.localMusicQueue.push({
+    name,
+    url:value,
+    local:false
+  });
+
+  input.value = '';
+  renderLocalMusicQueue();
+
+  if(state.localMusicIndex < 0){
+    playLocalMusicTrack(index,false);
+  }
+
+  toast('Link adicionado');
+}
+
+function removeLocalMusicTrack(index){
+  const audio = $('#localMusicAudio');
+  const track = state.localMusicQueue[index];
+  if(!track) return;
+
+  const wasCurrent = index === state.localMusicIndex;
+
+  if(track.local && state.localMusicObjectUrls.has(track.url)){
+    try{URL.revokeObjectURL(track.url)}catch{}
+    state.localMusicObjectUrls.delete(track.url);
+  }
+
+  state.localMusicQueue.splice(index,1);
+
+  if(!state.localMusicQueue.length){
+    state.localMusicIndex = -1;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    $('#localMusicTrack').textContent = 'Nenhuma música selecionada';
+    $('#localMusicCurrent').textContent = '0:00';
+    $('#localMusicDuration').textContent = '0:00';
+    $('#localMusicSeek').value = 0;
+  }else if(wasCurrent){
+    const nextIndex = Math.min(index,state.localMusicQueue.length - 1);
+    state.localMusicIndex = -1;
+    playLocalMusicTrack(nextIndex,false);
+  }else if(index < state.localMusicIndex){
+    state.localMusicIndex -= 1;
+  }
+
+  renderLocalMusicQueue();
+  updateLocalMusicPlayButton();
+}
+
+function nextLocalMusic(){
+  if(!state.localMusicQueue.length) return;
+
+  const next =
+    state.localMusicIndex < 0
+      ? 0
+      : (state.localMusicIndex + 1) % state.localMusicQueue.length;
+
+  playLocalMusicTrack(next,true);
+}
+
+function previousLocalMusic(){
+  if(!state.localMusicQueue.length) return;
+
+  const previous =
+    state.localMusicIndex <= 0
+      ? state.localMusicQueue.length - 1
+      : state.localMusicIndex - 1;
+
+  playLocalMusicTrack(previous,true);
+}
+
+async function toggleLocalMusicPlayback(){
+  const audio = $('#localMusicAudio');
+
+  if(!state.localMusicQueue.length){
+    $('#localMusicFiles').click();
+    return;
+  }
+
+  if(state.localMusicIndex < 0){
+    await playLocalMusicTrack(0,true);
+    return;
+  }
+
+  if(audio.paused){
+    try{
+      await audio.play();
+    }catch{
+      toast('Não foi possível tocar essa música');
+    }
+  }else{
+    audio.pause();
+  }
+
+  updateLocalMusicPlayButton();
+}
+
+function toggleLocalMusicPanel(){
+  const panel = $('#localMusicPanel');
+  const btn = $('#musicBtn');
+
+  if(!panel || !btn) return;
+
+  const opening = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden',!opening);
+  btn.classList.toggle('musicActive',opening);
+}
 
 function toast(text){
   const el = $('#toast');
@@ -5776,6 +6250,11 @@ function leaveVoice(){
   $('#cameraBtn').classList.add('off');
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
+
+  $('#localMusicPanel').classList.add('hidden');
+  $('#musicBtn').classList.remove('musicActive');
+  $('#localMusicAudio').pause();
+
   updateCallDock();
 
   if(wasPrivate){
@@ -6542,6 +7021,82 @@ $('#audioGateBtn').addEventListener('click',async()=>{
   await unlockAllRemoteAudio();
   $('#audioGateBtn').classList.add('hidden');
 });
+
+$('#musicBtn').addEventListener('click',toggleLocalMusicPanel);
+
+$('#localMusicChooseBtn').addEventListener('click',()=>{
+  $('#localMusicFiles').click();
+});
+
+$('#localMusicFiles').addEventListener('change',event=>{
+  addLocalMusicFiles(event.target.files);
+  event.target.value = '';
+});
+
+$('#localMusicAddUrlBtn').addEventListener('click',addLocalMusicUrl);
+
+$('#localMusicUrl').addEventListener('keydown',event=>{
+  if(event.key === 'Enter'){
+    event.preventDefault();
+    addLocalMusicUrl();
+  }
+});
+
+$('#localMusicPlayBtn').addEventListener('click',toggleLocalMusicPlayback);
+$('#localMusicNextBtn').addEventListener('click',nextLocalMusic);
+$('#localMusicPrevBtn').addEventListener('click',previousLocalMusic);
+
+$('#localMusicVolume').addEventListener('input',event=>{
+  const value = Math.max(0,Math.min(100,Number(event.target.value) || 0));
+  const audio = $('#localMusicAudio');
+  audio.volume = value / 100;
+  $('#localMusicVolumeValue').textContent = Math.round(value) + '%';
+  localStorage.setItem('ecord-local-music-volume',String(value));
+});
+
+$('#localMusicSeek').addEventListener('input',event=>{
+  const audio = $('#localMusicAudio');
+  if(!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+
+  const ratio = Math.max(0,Math.min(1000,Number(event.target.value) || 0)) / 1000;
+  audio.currentTime = audio.duration * ratio;
+});
+
+$('#localMusicAudio').addEventListener('loadedmetadata',()=>{
+  const audio = $('#localMusicAudio');
+  $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
+});
+
+$('#localMusicAudio').addEventListener('timeupdate',()=>{
+  const audio = $('#localMusicAudio');
+  $('#localMusicCurrent').textContent = formatMusicTime(audio.currentTime);
+  $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
+
+  if(Number.isFinite(audio.duration) && audio.duration > 0){
+    $('#localMusicSeek').value = Math.round((audio.currentTime / audio.duration) * 1000);
+  }
+});
+
+$('#localMusicAudio').addEventListener('play',updateLocalMusicPlayButton);
+$('#localMusicAudio').addEventListener('pause',updateLocalMusicPlayButton);
+$('#localMusicAudio').addEventListener('ended',nextLocalMusic);
+$('#localMusicAudio').addEventListener('error',()=>{
+  updateLocalMusicPlayButton();
+  toast('Não foi possível reproduzir essa música');
+});
+
+const savedLocalMusicVolume = Math.max(
+  0,
+  Math.min(
+    100,
+    Number(localStorage.getItem('ecord-local-music-volume') || 70)
+  )
+);
+
+$('#localMusicVolume').value = savedLocalMusicVolume;
+$('#localMusicVolumeValue').textContent = Math.round(savedLocalMusicVolume) + '%';
+$('#localMusicAudio').volume = savedLocalMusicVolume / 100;
+
 $('#cameraBtn').addEventListener('click',toggleCamera);
 $('#screenBtn').addEventListener('click',toggleScreen);
 
