@@ -1124,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-category-color-fix-v11';
+const CACHE='acord-create-immediate-v12';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4032,6 +4032,22 @@ html[data-palette="candy"]{
   color:var(--accent-contrast)!important;
 }
 
+
+.discordCategory{
+  display:block!important;
+  min-height:28px!important;
+}
+.discordCategoryHeader{
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.discordCategoryName{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+
 </style>
 </head>
 <body>
@@ -4166,12 +4182,12 @@ html[data-palette="candy"]{
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
-        <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
+        <button id="createTextQuickBtn" class="btn secondary small" type="button">+ Chat</button>
         <button id="createVoiceQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
         <button id="createStageQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
       </div>
 
-      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button">+ Criar categoria</button>
+      <button id="createCategoryQuickBtn" class="navBtn createCategoryMainBtn" type="button">+ Categoria</button>
 
       <div id="channelTree"></div>
     </div>
@@ -6237,6 +6253,90 @@ function decodeInviteServer(value){
   }
 }
 
+
+
+function createLocalId(prefix){
+  try{
+    if(globalThis.crypto?.randomUUID){
+      return prefix+'-'+crypto.randomUUID();
+    }
+  }catch{}
+
+  return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+}
+
+function optimisticCreateCategory(name){
+  const server=currentServer();
+  if(!server) return null;
+
+  server.categories=Array.isArray(server.categories)
+    ? server.categories
+    : [];
+
+  const category={
+    id:createLocalId('cat'),
+    name:String(name||'Categoria').trim().slice(0,30)||'Categoria',
+    order:server.categories.length
+  };
+
+  server.categories.push(category);
+  state.collapsedCategories.delete(category.id);
+
+  cacheServers(state.servers);
+  renderSidebar();
+
+  return category;
+}
+
+function optimisticCreateChannel(type,name,categoryId=null){
+  const server=currentServer();
+  if(!server) return null;
+
+  const isText=type==='text';
+  const isStage=type==='stage';
+
+  const validCategoryId=
+    categoryId &&
+    server.categories?.some(category=>category.id===categoryId)
+      ? categoryId
+      : null;
+
+  const channel={
+    id:createLocalId(isText?'txt':'voice'),
+    name:String(name||(
+      isText?'novo-chat':(isStage?'Palco':'Nova voz')
+    )).trim().slice(0,30),
+    categoryId:validCategoryId,
+    order:isText
+      ? (server.textChannels?.length||0)
+      : (server.voiceChannels?.length||0)
+  };
+
+  if(isText){
+    server.textChannels=Array.isArray(server.textChannels)
+      ? server.textChannels
+      : [];
+    server.textChannels.push(channel);
+    state.textChannelId=channel.id;
+  }else{
+    channel.mode=isStage?'stage':'voice';
+
+    server.voiceChannels=Array.isArray(server.voiceChannels)
+      ? server.voiceChannels
+      : [];
+    server.voiceChannels.push(channel);
+    state.voiceChannelId=channel.id;
+  }
+
+  if(validCategoryId){
+    state.collapsedCategories.delete(validCategoryId);
+  }
+
+  cacheServers(state.servers);
+  renderSidebar();
+
+  return channel;
+}
 
 function currentServerWritePayload(){
   const server=currentServer();
@@ -8642,38 +8742,90 @@ function confirmModal(){
     socket.emit('create-server',{name:value});
   } else if(state.modalAction==='text'){
     const target=currentServerWritePayload();
+    const channel=optimisticCreateChannel(
+      'text',
+      value,
+      state.pendingChannelCategoryId
+    );
+
+    if(!channel){
+      toast('Abra um servidor antes de criar o chat');
+      return;
+    }
 
     socket.emit('create-channel',{
       ...target,
       type:'text',
       name:value,
-      categoryId:state.pendingChannelCategoryId
+      categoryId:channel.categoryId,
+      channelId:channel.id
     });
+
+    setTimeout(()=>selectText(channel.id),0);
+    toast('Chat criado');
+
   } else if(state.modalAction==='voice'){
     const target=currentServerWritePayload();
+    const channel=optimisticCreateChannel(
+      'voice',
+      value,
+      state.pendingChannelCategoryId
+    );
+
+    if(!channel){
+      toast('Abra um servidor antes de criar o canal');
+      return;
+    }
 
     socket.emit('create-channel',{
       ...target,
       type:'voice',
       name:value,
-      categoryId:state.pendingChannelCategoryId
+      categoryId:channel.categoryId,
+      channelId:channel.id
     });
+
+    toast('Canal de voz criado');
+
   } else if(state.modalAction==='stage'){
     const target=currentServerWritePayload();
+    const channel=optimisticCreateChannel(
+      'stage',
+      value,
+      state.pendingChannelCategoryId
+    );
+
+    if(!channel){
+      toast('Abra um servidor antes de criar o palco');
+      return;
+    }
 
     socket.emit('create-channel',{
       ...target,
       type:'stage',
       name:value,
-      categoryId:state.pendingChannelCategoryId
+      categoryId:channel.categoryId,
+      channelId:channel.id
     });
+
+    toast('Palco criado');
+
   } else if(state.modalAction==='category'){
     const target=currentServerWritePayload();
+    const category=optimisticCreateCategory(value);
+
+    if(!category){
+      toast('Abra um servidor antes de criar a categoria');
+      return;
+    }
 
     socket.emit('create-category',{
       ...target,
-      name:value
+      name:value,
+      categoryId:category.id
     });
+
+    toast('Categoria criada');
   } else if(state.modalAction==='friend'){
     addFriendByName(value);
   } else if(state.modalAction==='role'){
@@ -10941,7 +11093,32 @@ socket.on('server-list',list=>{
   const previousServerId = state.serverId;
   const previousView = state.currentView || 'friends';
 
-  state.servers = incoming;
+  const localBeforeUpdate=state.servers;
+
+  state.servers=incoming.map(server=>{
+    const local=localBeforeUpdate.find(item=>item.id===server.id);
+    if(!local) return server;
+
+    const merged={...server};
+
+    const mergeById=(remoteList,localList)=>{
+      const result=Array.isArray(remoteList)?[...remoteList]:[];
+
+      for(const item of (Array.isArray(localList)?localList:[])){
+        if(!result.some(remote=>remote.id===item.id)){
+          result.push(item);
+        }
+      }
+
+      return result;
+    };
+
+    merged.categories=mergeById(server.categories,local.categories);
+    merged.textChannels=mergeById(server.textChannels,local.textChannels);
+    merged.voiceChannels=mergeById(server.voiceChannels,local.voiceChannels);
+
+    return merged;
+  });
 
   if(incoming.length){
     cacheServers(state.servers);
@@ -11259,7 +11436,6 @@ socket.on('channel-created',payload=>{
       else socket.emit('get-servers');
     },80);
 
-    toast('Chat criado');
   }else{
     state.voiceChannelId=channelId;
 
@@ -11272,7 +11448,6 @@ socket.on('channel-created',payload=>{
       else socket.emit('get-servers');
     },80);
 
-    toast(type==='stage' ? 'Palco criado' : 'Canal de voz criado');
   }
 
   socket.emit('get-servers');
@@ -12374,7 +12549,7 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('create-category', ({ serverId, name, serverSnapshot, legacyUserId }) => {
+  socket.on('create-category', ({ serverId, name, categoryId, serverSnapshot, legacyUserId }) => {
     const s=recoverServerForWrite(
       socket,
       serverId,
@@ -12401,13 +12576,22 @@ io.on('connection', socket => {
 
     const safeName=cleanName(name,'Categoria');
 
+    const requestedCategoryId=String(categoryId||'').trim().slice(0,80);
+    const finalCategoryId=
+      requestedCategoryId &&
+      !s.categories.some(item=>item.id===requestedCategoryId)
+        ? requestedCategoryId
+        : id();
+
     const category={
-      id:id(),
+      id:finalCategoryId,
       name:safeName,
       order:s.categories.length
     };
 
-    s.categories.push(category);
+    if(!s.categories.some(item=>item.id===category.id)){
+      s.categories.push(category);
+    }
     saveServersToDisk();
 
     broadcastServerLists();
@@ -12523,7 +12707,7 @@ io.on('connection', socket => {
     socket.emit('category-updated', { message: 'Canal movido' });
   });
 
-  socket.on('create-channel', ({ serverId, type, name, categoryId, serverSnapshot, legacyUserId }) => {
+  socket.on('create-channel', ({ serverId, type, name, categoryId, channelId, serverSnapshot, legacyUserId }) => {
     const s=recoverServerForWrite(
       socket,
       serverId,
@@ -12554,14 +12738,24 @@ io.on('connection', socket => {
         ? String(categoryId)
         : null;
 
-    if (type === 'text') {
-      const channel = {
-        id: id(),
-        name: cleanChannel(name, 'novo-chat'),
-        categoryId: safeCategoryId,
-        order: s.textChannels.length
+    if(type==='text'){
+      const requestedChannelId=String(channelId||'').trim().slice(0,80);
+      const finalChannelId=
+        requestedChannelId &&
+        !s.textChannels.some(item=>item.id===requestedChannelId)
+          ? requestedChannelId
+          : id();
+
+      const channel={
+        id:finalChannelId,
+        name:cleanChannel(name,'novo-chat'),
+        categoryId:safeCategoryId,
+        order:s.textChannels.length
       };
-      s.textChannels.push(channel);
+
+      if(!s.textChannels.some(item=>item.id===channel.id)){
+        s.textChannels.push(channel);
+      }
       s.messages.set(channel.id, []);
       saveServersToDisk();
       broadcastServerLists();
@@ -12580,15 +12774,24 @@ io.on('connection', socket => {
     if (type === 'voice' || type === 'stage') {
       const isStage = type === 'stage';
 
-      const channel = {
-        id: id(),
-        name: cleanName(name, isStage ? 'Palco' : 'Nova voz'),
-        categoryId: safeCategoryId,
-        order: s.voiceChannels.length,
-        mode: isStage ? 'stage' : 'voice'
+      const requestedChannelId=String(channelId||'').trim().slice(0,80);
+      const finalChannelId=
+        requestedChannelId &&
+        !s.voiceChannels.some(item=>item.id===requestedChannelId)
+          ? requestedChannelId
+          : id();
+
+      const channel={
+        id:finalChannelId,
+        name:cleanName(name,isStage ? 'Palco' : 'Nova voz'),
+        categoryId:safeCategoryId,
+        order:s.voiceChannels.length,
+        mode:isStage ? 'stage' : 'voice'
       };
 
-      s.voiceChannels.push(channel);
+      if(!s.voiceChannels.some(item=>item.id===channel.id)){
+        s.voiceChannels.push(channel);
+      }
       saveServersToDisk();
       broadcastServerLists();
       broadcastServerUpdate(s);
