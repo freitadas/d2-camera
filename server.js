@@ -2783,6 +2783,361 @@ select{
   display:none!important;
 }
 
+
+/* ===== ACORD — REDESIGN FINAL ===== */
+:root{
+  --accent:var(--coral);
+  --accent-2:var(--coral2);
+  --accent-soft:color-mix(in srgb,var(--coral) 16%,transparent);
+  --panel:color-mix(in srgb,var(--bg1) 94%,black);
+  --panel-2:color-mix(in srgb,var(--bg2) 94%,black);
+  --panel-3:color-mix(in srgb,var(--bg3) 92%,black);
+}
+
+body{
+  background:
+    radial-gradient(circle at 35% 8%,color-mix(in srgb,var(--coral) 8%,transparent),transparent 33%),
+    linear-gradient(180deg,var(--bg0),color-mix(in srgb,var(--bg0) 90%,black));
+}
+
+.app{
+  background:transparent;
+}
+
+.rail{
+  width:76px;
+  padding:14px 10px;
+  gap:10px;
+  background:rgba(4,12,11,.92);
+  border-right:1px solid color-mix(in srgb,var(--coral) 18%,var(--line));
+}
+
+.serverIcon,
+.homeHubIcon,
+.addServer{
+  width:50px!important;
+  height:50px!important;
+  border-radius:14px!important;
+  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
+  background:var(--panel-2)!important;
+}
+
+.serverIcon.active,
+.homeHubIcon.active{
+  border-color:var(--coral)!important;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 40%,transparent),
+             0 0 24px color-mix(in srgb,var(--coral) 24%,transparent)!important;
+}
+
+.homeHubMonitor{
+  width:100%;
+  height:100%;
+}
+
+.sidebar{
+  width:300px;
+  background:rgba(7,18,16,.96)!important;
+  border-right:1px solid color-mix(in srgb,var(--coral) 14%,var(--line));
+}
+
+.sideHead{
+  height:64px;
+  padding:0 16px;
+  border-bottom:1px solid var(--line);
+}
+
+.sideScroll{
+  padding:12px;
+}
+
+.channelBtn{
+  min-height:38px;
+  padding:9px 11px;
+  border-radius:9px!important;
+  color:var(--muted);
+}
+
+.channelBtn:hover{
+  background:var(--panel-3)!important;
+  color:var(--text);
+}
+
+.channelBtn.active{
+  background:color-mix(in srgb,var(--coral) 17%,var(--panel-3))!important;
+  color:var(--text)!important;
+  border:1px solid color-mix(in srgb,var(--coral) 35%,var(--line))!important;
+}
+
+.groupHead{
+  color:var(--coral)!important;
+  letter-spacing:.08em;
+  font-size:10px;
+  font-weight:900;
+}
+
+.main{
+  background:transparent!important;
+}
+
+.topbar{
+  height:64px;
+  padding:0 20px;
+  background:rgba(7,17,15,.94)!important;
+  border-bottom:1px solid var(--line);
+}
+
+#topTitle{
+  font-size:17px!important;
+  font-weight:900!important;
+}
+
+#topSub{
+  color:var(--muted)!important;
+}
+
+.friendsHome{
+  background:transparent!important;
+  padding-bottom:64px!important;
+}
+
+.friendsHomeTop{
+  padding:20px 24px 14px!important;
+  border-bottom:1px solid var(--line);
+  background:rgba(7,17,15,.78);
+}
+
+.friendTab{
+  min-height:36px;
+  padding:8px 11px!important;
+  border-radius:8px!important;
+  color:var(--muted)!important;
+  background:transparent!important;
+}
+
+.friendTab.active{
+  color:var(--coral)!important;
+  background:color-mix(in srgb,var(--coral) 12%,transparent)!important;
+  box-shadow:inset 0 -2px 0 var(--coral)!important;
+}
+
+.friendTab.add{
+  color:#fff!important;
+  background:var(--coral)!important;
+}
+
+.friendSearch{
+  margin:12px 16px 0!important;
+  border:1px solid color-mix(in srgb,var(--coral) 12%,var(--line))!important;
+  background:rgba(7,18,16,.82)!important;
+}
+
+.friendsListArea{
+  padding:16px!important;
+}
+
+.friendRow{
+  min-height:62px;
+  padding:10px 12px!important;
+  border-radius:0!important;
+  border-bottom:1px solid color-mix(in srgb,var(--line) 84%,transparent)!important;
+  background:transparent!important;
+}
+
+.friendRow:hover{
+  background:color-mix(in srgb,var(--coral) 7%,transparent)!important;
+}
+
+.friendsSectionTitle{
+  color:var(--coral)!important;
+  font-size:10px!important;
+  letter-spacing:.11em!important;
+}
+
+.friendsAccountBar{
+  left:0!important;
+  right:0!important;
+  bottom:0!important;
+  min-height:62px!important;
+  background:rgba(5,15,13,.97)!important;
+  border-top:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
+  padding:9px 16px!important;
+}
+
+.rightbar{
+  width:310px;
+  background:rgba(7,18,16,.95)!important;
+  border-left:1px solid color-mix(in srgb,var(--coral) 14%,var(--line));
+}
+
+#rightTitle{
+  color:var(--text)!important;
+  font-size:13px!important;
+  font-weight:900!important;
+}
+
+.serverMemberRow,
+.settingsMember{
+  min-height:52px;
+  border-radius:8px!important;
+  padding:8px 10px!important;
+}
+
+.serverMemberRow:hover,
+.settingsMember:hover{
+  background:color-mix(in srgb,var(--coral) 7%,transparent)!important;
+}
+
+.messages{
+  padding:20px 26px 90px!important;
+  background:
+    radial-gradient(circle at 70% 15%,color-mix(in srgb,var(--coral) 5%,transparent),transparent 32%);
+}
+
+.message{
+  padding:9px 10px!important;
+  margin-bottom:2px!important;
+  border-radius:8px!important;
+}
+
+.message:hover{
+  background:color-mix(in srgb,var(--coral) 6%,transparent)!important;
+}
+
+.message strong{
+  font-size:13px!important;
+}
+
+.compose{
+  position:sticky;
+  bottom:0;
+  padding:12px 16px!important;
+  background:linear-gradient(180deg,transparent,rgba(5,14,12,.98) 28%)!important;
+  border-top:0!important;
+}
+
+.compose input{
+  min-height:44px!important;
+  border-radius:12px!important;
+  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
+  background:rgba(8,20,18,.96)!important;
+}
+
+.btn.primary{
+  background:var(--coral)!important;
+  border-color:var(--coral)!important;
+}
+
+.control{
+  min-height:44px;
+  border-radius:11px!important;
+  border:1px solid color-mix(in srgb,var(--coral) 13%,var(--line))!important;
+  background:rgba(9,23,20,.96)!important;
+}
+
+.control:hover{
+  background:color-mix(in srgb,var(--coral) 14%,var(--panel-3))!important;
+}
+
+.control.sharing,
+.control.musicActive,
+.stageHandBtn{
+  color:var(--coral)!important;
+  background:color-mix(in srgb,var(--coral) 12%,var(--panel-2))!important;
+  border-color:color-mix(in srgb,var(--coral) 40%,var(--line))!important;
+}
+
+.controls{
+  min-height:68px!important;
+  background:rgba(5,15,13,.98)!important;
+  border-top:1px solid color-mix(in srgb,var(--coral) 14%,var(--line))!important;
+}
+
+.videoGrid{
+  padding:18px!important;
+  gap:14px!important;
+}
+
+.videoCard{
+  background:linear-gradient(180deg,
+    color-mix(in srgb,var(--coral) 5%,var(--panel-2)),
+    var(--panel))!important;
+  border:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
+  border-radius:14px!important;
+}
+
+.callSettingsPanel,
+.localMusicShell,
+.modal{
+  background:rgba(7,18,16,.98)!important;
+  border:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
+}
+
+.modal{
+  border-radius:16px!important;
+}
+
+.profileTabs,
+.authSwitch{
+  background:var(--panel-2)!important;
+  border-color:color-mix(in srgb,var(--coral) 14%,var(--line))!important;
+}
+
+.profileTabBtn.active,
+.authTab.active{
+  color:var(--coral)!important;
+  background:color-mix(in srgb,var(--coral) 12%,var(--panel-3))!important;
+}
+
+.profileThemeBtn.active,
+.profilePaletteBtn.active{
+  border-color:var(--coral)!important;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 25%,transparent)!important;
+}
+
+.customColorPreview{
+  border-color:var(--coral)!important;
+}
+
+.loginShell{
+  background:
+    radial-gradient(circle at 18% 15%,color-mix(in srgb,var(--coral) 12%,transparent),transparent 30%),
+    var(--bg0)!important;
+}
+
+.loginBrandPanel{
+  background:rgba(5,15,13,.96)!important;
+}
+
+.loginMark{
+  background:var(--coral)!important;
+}
+
+.sharePicker{
+  background:rgba(7,18,16,.98)!important;
+}
+
+.shareChoice:hover{
+  border-color:var(--coral)!important;
+}
+
+.messageContextMenu{
+  background:rgba(7,18,16,.99)!important;
+  border-color:color-mix(in srgb,var(--coral) 20%,var(--line))!important;
+}
+
+.toast{
+  background:rgba(7,18,16,.98)!important;
+  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
+}
+
+@media(max-width:1050px){
+  .rightbar{display:none!important}
+}
+
+@media(max-width:820px){
+  .sidebar{width:240px}
+}
+
 </style>
 </head>
 <body>
@@ -2794,7 +3149,7 @@ select{
       <div>
         <div class="loginBrandTop">
           <div class="loginMark">e</div>
-          <div class="loginBrandName">Acord</div>
+          <div class="loginBrandName" style="color:var(--coral)">Acord</div>
         </div>
 
         <div class="loginHero">
@@ -4759,7 +5114,7 @@ function returnToActiveCall(){
     $('#voiceTitle').textContent = state.activeVoiceName;
   }
 
-  $('#voiceStatus').textContent = 'Conectado';
+  $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Somente convidados' : 'Conectado';
   syncVoiceControlsUI();
   updateCallDock();
 }
@@ -7385,7 +7740,7 @@ async function enterPrivateCall(callId,peerName){
     $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
     $('#topTitle').textContent = '☎ Chamada privada';
     $('#topSub').textContent = state.privatePeerName;
-    $('#voiceStatus').textContent = 'Conectando...';
+    $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Conectando...' : 'Conectando...';
 
     syncVoiceControlsUI();
 
