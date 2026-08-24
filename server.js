@@ -482,6 +482,18 @@ function broadcastServerLists() {
   }
 }
 
+function broadcastServerUpdate(serverData) {
+  if (!serverData) return;
+
+  const payload = publicServer(serverData);
+
+  for (const client of io.sockets.sockets.values()) {
+    if (requireServerAccess(serverData, client)) {
+      client.emit('server-updated', payload);
+    }
+  }
+}
+
 function userRoles(serverData, socket) {
   const username = String(socket.data.username || '').toLowerCase();
   if (!username) return [];
@@ -4481,6 +4493,35 @@ socket.on('dm-message',message=>{
   }
 });
 
+socket.on('server-updated',updatedServer=>{
+  if(!updatedServer?.id) return;
+
+  const index = state.servers.findIndex(server=>server.id===updatedServer.id);
+
+  if(index >= 0){
+    state.servers[index] = updatedServer;
+  }else{
+    state.servers.push(updatedServer);
+  }
+
+  cacheServers(state.servers);
+
+  const wasCurrent = state.serverId===updatedServer.id;
+
+  renderServers();
+
+  if(wasCurrent){
+    renderSidebar();
+    renderRoles();
+
+    // Mantém exatamente a tela atual. Criar/editar cargo não deve
+    // tirar o usuário do servidor nem mandar para Amigos.
+    if(!$('#rolesView').classList.contains('hidden')){
+      setAppMode('server');
+    }
+  }
+});
+
 socket.on('server-list',list=>{
   const incoming = Array.isArray(list) ? list : [];
 
@@ -4559,8 +4600,19 @@ socket.on('server-list',list=>{
   renderSidebar();
   renderRoles();
 
-  // Se o usuário já estiver dentro de um servidor, não força troca de tela.
-  // Se acabou de entrar no e-cord, Amigos continua sendo a tela inicial.
+  // Atualizações de servidor não mudam a tela atual.
+  // Se o usuário já estava dentro do servidor, continua dentro dele.
+  const serverViewOpen =
+    !$('#homeView').classList.contains('hidden') ||
+    !$('#rolesView').classList.contains('hidden') ||
+    !$('#serverSettingsView').classList.contains('hidden') ||
+    !$('#chatView').classList.contains('hidden') ||
+    !$('#voiceView').classList.contains('hidden');
+
+  if(serverViewOpen && state.serverId){
+    setAppMode('server');
+    renderServers();
+  }
 });
 
 socket.on('invite-joined',({serverId,serverName})=>{
@@ -4608,6 +4660,9 @@ socket.on('server-created',({serverId})=>{
 });
 
 socket.on('role-updated',({message})=>{
+  setAppMode('server');
+  renderServers();
+  renderSidebar();
   renderRoles();
   renderMembers(state.lastVoiceMembers || []);
   toast(message || 'Cargos atualizados');
@@ -5016,7 +5071,7 @@ io.on('connection', socket => {
     });
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerUpdate(s);
     socket.emit('role-updated', { message: 'Cargo criado' });
   });
 
@@ -5045,7 +5100,7 @@ io.on('connection', socket => {
     };
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerUpdate(s);
     socket.emit('role-updated',{message:'Cargo atualizado'});
   });
 
@@ -5087,7 +5142,7 @@ io.on('connection', socket => {
     }
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerUpdate(s);
     socket.emit('role-updated', { message: 'Cargo atribuído a ' + safeUsername });
   });
 
@@ -5105,7 +5160,7 @@ io.on('connection', socket => {
 
     if (s.roles.length !== before) {
       saveServersToDisk();
-      broadcastServerLists();
+      broadcastServerUpdate(s);
       socket.emit('role-updated', { message: 'Cargo excluído' });
     }
   });
