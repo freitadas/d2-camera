@@ -992,6 +992,68 @@ function permissionDenied(socket) {
   });
 }
 
+
+function recoverServerForWrite(socket,serverId,serverSnapshot,legacyUserId){
+  const safeId=String(serverId||'').slice(0,80);
+
+  let serverData=servers.get(safeId);
+  if(serverData) return serverData;
+
+  if(!serverSnapshot || typeof serverSnapshot!=='object') return null;
+
+  const snapshotId=String(serverSnapshot.id||'').slice(0,80);
+  if(!snapshotId || snapshotId!==safeId) return null;
+
+  const cachedOwnerId=String(serverSnapshot.ownerId||'').slice(0,100);
+  const safeLegacyId=String(legacyUserId||'').slice(0,100);
+
+  // Só recupera automaticamente quando o navegador comprova que este
+  // era o ID antigo da própria conta que possuía o servidor.
+  if(
+    cachedOwnerId &&
+    cachedOwnerId!==socket.data.userId &&
+    cachedOwnerId!==safeLegacyId
+  ){
+    return null;
+  }
+
+  const recovered={
+    ...serverSnapshot,
+    id:safeId,
+    ownerId:socket.data.userId,
+    members:[
+      ...new Set([
+        socket.data.userId,
+        ...(Array.isArray(serverSnapshot.members) ? serverSnapshot.members : [])
+      ])
+    ]
+  };
+
+  if(!recovered.inviteToken){
+    recovered.inviteToken=crypto.randomBytes(18).toString('hex');
+  }
+
+  mergeRestoredServer(recovered);
+  serverData=servers.get(safeId);
+
+  if(serverData){
+    serverData.ownerId=socket.data.userId;
+
+    if(!(serverData.members||[]).includes(socket.data.userId)){
+      serverData.members=[
+        ...new Set([
+          socket.data.userId,
+          ...(serverData.members||[])
+        ])
+      ];
+    }
+
+    saveServersToDisk();
+  }
+
+  return serverData||null;
+}
+
 function canManageChannelsCompat(serverData,socket){
   if(!serverData || !socket.data.userId) return false;
 
@@ -1062,7 +1124,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-create-channels-fix-v9';
+const CACHE='acord-server-restore-fix-v10';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -6008,6 +6070,17 @@ function decodeInviteServer(value){
   }
 }
 
+
+function currentServerWritePayload(){
+  const server=currentServer();
+
+  return {
+    serverId:server?.id || state.serverId || '',
+    serverSnapshot:server ? safeServerSnapshot(server) : null,
+    legacyUserId:state.legacyUserId || ''
+  };
+}
+
 function currentServer(){
   return state.servers.find(s=>s.id===state.serverId) || null;
 }
@@ -8401,28 +8474,39 @@ function confirmModal(){
   if(state.modalAction==='server'){
     socket.emit('create-server',{name:value});
   } else if(state.modalAction==='text'){
+    const target=currentServerWritePayload();
+
     socket.emit('create-channel',{
-      serverId:state.serverId,
+      ...target,
       type:'text',
       name:value,
       categoryId:state.pendingChannelCategoryId
     });
   } else if(state.modalAction==='voice'){
+    const target=currentServerWritePayload();
+
     socket.emit('create-channel',{
-      serverId:state.serverId,
+      ...target,
       type:'voice',
       name:value,
       categoryId:state.pendingChannelCategoryId
     });
   } else if(state.modalAction==='stage'){
+    const target=currentServerWritePayload();
+
     socket.emit('create-channel',{
-      serverId:state.serverId,
+      ...target,
       type:'stage',
       name:value,
       categoryId:state.pendingChannelCategoryId
     });
   } else if(state.modalAction==='category'){
-    socket.emit('create-category',{serverId:state.serverId,name:value});
+    const target=currentServerWritePayload();
+
+    socket.emit('create-category',{
+      ...target,
+      name:value
+    });
   } else if(state.modalAction==='friend'){
     addFriendByName(value);
   } else if(state.modalAction==='role'){
@@ -10675,7 +10759,10 @@ socket.on('server-list',list=>{
     state.restoreAttempted = true;
 
     if(cached.length){
-      socket.emit('restore-servers',{servers:cached});
+      socket.emit('restore-servers',{
+        servers:cached,
+        legacyUserId:state.legacyUserId
+      });
       return;
     }
   }
@@ -10741,9 +10828,20 @@ socket.on('server-list',list=>{
       renderSidebar();
       renderRoles();
 
-      state.currentView = previousView;
-      state.appInitialized = true;
+      state.currentView=previousView;
+      state.appInitialized=true;
       restoreCurrentView();
+
+      // Garante que o servidor visível no cache também volte a existir no backend.
+      setTimeout(()=>{
+        if(socket.connected && state.profileReady){
+          socket.emit('restore-servers',{
+            servers:getCachedServers(),
+            legacyUserId:state.legacyUserId
+          });
+        }
+      },250);
+
       return;
     }
 
@@ -11685,8 +11783,10 @@ io.on('connection', socket => {
     sendServerList(socket);
   });
 
-  socket.on('restore-servers', ({ servers: restored }) => {
+  socket.on('restore-servers', ({ servers: restored, legacyUserId }) => {
     if (!Array.isArray(restored) || !socket.data.userId) return;
+
+    const safeLegacyId=String(legacyUserId||'').slice(0,100);
 
     for (const rawItem of restored.slice(0, 100)) {
       if (!rawItem?.id) continue;
@@ -11694,13 +11794,20 @@ io.on('connection', socket => {
       const item = { ...rawItem };
       const cachedOwnerId = String(item.ownerId || '');
 
-      if (cachedOwnerId && cachedOwnerId !== String(socket.data.userId)) {
+      if(
+        cachedOwnerId &&
+        cachedOwnerId!==String(socket.data.userId) &&
+        cachedOwnerId!==safeLegacyId
+      ){
         continue;
       }
 
-      if (!cachedOwnerId) {
-        item.ownerId = socket.data.userId;
-        item.members = [
+      if(
+        !cachedOwnerId ||
+        cachedOwnerId===safeLegacyId
+      ){
+        item.ownerId=socket.data.userId;
+        item.members=[
           ...new Set([
             socket.data.userId,
             ...(Array.isArray(item.members) ? item.members : [])
@@ -11989,11 +12096,18 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('create-category', ({ serverId, name }) => {
-    const s=servers.get(String(serverId||''));
+  socket.on('create-category', ({ serverId, name, serverSnapshot, legacyUserId }) => {
+    const s=recoverServerForWrite(
+      socket,
+      serverId,
+      serverSnapshot,
+      legacyUserId
+    );
 
     if(!s){
-      socket.emit('permission-error',{error:'Servidor não encontrado'});
+      socket.emit('permission-error',{
+        error:'Não foi possível recuperar este servidor. Entre nele novamente.'
+      });
       return;
     }
 
@@ -12131,10 +12245,18 @@ io.on('connection', socket => {
     socket.emit('category-updated', { message: 'Canal movido' });
   });
 
-  socket.on('create-channel', ({ serverId, type, name, categoryId }) => {
-    const s=servers.get(String(serverId||''));
+  socket.on('create-channel', ({ serverId, type, name, categoryId, serverSnapshot, legacyUserId }) => {
+    const s=recoverServerForWrite(
+      socket,
+      serverId,
+      serverSnapshot,
+      legacyUserId
+    );
+
     if(!s){
-      socket.emit('permission-error',{error:'Servidor não encontrado'});
+      socket.emit('permission-error',{
+        error:'Não foi possível recuperar este servidor. Entre nele novamente.'
+      });
       return;
     }
 
