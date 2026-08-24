@@ -1777,6 +1777,34 @@ body.locked{overflow:hidden!important}
   </div>
 </div>
 
+<div id="activeCallDock" class="hidden" style="
+  position:fixed;
+  left:50%;
+  bottom:16px;
+  transform:translateX(-50%);
+  z-index:1500000;
+  min-width:min(520px,calc(100% - 28px));
+  max-width:720px;
+  background:rgba(13,27,23,.97);
+  border:1px solid var(--line);
+  border-radius:16px;
+  box-shadow:0 18px 55px rgba(0,0,0,.38);
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+">
+  <div style="width:10px;height:10px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(65,217,154,.10);"></div>
+
+  <div style="flex:1;min-width:0;">
+    <strong style="display:block;font-size:12px;color:var(--mint);">Voz conectada</strong>
+    <span id="activeCallDockText" style="display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Call ativa</span>
+  </div>
+
+  <button id="returnToCallBtn" class="btn secondary small" type="button">Voltar à call</button>
+  <button id="dockLeaveCallBtn" class="btn danger small" type="button">Sair</button>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -1806,6 +1834,9 @@ const state = {
   textChannelId: null,
   voiceChannelId: null,
   joinedVoiceId: null,
+  activeVoiceServerId: null,
+  activeVoiceChannelId: null,
+  activeVoiceName: '',
   localStream: null,
   cameraTrack: null,
   screenTrack: null,
@@ -1829,7 +1860,9 @@ const state = {
   serverSettingsAccent: '#ff6b4a',
   friendsFilter: 'online',
   dmTarget: null,
-  privateInviteHandled: false
+  privateInviteHandled: false,
+  currentView: 'friends',
+  appInitialized: false
 };
 
 const rtcConfig = {
@@ -2118,7 +2151,72 @@ function setAppMode(mode){
   }
 }
 
+
+function updateCallDock(){
+  const dock = $('#activeCallDock');
+  if(!dock) return;
+
+  const inCall = !!state.joinedVoiceId;
+  const viewingCall = state.currentView === 'voice';
+
+  dock.classList.toggle('hidden', !inCall || viewingCall);
+
+  if(!inCall) return;
+
+  let label = state.activeVoiceName || 'Call ativa';
+
+  if(state.privateCallId && state.privatePeerName){
+    label = 'Chamada com ' + state.privatePeerName;
+  }
+
+  $('#activeCallDockText').textContent = label;
+}
+
+function returnToActiveCall(){
+  if(!state.joinedVoiceId) return;
+
+  if(state.privateCallId){
+    setView('voice');
+    $('#voiceTitle').textContent = 'Chamada com ' + (state.privatePeerName || 'Amigo');
+    $('#topTitle').textContent = '☎ Chamada privada';
+    $('#topSub').textContent = state.privatePeerName || '';
+    updateCallDock();
+    return;
+  }
+
+  const activeServer = state.servers.find(
+    server => server.id === state.activeVoiceServerId
+  );
+
+  if(activeServer){
+    state.serverId = activeServer.id;
+
+    const activeChannel = activeServer.voiceChannels?.find(
+      channel => channel.id === state.activeVoiceChannelId
+    );
+
+    if(activeChannel){
+      state.voiceChannelId = activeChannel.id;
+      state.activeVoiceName = activeChannel.name || state.activeVoiceName;
+    }
+
+    renderServers();
+    renderSidebar();
+  }
+
+  setView('voice');
+
+  if(state.activeVoiceName){
+    $('#voiceTitle').textContent = state.activeVoiceName;
+  }
+
+  $('#voiceStatus').textContent = 'Conectado';
+  updateCallDock();
+}
+
 function setView(name){
+  state.currentView = name;
+
   const hubView = name==='friends' || name==='dm';
 
   if(hubView){
@@ -2185,15 +2283,66 @@ function setView(name){
     $('#topTitle').textContent = c ? ')) '+c.name : ')) voz';
     $('#topSub').textContent = currentServer()?.name || '';
   }
+
+  updateCallDock();
 }
 
+
+
+function isServerView(view = state.currentView){
+  return ['home','roles','settings','chat','voice'].includes(view);
+}
+
+function restoreCurrentView(){
+  const view = state.currentView || 'friends';
+
+  // Só redesenha a tela que o usuário já escolheu.
+  // Nunca troca de aba por causa de uma atualização recebida.
+  if(view === 'friends'){
+    setAppMode('hub');
+    renderFriends();
+    return;
+  }
+
+  if(view === 'dm'){
+    setAppMode('hub');
+    renderDmContacts();
+    return;
+  }
+
+  if(!state.serverId){
+    state.currentView = 'friends';
+    setView('friends');
+    return;
+  }
+
+  setAppMode('server');
+
+  if(view === 'roles'){
+    renderRoles();
+  }else if(view === 'settings'){
+    openServerSettings();
+  }else if(view === 'chat'){
+    const channel = currentText();
+
+    if(channel){
+      $('#chatTitle').textContent = channel.name;
+    }
+  }else if(view === 'voice'){
+    const channel = currentVoice();
+
+    if(channel){
+      $('#voiceTitle').textContent = channel.name;
+    }
+  }
+}
 
 function renderServers(){
   const rail = $('#serverRail');
   rail.innerHTML = '';
   state.servers.forEach(s=>{
     const b = document.createElement('button');
-    const hubVisible = $('#appShell')?.classList.contains('hubMode');
+    const hubVisible = state.currentView==='friends' || state.currentView==='dm';
     b.className = 'serverIcon' + (s.id===state.serverId && !hubVisible ? ' active' : '');
     b.title = s.name;
 
@@ -2738,8 +2887,8 @@ function saveServerSettings(){
 }
 
 function selectServer(serverId){
-  if(state.joinedVoiceId) leaveVoice();
-
+  // Navegar para outro servidor não encerra a call atual.
+  // A call só termina pelo botão "Sair" ou ao entrar deliberadamente em outra call.
   setAppMode('server');
 
   state.serverId = serverId;
@@ -2783,9 +2932,34 @@ function selectVoice(channelId){
   setAppMode('server');
   state.voiceChannelId = channelId;
   renderSidebar();
+
   const c = currentVoice();
   $('#voiceTitle').textContent = c?.name || 'Voz';
   setView('voice');
+
+  const isActiveChannel =
+    !!state.joinedVoiceId &&
+    !state.privateCallId &&
+    state.activeVoiceServerId === state.serverId &&
+    state.activeVoiceChannelId === channelId;
+
+  if(isActiveChannel){
+    $('#voiceControls').classList.remove('hidden');
+    $('#joinVoiceBtn').classList.add('hidden');
+    $('#voiceStatus').textContent = 'Conectado';
+  }else if(state.joinedVoiceId){
+    // Você continua na call antiga enquanto apenas visualiza outro canal.
+    $('#voiceControls').classList.add('hidden');
+    $('#joinVoiceBtn').classList.remove('hidden');
+    $('#joinVoiceBtn').textContent = 'Trocar para este canal';
+    $('#voiceStatus').textContent = 'Você já está em outra call';
+  }else{
+    $('#voiceControls').classList.add('hidden');
+    $('#joinVoiceBtn').classList.remove('hidden');
+    $('#joinVoiceBtn').textContent = 'Entrar na voz';
+  }
+
+  updateCallDock();
 }
 
 function showMessages(history){
@@ -3803,6 +3977,9 @@ async function enterPrivateCall(callId,peerName){
     state.privateCallId = callId;
     state.privatePeerName = peerName || 'Amigo';
     state.joinedVoiceId = 'private:' + callId;
+    state.activeVoiceServerId = null;
+    state.activeVoiceChannelId = null;
+    state.activeVoiceName = 'Chamada com ' + state.privatePeerName;
 
     setView('voice');
 
@@ -3821,6 +3998,8 @@ async function enterPrivateCall(callId,peerName){
       username:state.username,
       userId:state.userId
     });
+
+    updateCallDock();
   }catch(error){
     console.error(error);
     toast('Permita o microfone para entrar na chamada');
@@ -3841,6 +4020,23 @@ async function joinVoice(){
   const channel = currentVoice();
   if(!channel) return;
 
+  const changingCall =
+    !!state.joinedVoiceId &&
+    (
+      state.privateCallId ||
+      state.activeVoiceServerId !== state.serverId ||
+      state.activeVoiceChannelId !== channel.id
+    );
+
+  if(changingCall){
+    socket.emit('leave-voice');
+    closePeers();
+
+    state.privateCallId = null;
+    state.privatePeerName = null;
+    state.joinedVoiceId = null;
+  }
+
   state.privateCallId = null;
   state.privatePeerName = null;
 
@@ -3850,6 +4046,10 @@ async function joinVoice(){
     await ensureMic();
 
     state.joinedVoiceId = channel.id;
+    state.activeVoiceServerId = state.serverId;
+    state.activeVoiceChannelId = channel.id;
+    state.activeVoiceName = channel.name || 'Canal de voz';
+
     $('#voiceControls').classList.remove('hidden');
     $('#joinVoiceBtn').classList.add('hidden');
     $('#voiceStatus').textContent = 'Conectando...';
@@ -3859,10 +4059,12 @@ async function joinVoice(){
     unlockAllRemoteAudio();
 
     socket.emit('join-voice',{
-      serverId:state.serverId,
-      channelId:channel.id,
+      serverId:state.activeVoiceServerId,
+      channelId:state.activeVoiceChannelId,
       username:state.username
     });
+
+    updateCallDock();
   }catch(err){
     console.error(err);
     toast('Permita o microfone para entrar na voz');
@@ -3907,6 +4109,9 @@ function leaveVoice(){
   }
 
   state.joinedVoiceId = null;
+  state.activeVoiceServerId = null;
+  state.activeVoiceChannelId = null;
+  state.activeVoiceName = '';
   state.privateCallId = null;
   state.privatePeerName = null;
   $('#voiceControls').classList.add('hidden');
@@ -3917,6 +4122,7 @@ function leaveVoice(){
   $('#cameraBtn').classList.add('off');
   $('#screenBtn').textContent = '🖥️ Compartilhar tela';
   $('#screenBtn').classList.remove('sharing');
+  updateCallDock();
 
   if(wasPrivate){
     setView('friends');
@@ -4364,6 +4570,8 @@ $('#dmInput').addEventListener('keydown',event=>{
 });
 $('#joinVoiceBtn').addEventListener('click',joinVoice);
 $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
+$('#returnToCallBtn').addEventListener('click',returnToActiveCall);
+$('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
 $('#audioGateBtn').addEventListener('click',async()=>{
   await unlockAllRemoteAudio();
@@ -4431,6 +4639,7 @@ socket.on('profile-saved',profile=>{
   refreshOwnProfileUI();
   closeProfileModal();
   renderFriends();
+  restoreCurrentView();
 
   if(!state.privateInviteHandled){
     const token = new URLSearchParams(location.search).get('invite');
@@ -4513,13 +4722,9 @@ socket.on('server-updated',updatedServer=>{
   if(wasCurrent){
     renderSidebar();
     renderRoles();
-
-    // Mantém exatamente a tela atual. Criar/editar cargo não deve
-    // tirar o usuário do servidor nem mandar para Amigos.
-    if(!$('#rolesView').classList.contains('hidden')){
-      setAppMode('server');
-    }
   }
+
+  restoreCurrentView();
 });
 
 socket.on('server-list',list=>{
@@ -4540,12 +4745,16 @@ socket.on('server-list',list=>{
     state.restoreAttempted = true;
   }
 
+  const previousServerId = state.serverId;
+  const previousView = state.currentView || 'friends';
+
   state.servers = incoming;
   cacheServers(state.servers);
 
   const params = new URLSearchParams(location.search);
   const requested = params.get('server');
 
+  // Nenhum servidor disponível.
   if(!state.servers.length){
     state.serverId = null;
     state.textChannelId = null;
@@ -4555,64 +4764,52 @@ socket.on('server-list',list=>{
     renderSidebar();
     renderRoles();
 
-    // A tela inicial do e-cord é sempre Amigos.
-    setAppMode('hub');
-    setView('friends');
-    $('#topTitle').textContent = '👥 Amigos';
-    $('#topSub').textContent = 'seus amigos e chamadas';
-    return;
-  }
-
-  // Mantém um servidor selecionado em segundo plano,
-  // mas NÃO abre o servidor automaticamente.
-  if(!state.serverId){
-    const chosen =
-      state.servers.find(server=>server.id===requested) ||
-      state.servers[0];
-
-    if(chosen){
-      state.serverId = chosen.id;
-      state.textChannelId = chosen.textChannels?.[0]?.id || null;
-      state.voiceChannelId = chosen.voiceChannels?.[0]?.id || null;
+    // Só sai da tela atual se ela dependia de um servidor que deixou de existir.
+    if(isServerView(previousView)){
+      setView('friends');
+    }else{
+      restoreCurrentView();
     }
 
-    renderServers();
-    renderSidebar();
-    renderRoles();
-
-    // Mesmo com servidores existentes, fica em Amigos.
-    setAppMode('hub');
-    setView('friends');
+    state.appInitialized = true;
     return;
   }
 
-  const still = state.servers.find(server=>server.id===state.serverId);
+  // Mantém o mesmo servidor sempre que ele ainda existe.
+  let selected =
+    state.servers.find(server=>server.id===previousServerId) ||
+    state.servers.find(server=>server.id===requested) ||
+    state.servers[0];
 
-  if(!still){
-    const fallback = state.servers[0];
+  state.serverId = selected.id;
 
-    state.serverId = fallback?.id || null;
-    state.textChannelId = fallback?.textChannels?.[0]?.id || null;
-    state.voiceChannelId = fallback?.voiceChannels?.[0]?.id || null;
+  // Mantém o mesmo canal se ele ainda existir.
+  const textStillExists = selected.textChannels?.some(
+    channel=>channel.id===state.textChannelId
+  );
+
+  if(!textStillExists){
+    state.textChannelId = selected.textChannels?.[0]?.id || null;
+  }
+
+  const voiceStillExists = selected.voiceChannels?.some(
+    channel=>channel.id===state.voiceChannelId
+  );
+
+  if(!voiceStillExists){
+    state.voiceChannelId = selected.voiceChannels?.[0]?.id || null;
   }
 
   renderServers();
   renderSidebar();
   renderRoles();
 
-  // Atualizações de servidor não mudam a tela atual.
-  // Se o usuário já estava dentro do servidor, continua dentro dele.
-  const serverViewOpen =
-    !$('#homeView').classList.contains('hidden') ||
-    !$('#rolesView').classList.contains('hidden') ||
-    !$('#serverSettingsView').classList.contains('hidden') ||
-    !$('#chatView').classList.contains('hidden') ||
-    !$('#voiceView').classList.contains('hidden');
+  // Ponto principal da correção:
+  // receber server-list NUNCA muda a tela escolhida pelo usuário.
+  state.currentView = previousView;
+  restoreCurrentView();
 
-  if(serverViewOpen && state.serverId){
-    setAppMode('server');
-    renderServers();
-  }
+  state.appInitialized = true;
 });
 
 socket.on('invite-joined',({serverId,serverName})=>{
@@ -4637,10 +4834,11 @@ socket.on('server-settings-updated',({serverId,message})=>{
   renderServers();
   renderSidebar();
 
-  if(state.serverId===serverId && !$('#serverSettingsView').classList.contains('hidden')){
+  if(state.serverId===serverId && state.currentView==='settings'){
     openServerSettings();
   }
 
+  restoreCurrentView();
   toast(message || 'Servidor atualizado');
 });
 
@@ -4660,11 +4858,11 @@ socket.on('server-created',({serverId})=>{
 });
 
 socket.on('role-updated',({message})=>{
-  setAppMode('server');
   renderServers();
   renderSidebar();
   renderRoles();
   renderMembers(state.lastVoiceMembers || []);
+  restoreCurrentView();
   toast(message || 'Cargos atualizados');
 });
 
@@ -4798,14 +4996,21 @@ socket.on('connect',()=>{
         username:state.username,
         userId:state.userId
       });
-    }else if(state.serverId && state.voiceChannelId){
+    }else if(state.activeVoiceServerId && state.activeVoiceChannelId){
       socket.emit('join-voice',{
-        serverId:state.serverId,
-        channelId:state.voiceChannelId,
+        serverId:state.activeVoiceServerId,
+        channelId:state.activeVoiceChannelId,
         username:state.username
       });
     }
   }
+
+  // Uma reconexão de internet não pode trocar a aba atual.
+  setTimeout(()=>{
+    if(state.appInitialized){
+      restoreCurrentView();
+    }
+  },150);
 });
 </script>
 </body>
