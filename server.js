@@ -2401,7 +2401,7 @@ body.locked{overflow:hidden!important}
     <div id="profileAppearanceTab" class="profileTabPanel">
       <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Cor do site</div>
       <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px;">
-        Essa opção é só para você. Se não quiser mudar, deixe em Padrão.
+        Essa opção é só para você. Escolha uma cor pronta ou use a cor personalizada logo abaixo.
       </div>
 
       <div id="profileThemeChoices" class="profileThemeChoices">
@@ -2420,6 +2420,33 @@ body.locked{overflow:hidden!important}
         <button type="button" class="profileThemeBtn" data-profile-theme="purple">
           <span class="profileThemeDot purple"></span>Roxo
         </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="custom">
+          <span id="profileThemeDotCustom" class="profileThemeDot" style="background:linear-gradient(135deg,#0f1116,var(--coral));"></span>Personalizada
+        </button>
+      </div>
+
+      <div class="customColorBox" id="siteColorCustomBox">
+        <div style="color:var(--text);font-size:13px;font-weight:900;margin-bottom:8px;">Cor personalizada do site</div>
+        <div style="color:var(--muted);font-size:11px;line-height:1.45;margin-bottom:10px;">
+          A cor escolhida vira a cor principal do site.
+        </div>
+
+        <div class="customColorTop">
+          <div id="customColorPreview" class="customColorPreview"></div>
+          <input id="customColorPicker" type="color" value="#ff6b4a" aria-label="Escolher cor">
+          <input id="customColorHex" maxlength="7" value="#ff6b4a" aria-label="Cor hexadecimal">
+        </div>
+
+        <div class="rgbFields">
+          <div class="rgbField"><input id="customColorR" type="number" min="0" max="255" value="255"><label for="customColorR">R</label></div>
+          <div class="rgbField"><input id="customColorG" type="number" min="0" max="255" value="107"><label for="customColorG">G</label></div>
+          <div class="rgbField"><input id="customColorB" type="number" min="0" max="255" value="74"><label for="customColorB">B</label></div>
+        </div>
+
+        <div class="customColorActions">
+          <button id="applyCustomColorBtn" type="button" class="btn primary small">Aplicar cor</button>
+          <button id="resetCustomColorBtn" type="button" class="btn secondary small">Remover</button>
+        </div>
       </div>
 
       <div style="margin-top:20px;color:var(--text);font-size:14px;font-weight:900;">Paleta de cores</div>
@@ -2450,29 +2477,7 @@ body.locked{overflow:hidden!important}
         </button>
       </div>
 
-      <div class="customColorBox">
-        <div style="color:var(--text);font-size:13px;font-weight:900;margin-bottom:8px;">Cor personalizada</div>
-        <div style="color:var(--muted);font-size:11px;line-height:1.45;margin-bottom:10px;">
-          Escolha qualquer cor e ajuste pelos valores RGB.
-        </div>
 
-        <div class="customColorTop">
-          <div id="customColorPreview" class="customColorPreview"></div>
-          <input id="customColorPicker" type="color" value="#ff6b4a" aria-label="Escolher cor">
-          <input id="customColorHex" maxlength="7" value="#ff6b4a" aria-label="Cor hexadecimal">
-        </div>
-
-        <div class="rgbFields">
-          <div class="rgbField"><input id="customColorR" type="number" min="0" max="255" value="255"><label for="customColorR">R</label></div>
-          <div class="rgbField"><input id="customColorG" type="number" min="0" max="255" value="107"><label for="customColorG">G</label></div>
-          <div class="rgbField"><input id="customColorB" type="number" min="0" max="255" value="74"><label for="customColorB">B</label></div>
-        </div>
-
-        <div class="customColorActions">
-          <button id="applyCustomColorBtn" type="button" class="btn primary small">Aplicar cor</button>
-          <button id="resetCustomColorBtn" type="button" class="btn secondary small">Remover</button>
-        </div>
-      </div>
     </div>
 
     <div class="modalActions">
@@ -2695,7 +2700,7 @@ function applyAvatar(el, profile, fallbackName){
 }
 
 
-const PROFILE_THEMES = ['default','black','white','blue','purple'];
+const PROFILE_THEMES = ['default','black','white','blue','purple','custom'];
 
 function normalizeProfileTheme(theme){
   return PROFILE_THEMES.includes(theme) ? theme : 'default';
@@ -2704,11 +2709,13 @@ function normalizeProfileTheme(theme){
 function applyProfileTheme(theme){
   const selected = normalizeProfileTheme(theme);
 
-  if(selected === 'default'){
+  if(selected === 'default' || selected === 'custom'){
     document.documentElement.removeAttribute('data-theme');
   }else{
     document.documentElement.setAttribute('data-theme',selected);
   }
+
+  document.body.classList.toggle('customSiteColorMode', selected === 'custom');
 }
 
 function updateProfileThemeButtons(){
@@ -2720,6 +2727,12 @@ function updateProfileThemeButtons(){
       button.dataset.profileTheme === selected
     );
   });
+
+  const dot = $('#profileThemeDotCustom');
+  const color = state.pendingCustomColor || state.customColor || '#ff6b4a';
+  if(dot){
+    dot.style.background = 'linear-gradient(135deg,#0f1116,' + color + ')';
+  }
 }
 
 function previewProfileTheme(theme){
@@ -2806,8 +2819,11 @@ function previewCustomColor(hex){
   if(!rgb) return;
   const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
   state.pendingCustomColor=safe;
+  state.pendingTheme='custom';
   updateCustomColorUI(safe);
+  applyProfileTheme('custom');
   applyCustomColor(safe);
+  updateProfileThemeButtons();
 }
 function updateCustomColorFromRgb(){
   previewCustomColor(rgbToHex($('#customColorR').value,$('#customColorG').value,$('#customColorB').value));
@@ -6289,7 +6305,24 @@ $('#profileAppearanceTabBtn').addEventListener('click',()=>{
 
 document.querySelectorAll('[data-profile-theme]').forEach(button=>{
   button.addEventListener('click',()=>{
-    previewProfileTheme(button.dataset.profileTheme);
+    const selectedTheme = button.dataset.profileTheme;
+
+    if(selectedTheme === 'custom'){
+      state.pendingTheme='custom';
+      applyProfileTheme('custom');
+      const currentCustom = state.pendingCustomColor || state.customColor || '#ff6b4a';
+      applyCustomColor(currentCustom);
+      updateCustomColorUI(currentCustom);
+      updateProfileThemeButtons();
+      $('#siteColorCustomBox')?.scrollIntoView({behavior:'smooth',block:'nearest'});
+      return;
+    }
+
+    previewProfileTheme(selectedTheme);
+
+    if(selectedTheme !== 'custom' && !(state.pendingCustomColor || state.customColor)){
+      applyCustomColor('');
+    }
   });
 });
 
@@ -6312,8 +6345,13 @@ $('#applyCustomColorBtn').addEventListener('click',()=>{
 
 $('#resetCustomColorBtn').addEventListener('click',()=>{
   state.pendingCustomColor='';
+  if((state.pendingTheme || state.theme) === 'custom'){
+    state.pendingTheme='default';
+    applyProfileTheme('default');
+  }
   applyCustomColor('');
   updateCustomColorUI('#ff6b4a');
+  updateProfileThemeButtons();
   toast('Cor personalizada removida');
 });
 $('#removeProfilePhotoBtn').addEventListener('click',()=>{
