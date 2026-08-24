@@ -1,15 +1,6 @@
 {
-  "name": "e-cord",
-  "version": "1.1.0",
+  "name": "acord-desktop",
+  "version": "1.0.0",
   "private": true,
-  "description": "Salas de videochamada com WebRTC, Socket.IO e compartilhamento de tela",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
-  "dependencies": {
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1"
-  }
+  "main": "desktop-main.js"
 }
