@@ -1,6 +1,7 @@
 {
   "name": "acord-desktop",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "main": "desktop-main.js"
+  "main": "desktop-main.js",
+  "description": "Cliente desktop Acord"
 }

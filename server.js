@@ -108,13 +108,16 @@ setInterval(()=>{
 
 
 function publicProfile(profile) {
-  if (!profile) return null;
-
+  if(!profile) return null;
   return {
-    id: String(profile.id || '').slice(0, 100),
-    username: String(profile.username || 'Usuário').slice(0, 30),
-    bio: String(profile.bio || '').slice(0, 160),
-    avatar: String(profile.avatar || '').slice(0, 350000)
+    id:profile.id,
+    username:profile.username,
+    displayName:profile.displayName||profile.username,
+    bio:profile.bio||'',
+    avatar:profile.avatar||'',
+    banner:profile.banner||'',
+    status:profile.status||'online',
+    createdAt:Number(profile.createdAt||Date.now())
   };
 }
 
@@ -262,6 +265,7 @@ const profiles = new Map();
 const accounts = new Map();
 const sessions = new Map();
 const directMessages = [];
+const auditLog = [];
 const friendRequests = [];
 const friendships = [];
 const privateGroups = new Map();
@@ -270,84 +274,85 @@ const privateGroups = new Map();
 function normalizeAccountUsername(value){
   return String(value || '').trim().replace(/\s+/g,' ').slice(0,30);
 }
-function accountUsernameKey(value){
+function usernameKey(value){
   return normalizeAccountUsername(value).toLocaleLowerCase('pt-BR');
 }
-function validAccountUsername(value){
-  const username = normalizeAccountUsername(value);
-  return username.length >= 3 && username.length <= 30;
-}
-function usernameTaken(username, exceptUserId = null){
-  const key = accountUsernameKey(username);
-  if(!key) return true;
+function usernameExists(username, exceptId = null){
+  const key = usernameKey(username);
   for(const account of accounts.values()){
-    if(account.userId !== exceptUserId && account.usernameKey === key) return true;
-  }
-  for(const profile of profiles.values()){
-    if(profile.id !== exceptUserId && accountUsernameKey(profile.username) === key) return true;
+    if(account.userId !== exceptId && account.usernameKey === key) return true;
   }
   return false;
 }
-function passwordHash(password,salt){
-  return crypto.scryptSync(String(password || ''),Buffer.from(String(salt || ''),'hex'),64).toString('hex');
+function passwordDigest(password,salt){
+  return crypto.scryptSync(
+    String(password || ''),
+    Buffer.from(String(salt || ''),'hex'),
+    64
+  ).toString('hex');
 }
-function verifyPassword(password,account){
-  if(!account?.salt || !account?.passwordHash) return false;
+function verifyAccountPassword(password,account){
   try{
-    const actual=Buffer.from(passwordHash(password,account.salt),'hex');
     const expected=Buffer.from(account.passwordHash,'hex');
-    return actual.length===expected.length && crypto.timingSafeEqual(actual,expected);
-  }catch{return false;}
+    const actual=Buffer.from(passwordDigest(password,account.salt),'hex');
+    return expected.length===actual.length && crypto.timingSafeEqual(expected,actual);
+  }catch{return false}
 }
-function hashSessionToken(token){
+function tokenHash(token){
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
-function createAccountSession(userId){
-  const rawToken=crypto.randomBytes(32).toString('hex');
-  sessions.set(hashSessionToken(rawToken),{userId,createdAt:Date.now()});
-  return rawToken;
+function newSession(userId){
+  const token=crypto.randomBytes(32).toString('hex');
+  sessions.set(tokenHash(token),{
+    userId,
+    createdAt:Date.now(),
+    expiresAt:Date.now()+1000*60*60*24*30
+  });
+  return token;
 }
-function userIdFromSessionToken(token){
-  const tokenHash=hashSessionToken(token);
-  const session=sessions.get(tokenHash);
-  if(!session?.userId) return null;
-  if(!accounts.has(session.userId) || !profiles.has(session.userId)){
-    sessions.delete(tokenHash);
+function sessionUserId(token){
+  const key=tokenHash(token);
+  const session=sessions.get(key);
+  if(!session) return null;
+  if(Number(session.expiresAt||0)<Date.now() || !accounts.has(session.userId)){
+    sessions.delete(key);
     return null;
   }
   return session.userId;
 }
-function removeUserSessions(userId){
-  for(const [tokenHash,session] of sessions){
-    if(session?.userId===userId) sessions.delete(tokenHash);
+function clearSessionsForUser(userId){
+  for(const [key,session] of sessions){
+    if(session.userId===userId) sessions.delete(key);
   }
 }
 function serializeAccounts(){
   return [...accounts.values()].map(account=>({
     userId:String(account.userId||'').slice(0,100),
     username:normalizeAccountUsername(account.username),
-    usernameKey:accountUsernameKey(account.username),
+    usernameKey:usernameKey(account.username),
     salt:String(account.salt||'').slice(0,256),
     passwordHash:String(account.passwordHash||'').slice(0,256),
     createdAt:Number(account.createdAt||Date.now())
   }));
 }
 function serializeSessions(){
-  return [...sessions.entries()].map(([tokenHash,session])=>({
-    tokenHash:String(tokenHash||'').slice(0,128),
+  return [...sessions.entries()].map(([hash,session])=>({
+    hash:String(hash||'').slice(0,128),
     userId:String(session?.userId||'').slice(0,100),
-    createdAt:Number(session?.createdAt||Date.now())
+    createdAt:Number(session?.createdAt||Date.now()),
+    expiresAt:Number(session?.expiresAt||Date.now())
   }));
 }
-function applyAuthenticatedSocket(socket,userId){
-  const profile=profiles.get(userId);
-  if(!profile) return null;
-  socket.data.userId=userId;
-  socket.data.username=profile.username;
-  return profile;
-}
-function authPayload(token,profile){
-  return {token,profile:publicProfile(profile)};
+function recordAudit(serverId,action,actor,target=''){
+  auditLog.push({
+    id:id(),
+    serverId:String(serverId||'').slice(0,80),
+    action:String(action||'').slice(0,80),
+    actor:String(actor||'').slice(0,30),
+    target:String(target||'').slice(0,80),
+    at:Date.now()
+  });
+  if(auditLog.length>2000) auditLog.splice(0,auditLog.length-2000);
 }
 
 function normalizeChannelList(list, fallbackName) {
@@ -483,10 +488,14 @@ function makeServer(name = 'Acord', options = {}) {
 
 function serializeProfiles() {
   return [...profiles.values()].map(profile => ({
-    id: String(profile.id || '').slice(0, 100),
-    username: String(profile.username || 'Usuário').slice(0, 30),
-    bio: String(profile.bio || '').slice(0, 160),
-    avatar: String(profile.avatar || '').slice(0, 350000)
+    id:String(profile.id||'').slice(0,100),
+    username:String(profile.username||'Usuário').slice(0,30),
+    displayName:String(profile.displayName||profile.username||'Usuário').slice(0,40),
+    bio:String(profile.bio||'').slice(0,300),
+    avatar:String(profile.avatar||'').slice(0,350000),
+    banner:String(profile.banner||'').slice(0,350000),
+    status:['online','away','busy','invisible'].includes(profile.status)?profile.status:'online',
+    createdAt:Number(profile.createdAt||Date.now())
   }));
 }
 
@@ -564,11 +573,12 @@ function saveServersToDisk() {
     fs.writeFileSync(
       tmp,
       JSON.stringify({
-        version: 7,
+        version: 8,
         servers: serializeServers(),
         profiles: serializeProfiles(),
         accounts: serializeAccounts(),
         sessions: serializeSessions(),
+        auditLog: auditLog.slice(-2000),
         directMessages: serializeDirectMessages(),
         friendRequests: serializeFriendRequests(),
         friendships: serializeFriendships(),
@@ -591,6 +601,7 @@ function loadServersFromDisk() {
     const savedProfiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
     const savedAccounts = Array.isArray(parsed?.accounts) ? parsed.accounts : [];
     const savedSessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+    const savedAuditLog = Array.isArray(parsed?.auditLog) ? parsed.auditLog : [];
     const savedDirectMessages = Array.isArray(parsed?.directMessages) ? parsed.directMessages : [];
     const savedFriendRequests = Array.isArray(parsed?.friendRequests) ? parsed.friendRequests : [];
     const savedFriendships = Array.isArray(parsed?.friendships) ? parsed.friendships : [];
@@ -602,21 +613,37 @@ function loadServersFromDisk() {
     privateGroups.clear();
     accounts.clear();
     sessions.clear();
+    auditLog.splice(0,auditLog.length);
 
-    for (const rawAccount of savedAccounts.slice(0,5000)) {
+    for(const rawAccount of savedAccounts.slice(0,5000)){
       const userId=String(rawAccount?.userId||'').slice(0,100);
       const username=normalizeAccountUsername(rawAccount?.username);
       const salt=String(rawAccount?.salt||'');
-      const storedHash=String(rawAccount?.passwordHash||'');
-      if(!userId || !validAccountUsername(username) || !salt || !storedHash) continue;
-      accounts.set(userId,{userId,username,usernameKey:accountUsernameKey(username),salt,passwordHash:storedHash,createdAt:Number(rawAccount?.createdAt||Date.now())});
+      const passwordHash=String(rawAccount?.passwordHash||'');
+      if(!userId || username.length<3 || !salt || !passwordHash) continue;
+      accounts.set(userId,{
+        userId,username,usernameKey:usernameKey(username),salt,passwordHash,
+        createdAt:Number(rawAccount?.createdAt||Date.now())
+      });
     }
 
-    for (const rawSession of savedSessions.slice(0,10000)) {
-      const tokenHash=String(rawSession?.tokenHash||'').slice(0,128);
+    for(const rawSession of savedSessions.slice(0,10000)){
+      const hash=String(rawSession?.hash||'').slice(0,128);
       const userId=String(rawSession?.userId||'').slice(0,100);
-      if(!tokenHash || !userId || !accounts.has(userId)) continue;
-      sessions.set(tokenHash,{userId,createdAt:Number(rawSession?.createdAt||Date.now())});
+      const expiresAt=Number(rawSession?.expiresAt||0);
+      if(!hash || !userId || !accounts.has(userId) || expiresAt<Date.now()) continue;
+      sessions.set(hash,{userId,createdAt:Number(rawSession?.createdAt||Date.now()),expiresAt});
+    }
+
+    for(const entry of savedAuditLog.slice(-2000)){
+      auditLog.push({
+        id:String(entry?.id||id()).slice(0,80),
+        serverId:String(entry?.serverId||'').slice(0,80),
+        action:String(entry?.action||'').slice(0,80),
+        actor:String(entry?.actor||'').slice(0,30),
+        target:String(entry?.target||'').slice(0,80),
+        at:Number(entry?.at||Date.now())
+      });
     }
 
     for (const rawGroup of savedPrivateGroups.slice(0,2000)) {
@@ -686,10 +713,14 @@ function loadServersFromDisk() {
       if (!profileId) continue;
 
       profiles.set(profileId, {
-        id: profileId,
-        username: cleanName(raw?.username, 'Usuário'),
-        bio: String(raw?.bio || '').trim().slice(0, 160),
-        avatar: String(raw?.avatar || '').slice(0, 350000)
+        id:profileId,
+        username:cleanName(raw?.username,'Usuário'),
+        displayName:String(raw?.displayName||raw?.username||'Usuário').trim().slice(0,40),
+        bio:String(raw?.bio||'').trim().slice(0,300),
+        avatar:String(raw?.avatar||'').slice(0,350000),
+        banner:String(raw?.banner||'').slice(0,350000),
+        status:['online','away','busy','invisible'].includes(raw?.status)?raw.status:'online',
+        createdAt:Number(raw?.createdAt||Date.now())
       });
     }
 
@@ -1680,14 +1711,6 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   margin-bottom:7px;
 }
 .loginCard .btn{width:100%;margin-top:12px;padding:13px}
-
-.authSwitch{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px;margin:0 0 18px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
-.authTab{border:0;border-radius:9px;padding:9px 10px;background:transparent;color:var(--muted);font-weight:850}
-.authTab.active{background:var(--bg4);color:var(--text)}
-.authField{margin-top:12px}
-.authError{min-height:18px;margin-top:10px;color:#ff8d8d;font-size:11px;line-height:1.4}
-.accountDangerZone{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap}
-.accountDangerZone .btn{flex:1;min-width:140px}
 .loginPrivacy{
   margin-top:16px;
   padding:11px 12px;
@@ -1699,6 +1722,27 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   line-height:1.45;
 }
 .loginPrivacy b{color:var(--mint)}
+
+.authSwitch{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px;margin:0 0 18px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.authTab{border:0;border-radius:9px;padding:9px 10px;background:transparent;color:var(--muted);font-weight:850}
+.authTab.active{background:var(--bg4);color:var(--text)}
+.authField{margin-top:12px}.authError{min-height:18px;margin-top:10px;color:#ff8d8d;font-size:11px}
+.profileBannerPreview{height:110px;border-radius:15px;border:1px solid var(--line);background:linear-gradient(135deg,var(--bg3),var(--coral));background-size:cover;background-position:center;margin-bottom:12px}
+.accountDangerZone{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap}
+.accountDangerZone .btn{flex:1;min-width:140px}
+.message{position:relative}.messageActions{display:none;position:absolute;right:8px;top:-16px;gap:4px;background:var(--bg1);border:1px solid var(--line);border-radius:9px;padding:4px;z-index:3}
+.message:hover .messageActions{display:flex}.messageActions button{border:0;background:transparent;color:var(--muted);padding:4px 6px;border-radius:6px}
+.messageReply{font-size:10px;color:var(--low);padding:5px 7px;border-left:2px solid var(--coral);margin-bottom:7px;background:var(--bg1);border-radius:6px}
+.messageAttachment{max-width:340px;max-height:260px;border-radius:10px;margin-top:8px;display:block}
+.messageReactions{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}.reactionChip{border:1px solid var(--line);background:var(--bg1);color:var(--muted);border-radius:999px;padding:3px 7px;font-size:10px}
+.replyBar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--bg2);border-top:1px solid var(--line);color:var(--muted);font-size:11px}
+.callSettingsPanel{position:absolute;right:14px;bottom:78px;width:min(390px,calc(100% - 28px));background:var(--bg1);border:1px solid var(--line);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:14px;z-index:500}
+.callSettingsGrid{display:grid;gap:10px}.callSettingsGrid label{font-size:10px;color:var(--low);font-weight:900;text-transform:uppercase}
+.callSettingsGrid select{width:100%;margin-top:5px;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:9px;padding:9px}
+.callToggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg2)}
+.stageHandBtn{background:var(--mintbg)!important;color:var(--mint)!important}
+.musicExtraControls{display:flex;gap:6px;justify-content:center;margin-top:8px}.musicExtraControls button{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:999px;padding:7px 10px;font-size:11px}.musicExtraControls button.active{background:var(--mintbg);color:var(--mint)}
+
 
 
 
@@ -2299,19 +2343,38 @@ body.locked{overflow:hidden!important}
     </section>
 
     <section class="loginCard">
-      <div class="smallLogo"><div class="loginMark">e</div><div class="loginBrandName">Acord</div></div>
+      <div class="smallLogo">
+        <div class="loginMark">e</div>
+        <div class="loginBrandName">Acord</div>
+      </div>
+
       <div class="authSwitch">
         <button id="authLoginTab" class="authTab active" type="button">Entrar</button>
         <button id="authRegisterTab" class="authTab" type="button">Criar conta</button>
       </div>
+
       <h2 id="authTitle">Entrar no Acord</h2>
-      <p id="authText">Entre com seu nome e sua senha.</p>
-      <div class="authField"><label class="loginLabel" for="authUsername">Nome</label><input id="authUsername" maxlength="30" placeholder="Seu nome" autocomplete="username"></div>
-      <div class="authField"><label class="loginLabel" for="authPassword">Senha</label><input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password"></div>
-      <div id="authConfirmWrap" class="authField hidden"><label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label><input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password"></div>
+      <p id="authText">Entre com seu nome único e sua senha.</p>
+
+      <div class="authField">
+        <label class="loginLabel" for="authUsername">Nome único</label>
+        <input id="authUsername" maxlength="30" placeholder="Ex.: Davi" autocomplete="username">
+      </div>
+
+      <div class="authField">
+        <label class="loginLabel" for="authPassword">Senha</label>
+        <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
+      </div>
+
+      <div id="authConfirmWrap" class="authField hidden">
+        <label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label>
+        <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
+      </div>
+
       <button id="loginBtn" class="btn primary" style="width:100%;margin-top:14px;">Entrar</button>
       <div id="authError" class="authError"></div>
-      <div class="loginPrivacy"><b>Conta pessoal:</b> cada nome é único no Acord.</div>
+
+      <div class="loginPrivacy"><b>Conta pessoal:</b> cada nome é exclusivo e não pode se repetir.</div>
     </section>
 
   </div>
@@ -2618,8 +2681,14 @@ body.locked{overflow:hidden!important}
       <section id="chatView" class="view chatView hidden">
         <div class="chatHead"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
         <div id="messages" class="messages"></div>
-        <div class="compose">
-          <input id="messageInput" maxlength="500" placeholder="Escreva uma mensagem...">
+        <div id="replyBar" class="replyBar hidden">
+          <span id="replyBarText">Respondendo...</span>
+          <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
+        </div>
+        <input id="chatImageInput" class="hidden" type="file" accept="image/*">
+        <div class="compose" style="grid-template-columns:auto 1fr auto;">
+          <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
+          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem...">
           <button id="sendBtn" class="btn primary">Enviar</button>
         </div>
       </section>
@@ -2672,6 +2741,11 @@ body.locked{overflow:hidden!important}
                 </div>
               </div>
 
+              <div class="musicExtraControls">
+                <button id="musicShuffleBtn" type="button">🔀 Aleatório</button>
+                <button id="musicRepeatBtn" type="button">🔁 Repetir</button>
+                <button id="musicFavoriteBtn" type="button">☆ Favoritar</button>
+              </div>
               <div id="localMusicList" class="localMusicList">
                 <div class="localMusicEmpty">Sua fila está vazia.</div>
               </div>
@@ -2690,7 +2764,18 @@ body.locked{overflow:hidden!important}
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">📷 Ligar câmera</button>
           <button id="screenBtn" class="control">🖥️ Compartilhar tela</button>
+          <button id="stageHandBtn" class="control stageHandBtn hidden">✋ Pedir para falar</button>
+          <button id="callSettingsBtn" class="control">⚙ Dispositivos</button>
           <button id="leaveVoiceBtn" class="control danger">☎ Sair</button>
+        </div>
+        <div id="callSettingsPanel" class="callSettingsPanel hidden">
+          <div style="font-weight:900;margin-bottom:10px;">Áudio e vídeo</div>
+          <div class="callSettingsGrid">
+            <label>Microfone<select id="micDeviceSelect"></select></label>
+            <label>Câmera<select id="cameraDeviceSelect"></select></label>
+            <div class="callToggle"><span>Supressão de ruído</span><input id="noiseSuppressionToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Push-to-talk (segure Espaço)</span><input id="pushToTalkToggle" type="checkbox" style="width:auto;"></div>
+          </div>
         </div>
       </section>
     </div>
@@ -2816,7 +2901,11 @@ body.locked{overflow:hidden!important}
     </div>
 
     <div id="profileInfoTab" class="profileTabPanel active">
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+      <div id="profileBannerPreview" class="profileBannerPreview"></div>
+      <label for="profileBannerInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Banner</label>
+      <input id="profileBannerInput" type="file" accept="image/*">
+
+      <div style="display:flex;align-items:center;gap:14px;margin:16px 0;">
         <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
         <div style="flex:1;">
           <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
@@ -2825,11 +2914,19 @@ body.locked{overflow:hidden!important}
         </div>
       </div>
 
-      <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome</label>
+      <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">@Nome único</label>
       <input id="profileNameInput" maxlength="30" placeholder="Seu nome único">
 
-      <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
-      <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+      <label for="profileDisplayNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Nome de exibição</label>
+      <input id="profileDisplayNameInput" maxlength="40" placeholder="Como você quer aparecer">
+
+      <label for="profileStatusSelect" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Status</label>
+      <select id="profileStatusSelect" style="width:100%;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;">
+        <option value="online">Online</option><option value="away">Ausente</option><option value="busy">Ocupado</option><option value="invisible">Invisível</option>
+      </select>
+
+      <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Sobre mim</label>
+      <textarea id="profileBioInput" maxlength="300" placeholder="Conte um pouco sobre você..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
     </div>
 
     <div id="profileAppearanceTab" class="profileTabPanel">
@@ -2918,7 +3015,6 @@ body.locked{overflow:hidden!important}
       <button id="logoutAccountBtn" class="btn secondary" type="button">Sair da conta</button>
       <button id="deleteAccountBtn" class="btn danger" type="button">Excluir conta</button>
     </div>
-
     <div class="modalActions">
       <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
       <button id="profileSaveBtn" class="btn primary">Salvar</button>
@@ -3040,12 +3136,15 @@ function pageWasReloaded(){
 const PAGE_WAS_RELOADED=pageWasReloaded();
 
 const state = {
-  authToken: localStorage.getItem('acord-auth-token') || '',
-  authMode: 'login',
-  userId: '',
-  username: '',
-  bio: '',
-  avatar: '',
+  authToken:localStorage.getItem('acord-auth-token')||'',
+  authMode:'login',
+  userId:'',
+  username:'',
+  displayName:'',
+  bio:'',
+  avatar:'',
+  banner:'',
+  status:'online',
   theme: localStorage.getItem('ecord-theme') || 'default',
   pendingTheme: null,
   palette: localStorage.getItem('ecord-palette') || 'default',
@@ -3087,8 +3186,18 @@ const state = {
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
-  pendingAvatar: null,
-  selectedServerMemberId: null,
+  pendingAvatar:null,
+  pendingBanner:null,
+  selectedServerMemberId:null,
+  replyToMessageId:null,
+  pendingChatAttachment:null,
+  pushToTalk:localStorage.getItem('acord-ptt')==='1',
+  noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
+  preferredMicId:localStorage.getItem('acord-mic-device')||'',
+  preferredCameraId:localStorage.getItem('acord-camera-device')||'',
+  musicShuffle:localStorage.getItem('acord-music-shuffle')==='1',
+  musicRepeat:localStorage.getItem('acord-music-repeat')==='1',
+  musicFavorites:new Set(JSON.parse(localStorage.getItem('acord-music-favorites')||'[]')),
   serverSettingsIcon: null,
   serverSettingsAccent: '#ff6b4a',
   friendsFilter: 'online',
@@ -3314,13 +3423,16 @@ function removeLocalMusicTrack(index){
 }
 
 function nextLocalMusic(){
-  if(!state.localMusicQueue.length) return;
-
-  const next =
-    state.localMusicIndex < 0
-      ? 0
-      : (state.localMusicIndex + 1) % state.localMusicQueue.length;
-
+  if(!state.localMusicQueue.length)return;
+  if(state.musicRepeat && state.localMusicIndex>=0){
+    playLocalMusicTrack(state.localMusicIndex,true);return;
+  }
+  let next;
+  if(state.musicShuffle && state.localMusicQueue.length>1){
+    do{next=Math.floor(Math.random()*state.localMusicQueue.length)}while(next===state.localMusicIndex);
+  }else{
+    next=state.localMusicIndex<0?0:(state.localMusicIndex+1)%state.localMusicQueue.length;
+  }
   playLocalMusicTrack(next,true);
 }
 
@@ -3372,6 +3484,105 @@ function toggleLocalMusicPanel(){
   btn.classList.toggle('musicActive',opening);
 }
 
+
+function setAuthMode(mode){
+  state.authMode=mode==='register'?'register':'login';
+  const registering=state.authMode==='register';
+  $('#authLoginTab').classList.toggle('active',!registering);
+  $('#authRegisterTab').classList.toggle('active',registering);
+  $('#authConfirmWrap').classList.toggle('hidden',!registering);
+  $('#authTitle').textContent=registering?'Criar conta':'Entrar no Acord';
+  $('#authText').textContent=registering?'Escolha um nome único e uma senha.':'Entre com seu nome único e sua senha.';
+  $('#loginBtn').textContent=registering?'Criar conta':'Entrar';
+  $('#authPassword').setAttribute('autocomplete',registering?'new-password':'current-password');
+  $('#authError').textContent='';
+}
+function submitAuthentication(){
+  const username=$('#authUsername').value.trim().slice(0,30);
+  const password=$('#authPassword').value;
+  const confirmation=$('#authPasswordConfirm').value;
+  $('#authError').textContent='';
+  if(username.length<3){$('#authError').textContent='O nome precisa ter pelo menos 3 caracteres.';return}
+  if(password.length<6){$('#authError').textContent='A senha precisa ter pelo menos 6 caracteres.';return}
+  if(state.authMode==='register'){
+    if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';return}
+    socket.emit('auth-register',{username,password});return;
+  }
+  socket.emit('auth-login',{username,password});
+}
+function clearAccountState(){
+  state.authToken='';state.userId='';state.username='';state.displayName='';
+  state.bio='';state.avatar='';state.banner='';state.profileReady=false;state.appInitialized=false;
+  localStorage.removeItem('acord-auth-token');
+  localStorage.removeItem('ecord-user-id');localStorage.removeItem('ecord-name');
+  localStorage.removeItem('ecord-bio');localStorage.removeItem('ecord-avatar');
+  try{leaveVoice()}catch{}
+  $('#login').classList.remove('hidden');$('#appShell').classList.add('hidden');
+  $('#profileModalWrap').classList.add('hidden');
+  $('#authPassword').value='';$('#authPasswordConfirm').value='';
+}
+function applyAuthProfile(profile,token){
+  if(!profile?.id || !token) return;
+  state.authToken=token;state.userId=profile.id;state.username=profile.username||'';
+  state.displayName=profile.displayName||profile.username||'';state.bio=profile.bio||'';
+  state.avatar=profile.avatar||'';state.banner=profile.banner||'';state.status=profile.status||'online';
+  state.profileReady=true;
+  localStorage.setItem('acord-auth-token',token);
+  localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);
+  localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{}
+  $('#login').classList.add('hidden');$('#appShell').classList.remove('hidden');
+  refreshOwnProfileUI();
+  if(!state.appInitialized){setAppMode('hub');setView('friends')}else{restoreCurrentView()}
+  socket.emit('get-servers');socket.emit('get-friend-state');socket.emit('get-group-state');
+}
+function logoutAccount(){socket.emit('auth-logout',{token:state.authToken})}
+function deleteAccount(){
+  if(!confirm('Excluir sua conta permanentemente?')) return;
+  if(!confirm('Essa ação não pode ser desfeita. Continuar?')) return;
+  socket.emit('delete-account',{token:state.authToken});
+}
+async function readImageFile(file,maxSize=1100,quality=.82){
+  if(!file) return '';
+  return await new Promise((resolve,reject)=>{
+    const reader=new FileReader();reader.onerror=()=>reject(new Error('Falha ao ler imagem'));
+    reader.onload=()=>{
+      const image=new Image();image.onerror=()=>reject(new Error('Imagem inválida'));
+      image.onload=()=>{
+        const ratio=Math.min(1,maxSize/Math.max(image.naturalWidth,image.naturalHeight));
+        const canvas=document.createElement('canvas');
+        canvas.width=Math.max(1,Math.round(image.naturalWidth*ratio));
+        canvas.height=Math.max(1,Math.round(image.naturalHeight*ratio));
+        canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };image.src=reader.result;
+    };reader.readAsDataURL(file);
+  });
+}
+function maybeNotify(title,body){
+  if(document.visibilityState==='visible') return;
+  if('Notification' in window && Notification.permission==='granted') new Notification(title,{body});
+}
+async function requestNotifications(){
+  if('Notification' in window && Notification.permission==='default'){
+    try{await Notification.requestPermission()}catch{}
+  }
+}
+async function refreshMediaDevices(){
+  if(!navigator.mediaDevices?.enumerateDevices) return;
+  const devices=await navigator.mediaDevices.enumerateDevices();
+  const mic=$('#micDeviceSelect'),camera=$('#cameraDeviceSelect');
+  mic.innerHTML='';camera.innerHTML='';
+  devices.filter(d=>d.kind==='audioinput').forEach((d,i)=>{
+    const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Microfone '+(i+1));mic.appendChild(o);
+  });
+  devices.filter(d=>d.kind==='videoinput').forEach((d,i)=>{
+    const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Câmera '+(i+1));camera.appendChild(o);
+  });
+  if(state.preferredMicId) mic.value=state.preferredMicId;
+  if(state.preferredCameraId) camera.value=state.preferredCameraId;
+}
+function toggleCallSettings(){ $('#callSettingsPanel').classList.toggle('hidden'); refreshMediaDevices(); }
+function syncStageHandButton(){const c=currentVoice();$('#stageHandBtn').classList.toggle('hidden',c?.mode!=='stage')}
 function toast(text){
   const el = $('#toast');
   el.textContent = text;
@@ -3585,11 +3796,15 @@ function setProfileTab(tab){
 
 function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
+  state.pendingBanner = state.banner || '';
   state.pendingTheme = normalizeProfileTheme(state.theme);
   state.pendingPalette = normalizeProfilePalette(state.palette);
   state.pendingCustomColor = state.customColor || '';
-  $('#profileNameInput').value = state.username || '';
-  $('#profileBioInput').value = state.bio || '';
+  $('#profileNameInput').value=state.username||'';
+  $('#profileDisplayNameInput').value=state.displayName||state.username||'';
+  $('#profileStatusSelect').value=state.status||'online';
+  $('#profileBioInput').value=state.bio||'';
+  $('#profileBannerPreview').style.backgroundImage=state.pendingBanner?'url("' + state.pendingBanner.replace(/"/g,'') + '")':'';
   $('#profilePhotoInput').value = '';
 
   applyAvatar(
@@ -3621,6 +3836,7 @@ function closeProfileModal(){
   }
 
   state.pendingAvatar = null;
+  state.pendingBanner = null;
   state.pendingTheme = null;
   state.pendingPalette = null;
   state.pendingCustomColor = null;
@@ -3670,8 +3886,10 @@ function fileToAvatar(file){
 }
 
 function saveProfile(){
-  const username = $('#profileNameInput').value.trim().slice(0,30);
-  const bio = $('#profileBioInput').value.trim().slice(0,160);
+  const username=$('#profileNameInput').value.trim().slice(0,30);
+  const displayName=$('#profileDisplayNameInput').value.trim().slice(0,40);
+  const bio=$('#profileBioInput').value.trim().slice(0,300);
+  const status=$('#profileStatusSelect').value;
 
   if(!username){
     toast('Digite um nome');
@@ -3698,9 +3916,9 @@ function saveProfile(){
   state.pendingCustomColor = null;
 
   socket.emit('set-profile',{
-    username,
-    bio,
-    avatar:String(state.pendingAvatar || '').slice(0,350000),
+    username,displayName:displayName||username,bio,status,
+    avatar:String(state.pendingAvatar||'').slice(0,350000),
+    banner:String(state.pendingBanner||'').slice(0,350000),
     knownServerIds:getCachedServers().map(server=>server.id)
   });
 }
@@ -4977,6 +5195,7 @@ function selectVoice(channelId){
       ? '◉ ' + (c.name || 'Palco')
       : (c?.name || 'Voz');
   setView('voice');
+  syncStageHandButton();
 
   const isActiveChannel =
     !!state.joinedVoiceId &&
@@ -5005,37 +5224,77 @@ function showMessages(history){
 }
 
 function appendMessage(m){
-  const row = document.createElement('div');
-  row.className = 'message' + (m.senderId===socket.id ? ' mine' : '');
-  const strong = document.createElement('strong');
-  const role = primaryRoleForUser(m.username);
+  const row=document.createElement('div');
+  row.className='message'+(m.userId===state.userId || m.senderId===socket.id?' mine':'');
+  row.dataset.messageId=m.id||'';
 
-  strong.textContent = role
-    ? '[' + role.name + '] ' + m.username
-    : m.username;
-
-  if(role){
-    strong.style.color = role.color;
+  if(m.replyTo){
+    const reply=document.createElement('div');reply.className='messageReply';
+    reply.textContent='↪ Resposta a uma mensagem anterior';row.appendChild(reply);
   }
-  const span = document.createElement('span');
-  span.textContent = m.text;
+
+  const strong=document.createElement('strong');
+  const role=primaryRoleForUser(m.username);
+  strong.textContent=role?'['+role.name+'] '+(m.username||'Usuário'):(m.username||'Usuário');
+  if(role) strong.style.color=role.color;
+
+  const span=document.createElement('span');
+  span.textContent=(m.text||'')+(m.edited?'  (editado)':'');
   row.append(strong,span);
-  $('#messages').appendChild(row);
-  $('#messages').scrollTop = $('#messages').scrollHeight;
+
+  if(m.attachment?.data){
+    const image=document.createElement('img');image.className='messageAttachment';
+    image.src=m.attachment.data;image.alt=m.attachment.name||'Imagem';row.appendChild(image);
+  }
+
+  const reactions=document.createElement('div');reactions.className='messageReactions';
+  Object.entries(m.reactions||{}).forEach(([emoji,users])=>{
+    if(!Array.isArray(users)||!users.length) return;
+    const chip=document.createElement('button');chip.className='reactionChip';chip.textContent=emoji+' '+users.length;
+    chip.addEventListener('click',()=>socket.emit('chat-react',{serverId:state.serverId,channelId:state.textChannelId,messageId:m.id,emoji}));
+    reactions.appendChild(chip);
+  });
+  if(reactions.childElementCount) row.appendChild(reactions);
+
+  const actions=document.createElement('div');actions.className='messageActions';
+  const replyBtn=document.createElement('button');replyBtn.textContent='↩';replyBtn.title='Responder';
+  replyBtn.addEventListener('click',()=>{
+    state.replyToMessageId=m.id;$('#replyBarText').textContent='Respondendo a '+(m.username||'Usuário');
+    $('#replyBar').classList.remove('hidden');$('#messageInput').focus();
+  });
+  actions.appendChild(replyBtn);
+
+  ['👍','❤️','😂','🔥'].forEach(emoji=>{
+    const b=document.createElement('button');b.textContent=emoji;
+    b.addEventListener('click',()=>socket.emit('chat-react',{serverId:state.serverId,channelId:state.textChannelId,messageId:m.id,emoji}));
+    actions.appendChild(b);
+  });
+
+  if(m.userId===state.userId){
+    const edit=document.createElement('button');edit.textContent='✎';edit.title='Editar';
+    edit.addEventListener('click',()=>{
+      const value=prompt('Editar mensagem:',m.text||'');if(value===null)return;
+      socket.emit('chat-edit',{serverId:state.serverId,channelId:state.textChannelId,messageId:m.id,text:value});
+    });
+    const remove=document.createElement('button');remove.textContent='🗑';remove.title='Excluir';
+    remove.addEventListener('click',()=>socket.emit('chat-delete',{serverId:state.serverId,channelId:state.textChannelId,messageId:m.id}));
+    actions.append(edit,remove);
+  }
+
+  row.appendChild(actions);
+  $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
 function sendMessage(){
-  const input = $('#messageInput');
-  const text = input.value.trim().slice(0,500);
-  if(!text || !state.serverId || !state.textChannelId) return;
+  const input=$('#messageInput');
+  const messageText=input.value.trim().slice(0,2000);
+  if((!messageText&&!state.pendingChatAttachment)||!state.serverId||!state.textChannelId)return;
   socket.emit('chat-message',{
-    serverId:state.serverId,
-    channelId:state.textChannelId,
-    username:state.username,
-    text
+    serverId:state.serverId,channelId:state.textChannelId,text:messageText,
+    replyTo:state.replyToMessageId,attachment:state.pendingChatAttachment
   });
-  input.value = '';
-  input.focus();
+  input.value='';state.replyToMessageId=null;state.pendingChatAttachment=null;
+  $('#replyBar').classList.add('hidden');input.focus();
 }
 
 
@@ -6796,6 +7055,7 @@ async function toggleCamera(){
 
     const cam = await navigator.mediaDevices.getUserMedia({
       video:{
+        deviceId:state.preferredCameraId?{exact:state.preferredCameraId}:undefined,
         width:{ideal:1920},
         height:{ideal:1080},
         frameRate:{ideal:30,max:30},
@@ -7131,58 +7391,6 @@ function renderMembers(list){
 }
 
 
-
-function setAuthMode(mode){
-  state.authMode=mode==='register'?'register':'login';
-  const registering=state.authMode==='register';
-  $('#authLoginTab').classList.toggle('active',!registering);
-  $('#authRegisterTab').classList.toggle('active',registering);
-  $('#authConfirmWrap').classList.toggle('hidden',!registering);
-  $('#authTitle').textContent=registering?'Criar conta':'Entrar no Acord';
-  $('#authText').textContent=registering?'Escolha um nome único e crie sua senha.':'Entre com seu nome e sua senha.';
-  $('#loginBtn').textContent=registering?'Criar conta':'Entrar';
-  $('#authPassword').setAttribute('autocomplete',registering?'new-password':'current-password');
-  $('#authError').textContent='';
-}
-function clearAuthenticatedState(){
-  state.authToken=''; state.userId=''; state.username=''; state.bio=''; state.avatar=''; state.profileReady=false; state.appInitialized=false;
-  state.servers=[]; state.serverId=null; state.textChannelId=null; state.voiceChannelId=null; state.serverFriends=[]; state.incomingFriendRequests=[]; state.outgoingFriendRequests=[]; state.privateGroups=[];
-  localStorage.removeItem('acord-auth-token'); localStorage.removeItem('ecord-user-id'); localStorage.removeItem('ecord-name'); localStorage.removeItem('ecord-bio'); localStorage.removeItem('ecord-avatar');
-  closePeers(); $('#login').classList.remove('hidden'); $('#appShell').classList.add('hidden'); $('#profileModalWrap').classList.add('hidden'); $('#authPassword').value=''; $('#authPasswordConfirm').value='';
-}
-function finishAuthenticatedLogin(payload){
-  const profile=payload?.profile; const token=String(payload?.token||'');
-  if(!profile?.id || !token) return;
-  state.authToken=token; state.userId=profile.id; state.username=profile.username||''; state.bio=profile.bio||''; state.avatar=profile.avatar||''; state.profileReady=true;
-  localStorage.setItem('acord-auth-token',token); localStorage.setItem('ecord-user-id',state.userId); localStorage.setItem('ecord-name',state.username); localStorage.setItem('ecord-bio',state.bio);
-  try{localStorage.setItem('ecord-avatar',state.avatar);}catch{localStorage.removeItem('ecord-avatar');}
-  $('#login').classList.add('hidden'); $('#appShell').classList.remove('hidden'); refreshOwnProfileUI();
-  setAppMode('hub'); setView('friends');
-  socket.emit('get-servers'); socket.emit('get-friend-state'); socket.emit('get-group-state');
-  const inviteToken=new URLSearchParams(location.search).get('invite');
-  if(inviteToken && !state.privateInviteHandled){state.privateInviteHandled=true; socket.emit('join-server-invite',{token:inviteToken});}
-}
-function submitAuthentication(){
-  const username=$('#authUsername').value.trim().slice(0,30); const password=$('#authPassword').value; const confirmation=$('#authPasswordConfirm').value;
-  $('#authError').textContent='';
-  if(username.length<3){$('#authError').textContent='Digite um nome com pelo menos 3 caracteres.'; return;}
-  if(password.length<6){$('#authError').textContent='A senha precisa ter pelo menos 6 caracteres.'; return;}
-  if(state.authMode==='register'){
-    if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.'; return;}
-    socket.emit('auth-register',{username,password}); return;
-  }
-  socket.emit('auth-login',{username,password});
-}
-function logoutAccount(){
-  if(!state.authToken){clearAuthenticatedState(); return;}
-  socket.emit('auth-logout',{token:state.authToken});
-}
-function deleteAccount(){
-  if(!confirm('Excluir sua conta permanentemente?')) return;
-  if(!confirm('Essa ação não pode ser desfeita. Continuar?')) return;
-  socket.emit('delete-account',{token:state.authToken});
-}
-
 let deferredInstallPrompt = null;
 
 function isStandaloneApp(){
@@ -7239,9 +7447,13 @@ if('serviceWorker' in navigator){
 $('#authLoginTab').addEventListener('click',()=>setAuthMode('login'));
 $('#authRegisterTab').addEventListener('click',()=>setAuthMode('register'));
 $('#loginBtn').addEventListener('click',submitAuthentication);
-$('#authUsername').addEventListener('keydown',event=>{if(event.key==='Enter') $('#authPassword').focus();});
-$('#authPassword').addEventListener('keydown',event=>{if(event.key==='Enter'){if(state.authMode==='register') $('#authPasswordConfirm').focus(); else submitAuthentication();}});
-$('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter') submitAuthentication();});
+$('#authUsername').addEventListener('keydown',event=>{if(event.key==='Enter')$('#authPassword').focus()});
+$('#authPassword').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){
+    if(state.authMode==='register')$('#authPasswordConfirm').focus();else submitAuthentication();
+  }
+});
+$('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
 
 $('#createServerBtn').addEventListener('click',()=>openModal('server'));
@@ -7334,6 +7546,14 @@ $('#removeProfilePhotoBtn').addEventListener('click',()=>{
     $('#profileNameInput').value || state.username
   );
 });
+$('#profileBannerInput').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];if(!file)return;
+  try{
+    state.pendingBanner=await readImageFile(file,1200,.8);
+    $('#profileBannerPreview').style.backgroundImage='url("' + state.pendingBanner.replace(/"/g,'') + '")';
+  }catch{toast('Não foi possível usar esse banner')}
+});
+
 $('#profilePhotoInput').addEventListener('change',async event=>{
   const file = event.target.files?.[0];
   if(!file) return;
@@ -7495,6 +7715,18 @@ $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$(
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
+$('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
+$('#chatImageBtn').addEventListener('click',()=>$('#chatImageInput').click());
+$('#chatImageInput').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];if(!file)return;
+  if(!String(file.type||'').startsWith('image/')){toast('Escolha uma imagem');return}
+  try{
+    const data=await readImageFile(file,1200,.78);
+    state.pendingChatAttachment={name:file.name,type:file.type,data};
+    toast('Imagem pronta para enviar');
+  }catch{toast('Não foi possível anexar a imagem')}
+  event.target.value='';
+});
 $('#messageInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendMessage()});
 
 $('#dmSearch').addEventListener('input',renderDmContacts);
@@ -7577,6 +7809,23 @@ $('#localMusicAudio').addEventListener('timeupdate',()=>{
 
 $('#localMusicAudio').addEventListener('play',updateLocalMusicPlayButton);
 $('#localMusicAudio').addEventListener('pause',updateLocalMusicPlayButton);
+$('#musicShuffleBtn').classList.toggle('active',state.musicShuffle);
+$('#musicRepeatBtn').classList.toggle('active',state.musicRepeat);
+$('#musicShuffleBtn').addEventListener('click',()=>{
+  state.musicShuffle=!state.musicShuffle;localStorage.setItem('acord-music-shuffle',state.musicShuffle?'1':'0');
+  $('#musicShuffleBtn').classList.toggle('active',state.musicShuffle);
+});
+$('#musicRepeatBtn').addEventListener('click',()=>{
+  state.musicRepeat=!state.musicRepeat;localStorage.setItem('acord-music-repeat',state.musicRepeat?'1':'0');
+  $('#musicRepeatBtn').classList.toggle('active',state.musicRepeat);
+});
+$('#musicFavoriteBtn').addEventListener('click',()=>{
+  const track=currentLocalMusic();if(!track)return;
+  const key=track.name||track.url;
+  if(state.musicFavorites.has(key))state.musicFavorites.delete(key);else state.musicFavorites.add(key);
+  localStorage.setItem('acord-music-favorites',JSON.stringify([...state.musicFavorites]));
+  $('#musicFavoriteBtn').textContent=state.musicFavorites.has(key)?'★ Favorito':'☆ Favoritar';
+});
 $('#localMusicAudio').addEventListener('ended',nextLocalMusic);
 $('#localMusicAudio').addEventListener('error',()=>{
   updateLocalMusicPlayButton();
@@ -7596,6 +7845,35 @@ $('#localMusicVolumeValue').textContent = Math.round(savedLocalMusicVolume) + '%
 $('#localMusicAudio').volume = savedLocalMusicVolume / 100;
 
 $('#cameraBtn').addEventListener('click',toggleCamera);
+$('#callSettingsBtn').addEventListener('click',toggleCallSettings);
+
+$('#micDeviceSelect').addEventListener('change',event=>{
+  state.preferredMicId=event.target.value;localStorage.setItem('acord-mic-device',state.preferredMicId);
+  toast('Microfone selecionado. Reconecte a call para aplicar.');
+});
+$('#cameraDeviceSelect').addEventListener('change',event=>{
+  state.preferredCameraId=event.target.value;localStorage.setItem('acord-camera-device',state.preferredCameraId);
+});
+$('#noiseSuppressionToggle').checked=state.noiseSuppression;
+$('#noiseSuppressionToggle').addEventListener('change',event=>{
+  state.noiseSuppression=event.target.checked;localStorage.setItem('acord-noise-suppression',state.noiseSuppression?'1':'0');
+});
+$('#pushToTalkToggle').checked=state.pushToTalk;
+$('#pushToTalkToggle').addEventListener('change',event=>{
+  state.pushToTalk=event.target.checked;localStorage.setItem('acord-ptt',state.pushToTalk?'1':'0');
+});
+$('#stageHandBtn').addEventListener('click',()=>{
+  const c=currentVoice();if(c?.mode!=='stage')return;
+  socket.emit('stage-raise-hand',{serverId:state.serverId,channelId:c.id});toast('Você levantou a mão');
+});
+document.addEventListener('keydown',event=>{
+  if(!state.pushToTalk||event.code!=='Space'||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
+  const t=state.localStream?.getAudioTracks?.()[0];if(t)t.enabled=true;
+});
+document.addEventListener('keyup',event=>{
+  if(!state.pushToTalk||event.code!=='Space')return;
+  const t=state.localStream?.getAudioTracks?.()[0];if(t)t.enabled=false;
+});
 $('#screenBtn').addEventListener('click',toggleScreen);
 
 $('#sharePickerClose').addEventListener('click',closeSharePicker);
@@ -7636,12 +7914,30 @@ document.addEventListener('keydown',e=>{
 });
 
 
-socket.on('auth-success',payload=>{ $('#authError').textContent=''; finishAuthenticatedLogin(payload); });
-socket.on('auth-error',payload=>{ $('#authError').textContent=payload?.error||'Não foi possível entrar.'; });
-socket.on('auth-required',()=>{ localStorage.removeItem('acord-auth-token'); state.authToken=''; $('#login').classList.remove('hidden'); $('#appShell').classList.add('hidden'); });
-socket.on('auth-logout-success',()=>{ clearAuthenticatedState(); });
-socket.on('account-deleted',()=>{ clearAuthenticatedState(); alert('Sua conta foi excluída.'); });
-socket.on('profile-error',payload=>{ toast(payload?.error||'Não foi possível salvar o perfil'); });
+socket.on('auth-success',payload=>{
+  $('#authError').textContent='';
+  applyAuthProfile(payload?.profile,payload?.token);
+  requestNotifications();
+});
+socket.on('auth-error',payload=>{$('#authError').textContent=payload?.error||'Não foi possível entrar.'});
+socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord-auth-token');$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')});
+socket.on('auth-logout-success',clearAccountState);
+socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
+socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
+socket.on('chat-message-updated',message=>{
+  if(message?.serverId!==state.serverId||message?.channelId!==state.textChannelId)return;
+  document.querySelector('.message[data-message-id="' + message.id + '"]')?.remove();
+  appendMessage(message);
+});
+socket.on('chat-message-deleted',({messageId})=>document.querySelector('.message[data-message-id="' + messageId + '"]')?.remove());
+socket.on('stage-hand-raised',data=>{
+  toast('✋ '+(data?.username||'Alguém')+' pediu para falar');
+  maybeNotify('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
+});
+socket.on('removed-from-server',({serverId})=>{
+  toast('Você foi removido de um servidor');socket.emit('get-servers');
+  if(state.serverId===serverId){setAppMode('hub');setView('friends')}
+});
 
 socket.on('online-users', users => {
   state.onlineUsers = Array.isArray(users) ? users : [];
@@ -7665,9 +7961,12 @@ socket.on('profile-saved',profile=>{
 
   state.profileReady = true;
   state.userId = profile.id || state.userId;
-  state.username = profile.username || state.username;
-  state.bio = profile.bio || '';
-  state.avatar = profile.avatar || '';
+  state.username=profile.username||state.username;
+  state.displayName=profile.displayName||profile.username||state.displayName;
+  state.bio=profile.bio||'';
+  state.avatar=profile.avatar||'';
+  state.banner=profile.banner||'';
+  state.status=profile.status||'online';
 
   localStorage.setItem('ecord-user-id',state.userId);
   localStorage.setItem('ecord-name',state.username);
@@ -7753,6 +8052,7 @@ socket.on('friend-lookup-result',result=>{
 
 socket.on('incoming-private-call',data=>{
   showIncomingCall(data);
+  maybeNotify('Ligação no Acord',(data?.username||'Alguém')+' está ligando para você');
 });
 
 socket.on('private-call-accepted',data=>{
@@ -7807,6 +8107,7 @@ socket.on('dm-history',history=>{
 
 socket.on('dm-message',message=>{
   if(!message) return;
+  if(message.fromUserId!==state.userId) maybeNotify('Nova mensagem privada',message.fromUsername||'Acord');
 
   const targetId = state.dmTarget?.id;
   const involvesCurrent =
@@ -8166,12 +8467,19 @@ socket.on('disconnect',()=>{
 });
 
 socket.on('connect',()=>{
-  if(state.authToken){
-    socket.emit('auth-restore',{token:state.authToken});
-  }else{
-    $('#login').classList.remove('hidden');
-    $('#appShell').classList.add('hidden');
+  if(state.authToken) socket.emit('auth-restore',{token:state.authToken});
+  else{$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')}
+
+  if(state.joinedVoiceId && state.profileReady){
+    closePeers();
+    if(state.privateCallId){
+      socket.emit('join-private-call',{callId:state.privateCallId,username:state.username,userId:state.userId});
+    }else if(state.activeVoiceServerId&&state.activeVoiceChannelId){
+      socket.emit('join-voice',{serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,username:state.username});
+    }
   }
+
+  setTimeout(()=>{if(state.appInitialized&&state.profileReady)restoreCurrentView()},150);
 });
 </script>
 </body>
@@ -8230,113 +8538,169 @@ io.on('connection', socket => {
   broadcastOnlineUsers();
 
 
-  socket.on('auth-register', ({ username, password }) => {
+  const loginAttempts={windowStart:Date.now(),count:0};
+  function allowLoginAttempt(){
+    const now=Date.now();
+    if(now-loginAttempts.windowStart>60000){
+      loginAttempts.windowStart=now;
+      loginAttempts.count=0;
+    }
+    loginAttempts.count+=1;
+    return loginAttempts.count<=12;
+  }
+
+  socket.on('auth-register',({username,password})=>{
+    if(!allowLoginAttempt()){
+      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
+      return;
+    }
     const safeUsername=normalizeAccountUsername(username);
     const safePassword=String(password||'');
-    if(!validAccountUsername(safeUsername)){
-      socket.emit('auth-error',{error:'O nome precisa ter entre 3 e 30 caracteres.'}); return;
+    if(safeUsername.length<3){
+      socket.emit('auth-error',{error:'O nome precisa ter pelo menos 3 caracteres.'});return;
+    }
+    if(usernameExists(safeUsername)){
+      socket.emit('auth-error',{error:'Esse nome já está sendo usado.'});return;
     }
     if(safePassword.length<6 || safePassword.length>128){
-      socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'}); return;
-    }
-    if(usernameTaken(safeUsername)){
-      socket.emit('auth-error',{error:'Esse nome já está sendo usado. Escolha outro.'}); return;
+      socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'});return;
     }
     const userId=crypto.randomUUID();
     const salt=crypto.randomBytes(16).toString('hex');
-    accounts.set(userId,{userId,username:safeUsername,usernameKey:accountUsernameKey(safeUsername),salt,passwordHash:passwordHash(safePassword,salt),createdAt:Date.now()});
-    const profile={id:userId,username:safeUsername,bio:'',avatar:''};
+    accounts.set(userId,{
+      userId,username:safeUsername,usernameKey:usernameKey(safeUsername),salt,
+      passwordHash:passwordDigest(safePassword,salt),createdAt:Date.now()
+    });
+    const profile={
+      id:userId,username:safeUsername,displayName:safeUsername,bio:'',avatar:'',
+      banner:'',status:'online',createdAt:Date.now()
+    };
     profiles.set(userId,profile);
-    const token=createAccountSession(userId);
-    applyAuthenticatedSocket(socket,userId);
+    const token=newSession(userId);
+    socket.data.userId=userId;
+    socket.data.username=safeUsername;
     saveServersToDisk();
-    socket.emit('auth-success',authPayload(token,profile));
-    sendServerList(socket); emitFriendState(userId); emitGroupState(userId); broadcastOnlineUsers();
+    socket.emit('auth-success',{token,profile:publicProfile(profile)});
+    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-login', ({ username, password }) => {
-    const key=accountUsernameKey(username);
-    const account=[...accounts.values()].find(item=>item.usernameKey===key);
-    if(!account || !verifyPassword(String(password||''),account)){
-      socket.emit('auth-error',{error:'Nome ou senha incorretos.'}); return;
+  socket.on('auth-login',({username,password})=>{
+    if(!allowLoginAttempt()){
+      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});return;
     }
-    const profile=applyAuthenticatedSocket(socket,account.userId);
-    if(!profile){socket.emit('auth-error',{error:'Conta inválida.'}); return;}
-    const token=createAccountSession(account.userId);
+    const key=usernameKey(username);
+    const account=[...accounts.values()].find(item=>item.usernameKey===key);
+    if(!account || !verifyAccountPassword(String(password||''),account)){
+      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});return;
+    }
+    const profile=profiles.get(account.userId);
+    if(!profile){socket.emit('auth-error',{error:'Conta inválida.'});return}
+    socket.data.userId=account.userId;
+    socket.data.username=account.username;
+    const token=newSession(account.userId);
     saveServersToDisk();
-    socket.emit('auth-success',authPayload(token,profile));
-    sendServerList(socket); emitFriendState(account.userId); emitGroupState(account.userId); broadcastOnlineUsers();
+    socket.emit('auth-success',{token,profile:publicProfile(profile)});
+    sendServerList(socket);emitFriendState(account.userId);emitGroupState(account.userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-restore', ({ token }) => {
-    const userId=userIdFromSessionToken(token);
-    if(!userId){socket.emit('auth-required'); return;}
-    const profile=applyAuthenticatedSocket(socket,userId);
-    if(!profile){socket.emit('auth-required'); return;}
-    socket.emit('auth-success',authPayload(String(token||''),profile));
-    sendServerList(socket); emitFriendState(userId); emitGroupState(userId); broadcastOnlineUsers();
+  socket.on('auth-restore',({token})=>{
+    const userId=sessionUserId(token);
+    const profile=userId?profiles.get(userId):null;
+    if(!userId || !profile){socket.emit('auth-required');return}
+    socket.data.userId=userId;
+    socket.data.username=profile.username;
+    socket.emit('auth-success',{token,profile:publicProfile(profile)});
+    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-logout', ({ token }) => {
-    const tokenHash=hashSessionToken(token);
-    const session=sessions.get(tokenHash);
-    if(session?.userId===socket.data.userId) sessions.delete(tokenHash);
-    if(socket.data.voiceRoom) socket.leave(socket.data.voiceRoom);
-    socket.data.userId=null; socket.data.username=null; socket.data.voiceRoom=null;
-    saveServersToDisk(); socket.emit('auth-logout-success'); broadcastOnlineUsers();
+  socket.on('auth-logout',({token})=>{
+    const hash=tokenHash(token);
+    const session=sessions.get(hash);
+    if(session?.userId===socket.data.userId) sessions.delete(hash);
+    socket.data.userId=null;
+    socket.data.username=null;
+    saveServersToDisk();
+    socket.emit('auth-logout-success');
+    broadcastOnlineUsers();
   });
 
-  socket.on('delete-account', ({ token }) => {
-    const userId=userIdFromSessionToken(token);
-    if(!userId || userId!==socket.data.userId){socket.emit('auth-error',{error:'Sessão inválida.'}); return;}
-    const profile=profiles.get(userId); const username=profile?.username||'';
-    for(const [serverId,serverData] of [...servers.entries()]){
-      if(serverData.ownerId===userId){servers.delete(serverId); continue;}
-      serverData.members=(serverData.members||[]).filter(id=>id!==userId);
-      for(const role of serverData.roles||[]){
-        role.members=(role.members||[]).filter(member=>String(member||'').toLowerCase()!==String(username).toLowerCase());
+  socket.on('delete-account',({token})=>{
+    const userId=sessionUserId(token);
+    if(!userId || userId!==socket.data.userId){
+      socket.emit('auth-error',{error:'Sessão inválida.'});return;
+    }
+    const profile=profiles.get(userId);
+    const username=profile?.username||'';
+
+    for(const [serverId,s] of [...servers.entries()]){
+      if(s.ownerId===userId){servers.delete(serverId);continue}
+      s.members=(s.members||[]).filter(id=>id!==userId);
+      for(const role of s.roles||[]){
+        role.members=(role.members||[]).filter(member=>String(member||'').toLowerCase()!==username.toLowerCase());
       }
     }
-    for(let i=friendRequests.length-1;i>=0;i--){const r=friendRequests[i]; if(r.fromUserId===userId||r.toUserId===userId) friendRequests.splice(i,1);}
-    for(let i=friendships.length-1;i>=0;i--){const p=friendships[i]; if(p.a===userId||p.b===userId) friendships.splice(i,1);}
-    for(let i=directMessages.length-1;i>=0;i--){const m=directMessages[i]; if(m.fromUserId===userId||m.toUserId===userId) directMessages.splice(i,1);}
+    for(let i=friendRequests.length-1;i>=0;i--){
+      if(friendRequests[i].fromUserId===userId || friendRequests[i].toUserId===userId) friendRequests.splice(i,1);
+    }
+    for(let i=friendships.length-1;i>=0;i--){
+      if(friendships[i].a===userId || friendships[i].b===userId) friendships.splice(i,1);
+    }
+    for(let i=directMessages.length-1;i>=0;i--){
+      if(directMessages[i].fromUserId===userId || directMessages[i].toUserId===userId) directMessages.splice(i,1);
+    }
     for(const [groupId,group] of [...privateGroups.entries()]){
-      if(group.ownerId===userId){privateGroups.delete(groupId); continue;}
+      if(group.ownerId===userId){privateGroups.delete(groupId);continue}
       group.members=(group.members||[]).filter(id=>id!==userId);
       group.messages=(group.messages||[]).filter(message=>message.userId!==userId);
       if(group.members.length<2) privateGroups.delete(groupId);
     }
-    removeUserSessions(userId); accounts.delete(userId); profiles.delete(userId);
-    socket.data.userId=null; socket.data.username=null; socket.data.voiceRoom=null;
-    saveServersToDisk(); broadcastServerLists(); broadcastOnlineUsers(); socket.emit('account-deleted');
+    clearSessionsForUser(userId);
+    accounts.delete(userId);profiles.delete(userId);
+    socket.data.userId=null;socket.data.username=null;
+    saveServersToDisk();broadcastServerLists();broadcastOnlineUsers();
+    socket.emit('account-deleted');
   });
 
   socket.on('set-username', ({ username }) => {
     if(!socket.data.userId) return;
-    const safeUsername=normalizeAccountUsername(username);
-    if(!validAccountUsername(safeUsername) || usernameTaken(safeUsername,socket.data.userId)) return;
-    socket.data.username=safeUsername;
+    const safe=normalizeAccountUsername(username);
+    if(safe.length<3 || usernameExists(safe,socket.data.userId)) return;
+    socket.data.username=safe;
     broadcastOnlineUsers();
   });
 
-  socket.on('set-profile', ({ username, bio, avatar, knownServerIds }) => {
+  socket.on('set-profile', ({ username, displayName, bio, avatar, banner, status, knownServerIds }) => {
     const safeId=String(socket.data.userId||'').trim().slice(0,100);
     if(!safeId || !accounts.has(safeId)) return;
+
     const oldProfile=profiles.get(safeId);
     const oldName=oldProfile?.username||null;
     const safeUsername=normalizeAccountUsername(username);
-    if(!validAccountUsername(safeUsername)){socket.emit('profile-error',{error:'O nome precisa ter entre 3 e 30 caracteres.'}); return;}
-    if(usernameTaken(safeUsername,safeId)){socket.emit('profile-error',{error:'Esse nome já está sendo usado.'}); return;}
-    const profile = {
-      id: safeId,
-      username: safeUsername,
-      bio: String(bio || '').trim().slice(0, 160),
-      avatar: String(avatar || '').slice(0, 350000)
+
+    if(safeUsername.length<3){
+      socket.emit('profile-error',{error:'O nome precisa ter pelo menos 3 caracteres.'});return;
+    }
+    if(usernameExists(safeUsername,safeId)){
+      socket.emit('profile-error',{error:'Esse nome já está sendo usado.'});return;
+    }
+
+    const profile={
+      id:safeId,
+      username:safeUsername,
+      displayName:String(displayName||safeUsername).trim().slice(0,40)||safeUsername,
+      bio:String(bio||'').trim().slice(0,300),
+      avatar:String(avatar||'').slice(0,350000),
+      banner:String(banner||'').slice(0,350000),
+      status:['online','away','busy','invisible'].includes(status)?status:'online',
+      createdAt:Number(oldProfile?.createdAt||Date.now())
     };
 
     profiles.set(safeId, profile);
     const account=accounts.get(safeId);
-    if(account){account.username=profile.username; account.usernameKey=accountUsernameKey(profile.username);}
+    if(account){
+      account.username=profile.username;
+      account.usernameKey=usernameKey(profile.username);
+    }
 
     if (oldName && oldName.toLowerCase() !== profile.username.toLowerCase()) {
       for (const serverData of servers.values()) {
@@ -9262,30 +9626,80 @@ io.on('connection', socket => {
     socket.emit('text-history', s.messages.get(channelId) || []);
   });
 
-  socket.on('chat-message', ({ serverId, channelId, username, text }) => {
-    const s = servers.get(serverId);
-    if (!s || !requireServerAccess(s,socket) || !s.textChannels.some(c => c.id === channelId)) return;
+  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment }) => {
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    if(!s.textChannels.some(channel=>channel.id===channelId)) return;
 
-    const safeText = String(text || '').trim().slice(0, 500);
-    if (!safeText) return;
+    const cleanText=String(text||'').trim().slice(0,2000);
+    const safeAttachment=
+      attachment &&
+      String(attachment.type||'').startsWith('image/') &&
+      String(attachment.data||'').startsWith('data:image/') &&
+      String(attachment.data||'').length<=900000
+        ? {
+            name:String(attachment.name||'imagem').slice(0,80),
+            type:String(attachment.type||'').slice(0,80),
+            data:String(attachment.data||'')
+          }
+        : null;
 
-    const message = {
-      id: id(),
-      senderId: socket.id,
-      username: cleanName(username),
-      text: safeText,
-      serverId,
-      channelId,
-      at: Date.now()
+    if(!cleanText && !safeAttachment) return;
+
+    const history=s.messages.get(channelId)||[];
+    const message={
+      id:id(),serverId,channelId,senderId:socket.id,userId:socket.data.userId,
+      username:socket.data.username||'Usuário',text:cleanText,attachment:safeAttachment,
+      replyTo:String(replyTo||'').slice(0,80)||null,reactions:{},at:Date.now(),edited:false
     };
-
-    const history = s.messages.get(channelId) || [];
     history.push(message);
-    while (history.length > 100) history.shift();
-    s.messages.set(channelId, history);
+    if(history.length>500) history.splice(0,history.length-500);
+    s.messages.set(channelId,history);
     saveServersToDisk();
+    io.to(`text:${serverId}:${channelId}`).emit('chat-message',message);
+  });
 
-    io.to(`text:${serverId}:${channelId}`).emit('chat-message', message);
+  socket.on('chat-edit',({serverId,channelId,messageId,text})=>{
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    const history=s.messages.get(channelId)||[];
+    const message=history.find(item=>item.id===messageId);
+    if(!message || message.userId!==socket.data.userId) return;
+    message.text=String(text||'').trim().slice(0,2000);
+    message.edited=true;
+    saveServersToDisk();
+    io.to(`text:${serverId}:${channelId}`).emit('chat-message-updated',message);
+  });
+
+  socket.on('chat-delete',({serverId,channelId,messageId})=>{
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    const history=s.messages.get(channelId)||[];
+    const index=history.findIndex(item=>item.id===messageId);
+    if(index<0) return;
+    const message=history[index];
+    const canManage=message.userId===socket.data.userId || hasServerPermission(s,socket,'manageServer');
+    if(!canManage) return;
+    history.splice(index,1);
+    saveServersToDisk();
+    io.to(`text:${serverId}:${channelId}`).emit('chat-message-deleted',{messageId});
+  });
+
+  socket.on('chat-react',({serverId,channelId,messageId,emoji})=>{
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    const allowed=['👍','❤️','😂','🔥','😮','😢'];
+    if(!allowed.includes(emoji)) return;
+    const history=s.messages.get(channelId)||[];
+    const message=history.find(item=>item.id===messageId);
+    if(!message) return;
+    message.reactions=message.reactions||{};
+    const users=new Set(message.reactions[emoji]||[]);
+    if(users.has(socket.data.userId)) users.delete(socket.data.userId);
+    else users.add(socket.data.userId);
+    message.reactions[emoji]=[...users].slice(0,500);
+    saveServersToDisk();
+    io.to(`text:${serverId}:${channelId}`).emit('chat-message-updated',message);
   });
 
   function leaveVoiceRoom() {
@@ -9445,6 +9859,30 @@ io.on('connection', socket => {
   });
 
 
+
+  socket.on('stage-raise-hand',({serverId,channelId})=>{
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+    const channel=s.voiceChannels.find(item=>item.id===channelId);
+    if(!channel || channel.mode!=='stage') return;
+    io.to(`voice:${serverId}:${channelId}`).emit('stage-hand-raised',{
+      socketId:socket.id,userId:socket.data.userId,username:socket.data.username||'Usuário'
+    });
+  });
+
+  socket.on('server-kick-member',({serverId,userId})=>{
+    const s=servers.get(serverId);
+    if(!s || !hasServerPermission(s,socket,'manageServer')) return;
+    const targetId=String(userId||'').slice(0,100);
+    if(!targetId || targetId===s.ownerId) return;
+    s.members=(s.members||[]).filter(id=>id!==targetId);
+    recordAudit(serverId,'kick',socket.data.username,targetId);
+    saveServersToDisk();
+    broadcastServerLists();
+    for(const client of io.sockets.sockets.values()){
+      if(client.data.userId===targetId) client.emit('removed-from-server',{serverId});
+    }
+  });
 
   socket.on('leave-voice', leaveVoiceRoom);
 
