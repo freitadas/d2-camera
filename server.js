@@ -3610,6 +3610,8 @@ $('#loginBtn').addEventListener('click',()=>{
   localStorage.setItem('ecord-name',name);
   refreshOwnProfileUI();
   $('#login').classList.add('hidden');
+
+  // Sempre entra na tela de Amigos.
   setView('friends');
 
   socket.emit('set-profile',{
@@ -3906,39 +3908,52 @@ socket.on('server-list',list=>{
     renderServers();
     renderSidebar();
     renderRoles();
-    setView('home');
 
-    $('#topTitle').textContent = 'e-cord';
-    $('#topSub').textContent = 'Crie seu primeiro servidor';
+    // A tela inicial do e-cord é sempre Amigos.
+    setView('friends');
+    $('#topTitle').textContent = '👥 Amigos';
+    $('#topSub').textContent = 'seus amigos e chamadas';
     return;
   }
 
-  if(
-    requested &&
-    !state.inviteApplied &&
-    state.servers.some(server=>server.id===requested)
-  ){
-    state.inviteApplied = true;
-    selectServer(requested);
-    return;
-  }
-
+  // Mantém um servidor selecionado em segundo plano,
+  // mas NÃO abre o servidor automaticamente.
   if(!state.serverId){
-    const chosen = state.servers.find(server=>server.id===requested) || state.servers[0];
-    if(chosen) selectServer(chosen.id);
+    const chosen =
+      state.servers.find(server=>server.id===requested) ||
+      state.servers[0];
+
+    if(chosen){
+      state.serverId = chosen.id;
+      state.textChannelId = chosen.textChannels?.[0]?.id || null;
+      state.voiceChannelId = chosen.voiceChannels?.[0]?.id || null;
+    }
+
+    renderServers();
+    renderSidebar();
+    renderRoles();
+
+    // Mesmo com servidores existentes, fica em Amigos.
+    setView('friends');
     return;
   }
 
   const still = state.servers.find(server=>server.id===state.serverId);
 
   if(!still){
-    selectServer(state.servers[0].id);
-    return;
+    const fallback = state.servers[0];
+
+    state.serverId = fallback?.id || null;
+    state.textChannelId = fallback?.textChannels?.[0]?.id || null;
+    state.voiceChannelId = fallback?.voiceChannels?.[0]?.id || null;
   }
 
   renderServers();
   renderSidebar();
   renderRoles();
+
+  // Se o usuário já estiver dentro de um servidor, não força troca de tela.
+  // Se acabou de entrar no e-cord, Amigos continua sendo a tela inicial.
 });
 
 socket.on('server-settings-updated',({serverId,message})=>{
