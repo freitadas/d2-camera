@@ -763,6 +763,28 @@ const APP_HTML = String.raw`<!doctype html>
   --coral:#ff6b4a;--coral2:#ff8062;--mint:#41d99a;--mintbg:#153d2c;--danger:#df4c4c;
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
+
+/* Temas opcionais. Sem escolha, o site continua exatamente no tema original. */
+html[data-theme="black"]{
+  --bg0:#050506;--bg1:#0b0b0d;--bg2:#141417;--bg3:#1d1d21;--bg4:#28282e;
+  --line:#35353c;--text:#f4f4f5;--muted:#b3b3ba;--low:#7d7d87;
+  --coral:#e5e5e7;--coral2:#ffffff;--mint:#bfc3ca;--mintbg:#202126;--danger:#df4c4c;
+}
+html[data-theme="white"]{
+  --bg0:#edf1f5;--bg1:#ffffff;--bg2:#f4f6f8;--bg3:#e7ebf0;--bg4:#dce2e9;
+  --line:#c9d1da;--text:#171a1f;--muted:#505966;--low:#788391;
+  --coral:#4d6fff;--coral2:#6683ff;--mint:#3d67d9;--mintbg:#e2e9ff;--danger:#c93c48;
+}
+html[data-theme="blue"]{
+  --bg0:#07101f;--bg1:#0b172b;--bg2:#10213b;--bg3:#162c4b;--bg4:#1d385e;
+  --line:#285079;--text:#f3f8ff;--muted:#adc3dd;--low:#7896b7;
+  --coral:#4e8cff;--coral2:#6fa2ff;--mint:#53a7ff;--mintbg:#102e52;--danger:#e25264;
+}
+html[data-theme="purple"]{
+  --bg0:#100b19;--bg1:#181123;--bg2:#221830;--bg3:#2c1f40;--bg4:#38284f;
+  --line:#4a3761;--text:#faf7ff;--muted:#cabee0;--low:#9586ad;
+  --coral:#9b6cff;--coral2:#b28cff;--mint:#a87dff;--mintbg:#2b1c48;--danger:#df4c67;
+}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:var(--bg0);color:var(--text)}
 body{overflow:hidden}
@@ -913,6 +935,31 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .modal{width:min(430px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 25px 80px rgba(0,0,0,.45)}
 .modal h2{margin:0 0 7px}.modal p{margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
 .modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.profileThemeChoices{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:8px}
+.profileThemeBtn{
+  border:1px solid var(--line);
+  background:var(--bg2);
+  color:var(--text);
+  border-radius:10px;
+  padding:8px 5px;
+  font-size:11px;
+  font-weight:800;
+}
+.profileThemeBtn:hover{background:var(--bg3)}
+.profileThemeBtn.active{outline:2px solid var(--coral);outline-offset:1px}
+.profileThemeDot{
+  display:block;
+  width:25px;height:25px;
+  margin:0 auto 5px;
+  border-radius:8px;
+  border:1px solid rgba(127,127,127,.35);
+}
+.profileThemeDot.default{background:linear-gradient(135deg,#07110e,#41d99a)}
+.profileThemeDot.black{background:linear-gradient(135deg,#050506,#33343a)}
+.profileThemeDot.white{background:linear-gradient(135deg,#ffffff,#dce2e9)}
+.profileThemeDot.blue{background:linear-gradient(135deg,#07101f,#4e8cff)}
+.profileThemeDot.purple{background:linear-gradient(135deg,#100b19,#9b6cff)}
+@media(max-width:560px){.profileThemeChoices{grid-template-columns:repeat(3,1fr)}}
 
 .login{
   position:fixed;inset:0;z-index:2000000;
@@ -1994,6 +2041,29 @@ body.locked{overflow:hidden!important}
     <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Bio</label>
     <textarea id="profileBioInput" maxlength="160" placeholder="Ex.: Jogando com a galera..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
 
+    <div style="margin-top:16px;">
+      <div style="color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Aparência do site</div>
+      <div style="color:var(--muted);font-size:11px;">Opcional. Escolha uma cor ou deixe em Padrão.</div>
+
+      <div id="profileThemeChoices" class="profileThemeChoices">
+        <button type="button" class="profileThemeBtn" data-profile-theme="default">
+          <span class="profileThemeDot default"></span>Padrão
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="black">
+          <span class="profileThemeDot black"></span>Preto
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="white">
+          <span class="profileThemeDot white"></span>Branco
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="blue">
+          <span class="profileThemeDot blue"></span>Azul
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="purple">
+          <span class="profileThemeDot purple"></span>Roxo
+        </button>
+      </div>
+    </div>
+
     <div class="modalActions">
       <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
       <button id="profileSaveBtn" class="btn primary">Salvar perfil</button>
@@ -2097,6 +2167,8 @@ const state = {
   username: localStorage.getItem('ecord-name') || '',
   bio: localStorage.getItem('ecord-bio') || '',
   avatar: localStorage.getItem('ecord-avatar') || '',
+  theme: localStorage.getItem('ecord-theme') || 'default',
+  pendingTheme: null,
   servers: [],
   serverId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-server-id') || null) : null,
   textChannelId: PAGE_WAS_RELOADED ? (localStorage.getItem('ecord-last-text-channel-id') || null) : null,
@@ -2147,6 +2219,8 @@ const state = {
   restoringReload: PAGE_WAS_RELOADED,
   profileReady: false
 };
+
+applyProfileTheme(state.theme);
 
 const rtcConfig = {
   iceServers: [
@@ -2204,6 +2278,40 @@ function applyAvatar(el, profile, fallbackName){
   }
 }
 
+
+const PROFILE_THEMES = ['default','black','white','blue','purple'];
+
+function normalizeProfileTheme(theme){
+  return PROFILE_THEMES.includes(theme) ? theme : 'default';
+}
+
+function applyProfileTheme(theme){
+  const selected = normalizeProfileTheme(theme);
+
+  if(selected === 'default'){
+    document.documentElement.removeAttribute('data-theme');
+  }else{
+    document.documentElement.setAttribute('data-theme',selected);
+  }
+}
+
+function updateProfileThemeButtons(){
+  const selected = normalizeProfileTheme(state.pendingTheme || state.theme);
+
+  document.querySelectorAll('[data-profile-theme]').forEach(button=>{
+    button.classList.toggle(
+      'active',
+      button.dataset.profileTheme === selected
+    );
+  });
+}
+
+function previewProfileTheme(theme){
+  state.pendingTheme = normalizeProfileTheme(theme);
+  applyProfileTheme(state.pendingTheme);
+  updateProfileThemeButtons();
+}
+
 function refreshOwnProfileUI(){
   $('#userName').textContent = state.username || 'Você';
   $('#userBioMini').textContent = state.bio
@@ -2223,6 +2331,7 @@ function refreshOwnProfileUI(){
 
 function openProfileModal(){
   state.pendingAvatar = state.avatar || '';
+  state.pendingTheme = normalizeProfileTheme(state.theme);
   $('#profileNameInput').value = state.username || '';
   $('#profileBioInput').value = state.bio || '';
   $('#profilePhotoInput').value = '';
@@ -2233,12 +2342,19 @@ function openProfileModal(){
     state.username
   );
 
+  updateProfileThemeButtons();
   $('#profileModalWrap').classList.remove('hidden');
 }
 
 function closeProfileModal(){
   $('#profileModalWrap').classList.add('hidden');
+
+  if(state.pendingTheme !== null){
+    applyProfileTheme(state.theme);
+  }
+
   state.pendingAvatar = null;
+  state.pendingTheme = null;
 }
 
 function fileToAvatar(file){
@@ -2292,6 +2408,11 @@ function saveProfile(){
     toast('Digite um nome');
     return;
   }
+
+  state.theme = normalizeProfileTheme(state.pendingTheme || state.theme);
+  localStorage.setItem('ecord-theme',state.theme);
+  applyProfileTheme(state.theme);
+  state.pendingTheme = null;
 
   socket.emit('set-profile',{
     userId:state.userId,
@@ -5362,6 +5483,12 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
+
+document.querySelectorAll('[data-profile-theme]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    previewProfileTheme(button.dataset.profileTheme);
+  });
+});
 $('#removeProfilePhotoBtn').addEventListener('click',()=>{
   state.pendingAvatar = '';
   applyAvatar(
