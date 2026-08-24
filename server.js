@@ -57,6 +57,7 @@ const id = () => crypto.randomBytes(5).toString('hex');
 const DATA_FILE = process.env.ECORD_DATA_FILE || path.join(process.cwd(), 'ecord-data.json');
 const servers = new Map();
 const profiles = new Map();
+const directMessages = [];
 
 function normalizeChannelList(list, fallbackName) {
   if (!Array.isArray(list) || !list.length) {
@@ -119,11 +120,19 @@ function normalizeRoles(list) {
           )].slice(0, 100)
         : [];
 
+      const rawPermissions = role.permissions || {};
+
       return {
         id: String(role.id || id()).slice(0, 80),
         name: String(role.name || 'Cargo').trim().slice(0, 30) || 'Cargo',
         color,
-        members
+        members,
+        permissions: {
+          administrator: !!rawPermissions.administrator,
+          manageServer: !!rawPermissions.manageServer,
+          manageChannels: !!rawPermissions.manageChannels,
+          manageRoles: !!rawPermissions.manageRoles
+        }
       };
     });
 }
@@ -148,8 +157,18 @@ function makeServer(name = 'e-cord', options = {}) {
     messages.set(channel.id, history);
   }
 
+  const ownerId = String(options.ownerId || '').trim().slice(0, 100);
+  const members = Array.isArray(options.members)
+    ? [...new Set(options.members.map(value => String(value || '').trim().slice(0,100)).filter(Boolean))]
+    : (ownerId ? [ownerId] : []);
+
+  if (ownerId && !members.includes(ownerId)) members.unshift(ownerId);
+
   const data = {
     id: serverId,
+    ownerId,
+    members,
+    inviteToken: String(options.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
     name: String(name || 'Servidor').trim().slice(0, 30) || 'Servidor',
     icon: String(options.icon || '').slice(0, 350000),
     accent: /^#[0-9a-f]{6}$/i.test(String(options.accent || ''))
@@ -179,9 +198,23 @@ function serializeProfiles() {
   }));
 }
 
+function serializeDirectMessages() {
+  return directMessages.slice(-5000).map(message => ({
+    id: String(message.id || '').slice(0,80),
+    fromUserId: String(message.fromUserId || '').slice(0,100),
+    toUserId: String(message.toUserId || '').slice(0,100),
+    fromUsername: String(message.fromUsername || 'Usuário').slice(0,30),
+    text: String(message.text || '').slice(0,1000),
+    at: Number(message.at || Date.now())
+  }));
+}
+
 function serializeServers() {
   return [...servers.values()].map(serverData => ({
     id: serverData.id,
+    ownerId: serverData.ownerId,
+    members: serverData.members,
+    inviteToken: serverData.inviteToken,
     name: serverData.name,
     icon: serverData.icon,
     accent: serverData.accent,
@@ -201,9 +234,10 @@ function saveServersToDisk() {
     fs.writeFileSync(
       tmp,
       JSON.stringify({
-        version: 3,
+        version: 4,
         servers: serializeServers(),
-        profiles: serializeProfiles()
+        profiles: serializeProfiles(),
+        directMessages: serializeDirectMessages()
       }, null, 2),
       'utf8'
     );
@@ -220,6 +254,22 @@ function loadServersFromDisk() {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     const list = Array.isArray(parsed?.servers) ? parsed.servers : [];
     const savedProfiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
+    const savedDirectMessages = Array.isArray(parsed?.directMessages) ? parsed.directMessages : [];
+
+    directMessages.splice(0,directMessages.length);
+
+    for (const message of savedDirectMessages.slice(-5000)) {
+      if (!message?.fromUserId || !message?.toUserId || !message?.text) continue;
+
+      directMessages.push({
+        id: String(message.id || id()).slice(0,80),
+        fromUserId: String(message.fromUserId).slice(0,100),
+        toUserId: String(message.toUserId).slice(0,100),
+        fromUsername: cleanName(message.fromUsername,'Usuário'),
+        text: String(message.text).slice(0,1000),
+        at: Number(message.at || Date.now())
+      });
+    }
 
     for (const raw of savedProfiles.slice(0, 5000)) {
       const profileId = String(raw?.id || '').trim().slice(0, 100);
@@ -236,6 +286,9 @@ function loadServersFromDisk() {
     for (const item of list) {
       makeServer(item.name, {
         id: item.id,
+        ownerId: item.ownerId,
+        members: item.members,
+        inviteToken: item.inviteToken,
         icon: item.icon,
         accent: item.accent,
         description: item.description,
@@ -264,6 +317,9 @@ function mergeRestoredServer(item) {
   if (!existing) {
     return makeServer(item.name || 'Servidor', {
       id: serverId,
+      ownerId: item.ownerId,
+      members: item.members,
+      inviteToken: item.inviteToken,
       icon: item.icon,
       accent: item.accent,
       description: item.description,
@@ -273,6 +329,21 @@ function mergeRestoredServer(item) {
       categories: item.categories,
       roles: item.roles
     });
+  }
+
+  if (item.ownerId && !existing.ownerId) {
+    existing.ownerId = String(item.ownerId).slice(0,100);
+  }
+
+  if (Array.isArray(item.members)) {
+    existing.members = [...new Set([
+      ...(existing.members || []),
+      ...item.members.map(value=>String(value || '').slice(0,100)).filter(Boolean)
+    ])];
+  }
+
+  if (item.inviteToken && !existing.inviteToken) {
+    existing.inviteToken = String(item.inviteToken).slice(0,100);
   }
 
   if (item.name) {
@@ -351,6 +422,7 @@ function mergeRestoredServer(item) {
         current.name = role.name;
         current.color = role.color;
         current.members = [...new Set([...(current.members || []), ...(role.members || [])])].slice(0, 100);
+        current.permissions = role.permissions || current.permissions || {};
       } else if (!knownRoles.has(role.id)) {
         existing.roles.push(role);
         knownRoles.add(role.id);
@@ -371,20 +443,80 @@ if (!loadServersFromDisk()) {
   saveServersToDisk();
 }
 
-function publicServers() {
-  return [...servers.values()].map(s => ({
-    id: s.id,
-    name: s.name,
-    icon: s.icon,
-    accent: s.accent,
-    description: s.description,
-    tags: s.tags,
-    textChannels: s.textChannels,
-    voiceChannels: s.voiceChannels,
-    categories: s.categories,
-    roles: s.roles
-  }));
+function publicServer(serverData) {
+  return {
+    id: serverData.id,
+    ownerId: serverData.ownerId,
+    inviteToken: serverData.inviteToken,
+    name: serverData.name,
+    icon: serverData.icon,
+    accent: serverData.accent,
+    description: serverData.description,
+    tags: serverData.tags,
+    textChannels: serverData.textChannels,
+    voiceChannels: serverData.voiceChannels,
+    categories: serverData.categories,
+    roles: serverData.roles
+  };
 }
+
+function publicServersForUser(userId) {
+  const safeUserId = String(userId || '').slice(0,100);
+  if (!safeUserId) return [];
+
+  return [...servers.values()]
+    .filter(serverData =>
+      serverData.ownerId === safeUserId ||
+      (serverData.members || []).includes(safeUserId)
+    )
+    .map(publicServer);
+}
+
+function sendServerList(socket) {
+  socket.emit('server-list', publicServersForUser(socket.data.userId));
+}
+
+function broadcastServerLists() {
+  for (const client of io.sockets.sockets.values()) {
+    sendServerList(client);
+  }
+}
+
+function userRoles(serverData, socket) {
+  const username = String(socket.data.username || '').toLowerCase();
+  if (!username) return [];
+
+  return (serverData.roles || []).filter(role =>
+    (role.members || []).some(member =>
+      String(member || '').toLowerCase() === username
+    )
+  );
+}
+
+function hasServerPermission(serverData, socket, permission) {
+  if (!serverData || !socket.data.userId) return false;
+  if (serverData.ownerId === socket.data.userId) return true;
+
+  const roles = userRoles(serverData,socket);
+
+  if (roles.some(role => role.permissions?.administrator)) return true;
+
+  return roles.some(role => !!role.permissions?.[permission]);
+}
+
+function requireServerAccess(serverData, socket) {
+  if (!serverData || !socket.data.userId) return false;
+
+  return serverData.ownerId === socket.data.userId ||
+    (serverData.members || []).includes(socket.data.userId);
+}
+
+function permissionDenied(socket) {
+  socket.emit('permission-error',{
+    error:'Você não tem permissão para fazer isso neste servidor'
+  });
+}
+
 
 function cleanName(value, fallback = 'Usuário') {
   return String(value || fallback).trim().slice(0, 30) || fallback;
@@ -1219,14 +1351,18 @@ body.locked{overflow:hidden!important}
     </div>
 
     <div class="sideScroll">
+      <button id="serverRolesBtn" class="navBtn" type="button">🛡 Cargos do servidor</button>
+
       <div class="groupHead">
         <span>Canais</span>
-        <span style="display:flex;align-items:center;gap:3px;">
-          <button id="addCategoryBtn" class="addChannel" title="Criar categoria">▣</button>
-          <button id="addTextBtn" class="addChannel" title="Criar chat">#</button>
-          <button id="addVoiceBtn" class="addChannel" title="Criar canal de voz">+</button>
-        </span>
       </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 2px 9px;">
+        <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
+        <button id="createVoiceQuickBtn" class="btn secondary small" type="button">🔊 Voz</button>
+      </div>
+
+      <button id="createCategoryQuickBtn" class="navBtn" type="button" style="font-size:12px;">▣ Criar categoria</button>
 
       <div id="channelTree"></div>
     </div>
@@ -1270,8 +1406,7 @@ body.locked{overflow:hidden!important}
           <div class="friendsHomeTop">
             <strong style="margin-right:8px;">e-cord</strong>
             <button id="hubFriendsBtn" class="friendTab active" type="button">👥 Amigos</button>
-            <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens</button>
-            <button id="hubRolesBtn" class="friendTab" type="button">🛡 Cargos</button>
+            <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens privadas</button>
             <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
@@ -1289,6 +1424,31 @@ body.locked{overflow:hidden!important}
         </div>
       </section>
 
+
+
+      <section id="dmView" class="view hidden">
+        <div style="height:100%;display:grid;grid-template-columns:250px minmax(0,1fr);min-height:0;">
+          <aside style="border-right:1px solid var(--line);background:var(--bg1);padding:12px;overflow:auto;">
+            <div style="font-weight:900;margin:5px 5px 12px;">Mensagens privadas</div>
+            <input id="dmSearch" placeholder="Buscar amigo" style="margin-bottom:10px;">
+            <div id="dmContacts"></div>
+          </aside>
+
+          <div style="display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--line);">
+              <strong id="dmTitle">Selecione um amigo</strong>
+              <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
+            </div>
+
+            <div id="dmMessages" class="messages"></div>
+
+            <div class="compose">
+              <input id="dmInput" maxlength="1000" placeholder="Selecione um amigo para conversar" disabled>
+              <button id="dmSendBtn" class="btn primary" disabled>Enviar</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section id="serverSettingsView" class="view hidden">
         <div class="serverSettings">
@@ -1534,6 +1694,31 @@ body.locked{overflow:hidden!important}
       </div>
     </div>
 
+
+    <div id="rolePermissionsWrap" class="hidden" style="margin-top:14px;">
+      <div style="color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Permissões do cargo</div>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permAdministrator" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Administrador</b><br><span style="color:var(--low);">Acesso total ao servidor.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageServer" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar servidor</b><br><span style="color:var(--low);">Alterar nome, ícone e configurações.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageChannels" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar canais</b><br><span style="color:var(--low);">Criar e organizar texto, voz e categorias.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageRoles" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar cargos</b><br><span style="color:var(--low);">Criar, editar e atribuir cargos.</span></span>
+      </label>
+    </div>
+
     <div class="modalActions">
       <button id="modalCancel" class="btn secondary">Cancelar</button>
       <button id="modalOk" class="btn primary">Criar</button>
@@ -1630,7 +1815,9 @@ const state = {
   pendingAvatar: null,
   serverSettingsIcon: null,
   serverSettingsAccent: '#ff6b4a',
-  friendsFilter: 'online'
+  friendsFilter: 'online',
+  dmTarget: null,
+  privateInviteHandled: false
 };
 
 const rtcConfig = {
@@ -1782,7 +1969,8 @@ function saveProfile(){
     userId:state.userId,
     username,
     bio,
-    avatar:String(state.pendingAvatar || '').slice(0,350000)
+    avatar:String(state.pendingAvatar || '').slice(0,350000),
+    knownServerIds:getCachedServers().map(server=>server.id)
   });
 }
 
@@ -1791,6 +1979,11 @@ function safeServerSnapshot(serverData){
 
   return {
     id:String(serverData.id),
+    ownerId:String(serverData.ownerId || '').slice(0,100),
+    members:Array.isArray(serverData.members)
+      ? serverData.members.map(value=>String(value||'').slice(0,100)).filter(Boolean)
+      : [],
+    inviteToken:String(serverData.inviteToken || '').slice(0,100),
     name:String(serverData.name || 'Servidor').slice(0,30),
     icon:String(serverData.icon || '').slice(0,350000),
     accent:/^#[0-9a-f]{6}$/i.test(String(serverData.accent||'')) ? String(serverData.accent) : '#ff6b4a',
@@ -1828,7 +2021,13 @@ function safeServerSnapshot(serverData){
           color:/^#[0-9a-f]{6}$/i.test(String(role.color||'')) ? String(role.color) : '#ff6b4a',
           members:Array.isArray(role.members)
             ? role.members.map(name=>String(name||'').slice(0,30)).filter(Boolean).slice(0,100)
-            : []
+            : [],
+          permissions:{
+            administrator:!!role.permissions?.administrator,
+            manageServer:!!role.permissions?.manageServer,
+            manageChannels:!!role.permissions?.manageChannels,
+            manageRoles:!!role.permissions?.manageRoles
+          }
         }))
       : []
   };
@@ -1908,7 +2107,9 @@ function setAppMode(mode){
 }
 
 function setView(name){
-  if(name==='friends' || name==='roles'){
+  const hubView = name==='friends' || name==='dm';
+
+  if(hubView){
     setAppMode('hub');
   }else{
     setAppMode('server');
@@ -1916,51 +2117,64 @@ function setView(name){
 
   $('#homeView').classList.toggle('hidden', name!=='home');
   $('#friendsView').classList.toggle('hidden', name!=='friends');
+  $('#dmView').classList.toggle('hidden', name!=='dm');
   $('#rolesView').classList.toggle('hidden', name!=='roles');
   $('#serverSettingsView').classList.toggle('hidden', name!=='settings');
   $('#chatView').classList.toggle('hidden', name!=='chat');
   $('#voiceView').classList.toggle('hidden', name!=='voice');
 
-  const inHomeHub = name==='friends' || name==='roles';
-  $('#homeHubBtn')?.classList.toggle('active', inHomeHub);
+  $('#homeHubBtn')?.classList.toggle('active', hubView);
 
   document.querySelectorAll('#serverRail .serverIcon').forEach(btn=>{
-    if(inHomeHub) btn.classList.remove('active');
+    if(hubView) btn.classList.remove('active');
   });
 
   $('#hubFriendsBtn')?.classList.toggle('active', name==='friends');
-  $('#hubRolesBtn')?.classList.toggle('active', name==='roles');
+  $('#hubMessagesBtn')?.classList.toggle('active', name==='dm');
+  $('#serverRolesBtn')?.classList.toggle('active', name==='roles');
 
   if(name==='home'){
     $('#topTitle').textContent = currentServer()?.name || 'e-cord';
-    $('#topSub').textContent = 'servidores, chat, voz, câmera e tela';
+    $('#topSub').textContent = 'servidor';
   }
+
   if(name==='friends'){
     $('#topTitle').textContent = '👥 Amigos';
-    $('#topSub').textContent = 'adicione e veja quem está online';
+    $('#topSub').textContent = 'seus amigos e chamadas';
     renderFriends();
   }
+
+  if(name==='dm'){
+    $('#topTitle').textContent = '✉ Mensagens privadas';
+    $('#topSub').textContent = 'conversas entre amigos';
+    renderDmContacts();
+  }
+
   if(name==='roles'){
     $('#topTitle').textContent = '🛡 Cargos';
     $('#topSub').textContent = currentServer()?.name || '';
     renderRoles();
   }
+
   if(name==='settings'){
     $('#topTitle').textContent = '⚙ Configurações do servidor';
     $('#topSub').textContent = currentServer()?.name || '';
     openServerSettings();
   }
+
   if(name==='chat'){
     const c = currentText();
     $('#topTitle').textContent = c ? '# '+c.name : '# chat';
     $('#topSub').textContent = currentServer()?.name || '';
   }
+
   if(name==='voice'){
     const c = currentVoice();
     $('#topTitle').textContent = c ? ')) '+c.name : ')) voz';
     $('#topSub').textContent = currentServer()?.name || '';
   }
 }
+
 
 function renderServers(){
   const rail = $('#serverRail');
@@ -2368,40 +2582,81 @@ function renderSettingsMembers(){
   const box = $('#settingsMembersList');
   box.innerHTML = '';
 
-  const users = Array.isArray(state.onlineUsers) ? state.onlineUsers : [];
+  const server = currentServer();
+  if(!server){
+    return;
+  }
 
-  if(!users.length){
+  const memberIds = new Set([
+    server.ownerId,
+    ...(server.members || [])
+  ].filter(Boolean));
+
+  const knownProfiles = [];
+
+  for(const user of state.onlineUsers){
+    if(memberIds.has(user.id)){
+      knownProfiles.push(user);
+    }
+  }
+
+  const ownProfile = {
+    id:state.userId,
+    username:state.username,
+    bio:state.bio,
+    avatar:state.avatar
+  };
+
+  if(memberIds.has(state.userId) && !knownProfiles.some(item=>item.id===state.userId)){
+    knownProfiles.unshift(ownProfile);
+  }
+
+  if(!knownProfiles.length){
     const empty = document.createElement('div');
-    empty.className = 'settingsCard';
-    empty.style.color = 'var(--low)';
-    empty.textContent = 'Nenhum usuário online agora.';
+    empty.className='settingsCard';
+    empty.style.color='var(--low)';
+    empty.textContent='Os membros aparecerão aqui quando estiverem online.';
     box.appendChild(empty);
     return;
   }
 
-  users.forEach(user=>{
-    const row = document.createElement('div');
-    row.className = 'settingsMember';
+  knownProfiles.forEach(user=>{
+    const row=document.createElement('div');
+    row.className='settingsMember';
 
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar';
+    const avatar=document.createElement('div');
+    avatar.className='avatar';
     applyAvatar(avatar,user,user.username);
 
-    const meta = document.createElement('div');
-    meta.style.flex = '1';
+    const meta=document.createElement('div');
+    meta.style.flex='1';
 
-    const name = document.createElement('strong');
-    name.textContent = user.username || 'Usuário';
+    const role=primaryRoleForUser(user.username);
 
-    const status = document.createElement('div');
-    status.style.cssText = 'font-size:11px;color:var(--mint);margin-top:2px;';
-    status.textContent = '● Online';
+    const name=document.createElement('strong');
+    name.textContent=user.username;
 
-    meta.append(name,status);
+    if(role){
+      name.style.color=role.color;
+
+      const roleLine=document.createElement('div');
+      roleLine.textContent='[' + role.name + ']';
+      roleLine.style.cssText='font-size:10px;font-weight:900;color:' + role.color + ';margin-bottom:2px;';
+      meta.append(roleLine,name);
+    }else{
+      meta.appendChild(name);
+    }
+
+    const status=document.createElement('div');
+    status.style.cssText='font-size:11px;color:var(--mint);margin-top:2px;';
+    status.textContent=user.id===server.ownerId ? 'Dono do servidor' : '● Online';
+    meta.appendChild(status);
+
     row.append(avatar,meta);
     box.appendChild(row);
   });
 }
+
 
 async function readServerIcon(file){
   if(!file) return '';
@@ -2532,7 +2787,15 @@ function appendMessage(m){
   const row = document.createElement('div');
   row.className = 'message' + (m.senderId===socket.id ? ' mine' : '');
   const strong = document.createElement('strong');
-  strong.textContent = m.username;
+  const role = primaryRoleForUser(m.username);
+
+  strong.textContent = role
+    ? '[' + role.name + '] ' + m.username
+    : m.username;
+
+  if(role){
+    strong.style.color = role.color;
+  }
   const span = document.createElement('span');
   span.textContent = m.text;
   row.append(strong,span);
@@ -2844,6 +3107,120 @@ function renderFriends(){
   renderActiveFriends();
 }
 
+
+function renderDmContacts(){
+  const box = $('#dmContacts');
+  if(!box) return;
+
+  const search = String($('#dmSearch')?.value || '').trim().toLowerCase();
+  const friends = getFriends().filter(friend =>
+    !search || String(friend.username || '').toLowerCase().includes(search)
+  );
+
+  box.innerHTML = '';
+
+  if(!friends.length){
+    const empty = document.createElement('div');
+    empty.style.cssText='color:var(--low);font-size:12px;padding:12px 5px;';
+    empty.textContent='Adicione amigos para iniciar conversas privadas.';
+    box.appendChild(empty);
+    return;
+  }
+
+  friends.forEach(friend=>{
+    const live = state.onlineUsers.find(user =>
+      (friend.id && user.id===friend.id) ||
+      String(user.username||'').toLowerCase()===String(friend.username||'').toLowerCase()
+    );
+
+    const profile = live || friend;
+    const btn = document.createElement('button');
+    btn.type='button';
+    btn.className='navBtn';
+    btn.style.cssText='display:flex;align-items:center;gap:9px;margin-bottom:3px;';
+
+    const avatar=document.createElement('div');
+    avatar.className='avatar';
+    avatar.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;';
+    applyAvatar(avatar,profile,profile.username);
+
+    const name=document.createElement('span');
+    name.textContent=profile.username;
+    name.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+    btn.append(avatar,name);
+    btn.addEventListener('click',()=>openDm(profile));
+    box.appendChild(btn);
+  });
+}
+
+function openDm(profile){
+  if(!profile?.username) return;
+
+  const resolved = state.onlineUsers.find(user =>
+    (profile.id && user.id===profile.id) ||
+    String(user.username||'').toLowerCase()===String(profile.username||'').toLowerCase()
+  ) || profile;
+
+  state.dmTarget = {
+    id:resolved.id || profile.id || null,
+    username:resolved.username || profile.username
+  };
+
+  $('#dmTitle').textContent = state.dmTarget.username;
+  $('#dmSubtitle').textContent = 'Mensagem privada';
+  $('#dmInput').disabled = false;
+  $('#dmSendBtn').disabled = false;
+  $('#dmInput').placeholder = 'Mensagem para ' + state.dmTarget.username;
+  $('#dmMessages').innerHTML = '';
+
+  socket.emit('dm-history',{
+    targetUserId:state.dmTarget.id,
+    targetUsername:state.dmTarget.username
+  });
+
+  $('#dmInput').focus();
+}
+
+function appendDmMessage(message){
+  if(!message) return;
+
+  const mine = message.fromUserId === state.userId;
+  const row = document.createElement('div');
+  row.className = 'message' + (mine ? ' mine' : '');
+
+  const strong = document.createElement('strong');
+  strong.textContent = mine ? state.username : message.fromUsername;
+
+  const span = document.createElement('span');
+  span.textContent = message.text || '';
+
+  row.append(strong,span);
+  $('#dmMessages').appendChild(row);
+  $('#dmMessages').scrollTop = $('#dmMessages').scrollHeight;
+}
+
+function sendDm(){
+  const input = $('#dmInput');
+  const text = input.value.trim().slice(0,1000);
+
+  if(!text || !state.dmTarget) return;
+
+  socket.emit('dm-message',{
+    targetUserId:state.dmTarget.id,
+    targetUsername:state.dmTarget.username,
+    text
+  });
+
+  input.value='';
+  input.focus();
+}
+
+function primaryRoleForUser(username){
+  const roles = roleNamesForUser(username);
+  return roles.length ? roles[0] : null;
+}
+
 function roleNamesForUser(username){
   const server = currentServer();
   if(!server || !Array.isArray(server.roles)) return [];
@@ -2897,7 +3274,28 @@ function renderRoles(){
       ? String(list.length) + ' membro' + (list.length === 1 ? '' : 's') + ' · ' + list.join(', ')
       : 'Nenhum membro com este cargo';
 
-    meta.append(name, members);
+    const perms = document.createElement('div');
+    perms.style.cssText='font-size:10px;color:var(--low);margin-top:4px;';
+
+    const enabledPerms = [];
+    if(role.permissions?.administrator) enabledPerms.push('Administrador');
+    if(role.permissions?.manageServer) enabledPerms.push('Gerenciar servidor');
+    if(role.permissions?.manageChannels) enabledPerms.push('Gerenciar canais');
+    if(role.permissions?.manageRoles) enabledPerms.push('Gerenciar cargos');
+
+    perms.textContent = enabledPerms.length
+      ? enabledPerms.join(' · ')
+      : 'Sem permissões especiais';
+
+    meta.append(name, members, perms);
+
+    const edit = document.createElement('button');
+    edit.className = 'btn secondary small';
+    edit.textContent = 'Editar';
+    edit.addEventListener('click',()=>{
+      state.selectedRoleId = role.id;
+      openModal('editRole');
+    });
 
     const assign = document.createElement('button');
     assign.className = 'btn secondary small';
@@ -2919,7 +3317,7 @@ function renderRoles(){
       }
     });
 
-    row.append(color, meta, assign, remove);
+    row.append(color, meta, edit, assign, remove);
     box.appendChild(row);
   });
 }
@@ -2932,7 +3330,8 @@ function openModal(type){
     voice:['Criar canal de voz','Digite o nome do novo canal de voz.','Ex.: Jogos'],
     category:['Criar categoria','Digite o nome da nova categoria.','Ex.: Jogos'],
     friend:['Adicionar amigo','Digite exatamente o nome do seu amigo no e-cord.','Ex.: Davi'],
-    role:['Criar cargo','Escolha um nome e uma cor para o cargo.','Ex.: Moderador'],
+    role:['Criar cargo','Escolha nome, cor e permissões do cargo.','Ex.: Moderador'],
+    editRole:['Editar cargo','Altere nome, cor e permissões do cargo.','Ex.: Administrador'],
     assignRole:['Atribuir cargo','Digite exatamente o nome da pessoa que receberá o cargo.','Ex.: Davi']
   }[type];
 
@@ -2941,16 +3340,37 @@ function openModal(type){
   $('#modalInput').placeholder = cfg[2];
   $('#modalInput').value = '';
 
-  $('#roleColorWrap').classList.toggle('hidden', type !== 'role');
+  const roleEditor = type === 'role' || type === 'editRole';
+
+  $('#roleColorWrap').classList.toggle('hidden', !roleEditor);
+  $('#rolePermissionsWrap').classList.toggle('hidden', !roleEditor);
+
+  ['#permAdministrator','#permManageServer','#permManageChannels','#permManageRoles']
+    .forEach(selector=>$(selector).checked=false);
 
   if(type === 'role'){
     $('#roleColor').value = '#ff6b4a';
     $('#roleColorText').textContent = '#ff6b4a';
   }
 
+  if(type === 'editRole'){
+    const role = currentServer()?.roles?.find(item=>item.id===state.selectedRoleId);
+
+    if(role){
+      $('#modalInput').value = role.name || '';
+      $('#roleColor').value = role.color || '#ff6b4a';
+      $('#roleColorText').textContent = $('#roleColor').value;
+      $('#permAdministrator').checked = !!role.permissions?.administrator;
+      $('#permManageServer').checked = !!role.permissions?.manageServer;
+      $('#permManageChannels').checked = !!role.permissions?.manageChannels;
+      $('#permManageRoles').checked = !!role.permissions?.manageRoles;
+    }
+  }
+
   $('#modalOk').textContent =
     type === 'assignRole' ? 'Atribuir' :
     type === 'role' ? 'Criar cargo' :
+    type === 'editRole' ? 'Salvar cargo' :
     'Criar';
 
   $('#modalWrap').classList.remove('hidden');
@@ -2961,6 +3381,7 @@ function closeModal(){
   $('#modalWrap').classList.add('hidden');
   state.modalAction = null;
   $('#roleColorWrap').classList.add('hidden');
+  $('#rolePermissionsWrap').classList.add('hidden');
   $('#modalOk').textContent = 'Criar';
 }
 
@@ -2981,8 +3402,28 @@ function confirmModal(){
     socket.emit('create-role',{
       serverId:state.serverId,
       name:value,
-      color:$('#roleColor').value
+      color:$('#roleColor').value,
+      permissions:{
+        administrator:$('#permAdministrator').checked,
+        manageServer:$('#permManageServer').checked,
+        manageChannels:$('#permManageChannels').checked,
+        manageRoles:$('#permManageRoles').checked
+      }
     });
+  } else if(state.modalAction==='editRole'){
+    socket.emit('update-role',{
+      serverId:state.serverId,
+      roleId:state.selectedRoleId,
+      name:value,
+      color:$('#roleColor').value,
+      permissions:{
+        administrator:$('#permAdministrator').checked,
+        manageServer:$('#permManageServer').checked,
+        manageChannels:$('#permManageChannels').checked,
+        manageRoles:$('#permManageRoles').checked
+      }
+    });
+    state.selectedRoleId=null;
   } else if(state.modalAction==='assignRole'){
     socket.emit('assign-role',{
       serverId:state.serverId,
@@ -3010,20 +3451,24 @@ function deleteCurrentServer(){
 }
 
 async function copyInvite(){
-  if(!state.serverId) return;
-  const url = new URL(location.href);
-  url.searchParams.set('server',state.serverId);
+  const server = currentServer();
 
-  const snapshot = encodeInviteServer(currentServer());
-  if(snapshot) url.searchParams.set('s',snapshot);
+  if(!server?.inviteToken){
+    toast('Convite indisponível');
+    return;
+  }
+
+  const url = new URL(location.origin + location.pathname);
+  url.searchParams.set('invite',server.inviteToken);
 
   try{
     await navigator.clipboard.writeText(url.toString());
-    toast('Convite copiado');
+    toast('Convite privado copiado');
   }catch{
-    prompt('Copie este convite:',url.toString());
+    prompt('Copie este convite privado:',url.toString());
   }
 }
+
 
 async function ensureMic(){
   if(state.localStream && state.localStream.getAudioTracks().length) return state.localStream;
@@ -3676,21 +4121,23 @@ function renderMembers(list){
     name.style.display='block';
 
     const roles = roleNamesForUser(u.username);
+    const primaryRole = roles[0] || null;
 
-    if(roles.length){
-      const badges=document.createElement('div');
-      badges.style.cssText='display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;';
+    if(primaryRole){
+      const roleLine=document.createElement('div');
+      roleLine.textContent='[' + primaryRole.name + ']';
+      roleLine.style.cssText =
+        'font-size:10px;font-weight:900;color:' + primaryRole.color + ';margin-bottom:2px;';
 
-      roles.slice(0,3).forEach(role=>{
-        const badge=document.createElement('span');
-        badge.textContent=role.name;
-        badge.style.cssText =
-          'font-size:9px;font-weight:800;padding:2px 5px;border-radius:999px;color:' +
-          role.color + ';background:' + role.color + '18;border:1px solid ' + role.color + '44;';
-        badges.appendChild(badge);
-      });
+      name.style.color = primaryRole.color;
+      info.append(roleLine,name);
 
-      info.append(name,badges);
+      if(roles.length > 1){
+        const extra=document.createElement('div');
+        extra.textContent=roles.slice(1,3).map(role=>role.name).join(' · ');
+        extra.style.cssText='font-size:9px;color:var(--low);margin-top:2px;';
+        info.appendChild(extra);
+      }
     }else{
       info.appendChild(name);
     }
@@ -3716,7 +4163,8 @@ $('#loginBtn').addEventListener('click',()=>{
     userId:state.userId,
     username:state.username,
     bio:state.bio,
-    avatar:state.avatar
+    avatar:state.avatar,
+    knownServerIds:getCachedServers().map(server=>server.id)
   });
 });
 
@@ -3729,10 +4177,13 @@ if(state.username){
 
 $('#createServerBtn').addEventListener('click',()=>openModal('server'));
 $('#homeCreateServer').addEventListener('click',()=>openModal('server'));
-$('#addCategoryBtn').addEventListener('click',()=>openModal('category'));
-$('#addTextBtn').addEventListener('click',()=>openModal('text'));
+$('#serverRolesBtn').addEventListener('click',()=>setView('roles'));
+
+$('#createCategoryQuickBtn').addEventListener('click',()=>openModal('category'));
+$('#createTextQuickBtn').addEventListener('click',()=>openModal('text'));
+$('#createVoiceQuickBtn').addEventListener('click',()=>openModal('voice'));
+
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
-$('#addVoiceBtn').addEventListener('click',()=>openModal('voice'));
 $('#homeCreateVoice').addEventListener('click',()=>openModal('voice'));
 $('#modalCancel').addEventListener('click',closeModal);
 $('#modalOk').addEventListener('click',confirmModal);
@@ -3870,29 +4321,9 @@ $('#hubFriendsBtn').addEventListener('click',()=>{
   renderFriends();
 });
 
-$('#hubRolesBtn').addEventListener('click',()=>{
-  if(!currentServer()){
-    toast('Selecione um servidor para ver os cargos');
-    return;
-  }
-  setView('roles');
-});
-
 $('#hubMessagesBtn').addEventListener('click',()=>{
-  const server = currentServer();
-
-  if(!server){
-    toast('Selecione um servidor para abrir as mensagens');
-    return;
-  }
-
-  const channelId = state.textChannelId || server.textChannels?.[0]?.id;
-
-  if(channelId){
-    selectText(channelId);
-  }else{
-    toast('Esse servidor ainda não tem chat');
-  }
+  setView('dm');
+  renderDmContacts();
 });
 
 $('#friendsOnlineTab').addEventListener('click',()=>{
@@ -3913,6 +4344,12 @@ $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
 $('#messageInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendMessage()});
+
+$('#dmSearch').addEventListener('input',renderDmContacts);
+$('#dmSendBtn').addEventListener('click',sendDm);
+$('#dmInput').addEventListener('keydown',event=>{
+  if(event.key==='Enter') sendDm();
+});
 $('#joinVoiceBtn').addEventListener('click',joinVoice);
 $('#leaveVoiceBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
@@ -3982,6 +4419,16 @@ socket.on('profile-saved',profile=>{
   refreshOwnProfileUI();
   closeProfileModal();
   renderFriends();
+
+  if(!state.privateInviteHandled){
+    const token = new URLSearchParams(location.search).get('invite');
+
+    if(token){
+      state.privateInviteHandled = true;
+      socket.emit('join-server-invite',{token});
+    }
+  }
+
   toast('Perfil salvo');
 });
 
@@ -4009,6 +4456,29 @@ socket.on('private-call-declined',data=>{
 
 socket.on('private-call-error',data=>{
   toast(data?.error || 'Não foi possível fazer a chamada');
+});
+
+socket.on('dm-history',history=>{
+  $('#dmMessages').innerHTML='';
+  (Array.isArray(history) ? history : []).forEach(appendDmMessage);
+});
+
+socket.on('dm-message',message=>{
+  if(!message) return;
+
+  const targetId = state.dmTarget?.id;
+  const involvesCurrent =
+    message.fromUserId===state.userId ||
+    message.toUserId===state.userId;
+
+  const otherId =
+    message.fromUserId===state.userId
+      ? message.toUserId
+      : message.fromUserId;
+
+  if(involvesCurrent && targetId && otherId===targetId){
+    appendDmMessage(message);
+  }
 });
 
 socket.on('server-list',list=>{
@@ -4091,6 +4561,24 @@ socket.on('server-list',list=>{
 
   // Se o usuário já estiver dentro de um servidor, não força troca de tela.
   // Se acabou de entrar no e-cord, Amigos continua sendo a tela inicial.
+});
+
+socket.on('invite-joined',({serverId,serverName})=>{
+  toast('Você entrou em ' + (serverName || 'um servidor'));
+
+  const url = new URL(location.href);
+  url.searchParams.delete('invite');
+  history.replaceState(null,'',url);
+
+  socket.emit('get-servers');
+
+  setTimeout(()=>{
+    if(serverId) selectServer(serverId);
+  },120);
+});
+
+socket.on('permission-error',data=>{
+  toast(data?.error || 'Sem permissão');
 });
 
 socket.on('server-settings-updated',({serverId,message})=>{
@@ -4231,12 +4719,9 @@ socket.on('disconnect',()=>{
 
 socket.on('connect',()=>{
   const params = new URLSearchParams(location.search);
-  const invitedServer = decodeInviteServer(params.get('s'));
 
-  if(invitedServer){
-    socket.emit('restore-servers',{servers:[invitedServer]});
-  }
-
+  // O servidor privado só é liberado pelo token do convite.
+  // A entrada acontece depois que o perfil do usuário é identificado.
   socket.emit('get-servers');
 
   if(state.username){
@@ -4244,7 +4729,8 @@ socket.on('connect',()=>{
       userId:state.userId,
       username:state.username,
       bio:state.bio,
-      avatar:state.avatar
+      avatar:state.avatar,
+      knownServerIds:getCachedServers().map(server=>server.id)
     });
   }
 
@@ -4275,7 +4761,6 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', socket => {
-  socket.emit('server-list', publicServers());
   broadcastOnlineUsers();
 
   socket.on('set-username', ({ username }) => {
@@ -4283,7 +4768,7 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
-  socket.on('set-profile', ({ userId, username, bio, avatar }) => {
+  socket.on('set-profile', ({ userId, username, bio, avatar, knownServerIds }) => {
     const safeId = String(userId || '').trim().slice(0, 100);
     if (!safeId) return;
 
@@ -4314,9 +4799,31 @@ io.on('connection', socket => {
     socket.data.userId = safeId;
     socket.data.username = profile.username;
 
+    const knownIds = new Set(
+      Array.isArray(knownServerIds)
+        ? knownServerIds.map(value=>String(value || '').slice(0,80))
+        : []
+    );
+
+    for (const serverData of servers.values()) {
+      const legacyServer =
+        !serverData.ownerId &&
+        (!Array.isArray(serverData.members) || !serverData.members.length);
+
+      if (legacyServer && knownIds.has(serverData.id)) {
+        serverData.ownerId = safeId;
+        serverData.members = [safeId];
+
+        if (!serverData.inviteToken) {
+          serverData.inviteToken = crypto.randomBytes(18).toString('hex');
+        }
+      }
+    }
+
     saveServersToDisk();
     socket.emit('profile-saved', publicProfile(profile));
-    io.emit('server-list', publicServers());
+    sendServerList(socket);
+    broadcastServerLists();
     broadcastOnlineUsers();
   });
 
@@ -4346,32 +4853,99 @@ io.on('connection', socket => {
   });
 
   socket.on('get-servers', () => {
-    socket.emit('server-list', publicServers());
+    sendServerList(socket);
   });
 
   socket.on('restore-servers', ({ servers: restored }) => {
-    if (!Array.isArray(restored)) return;
+    if (!Array.isArray(restored) || !socket.data.userId) return;
 
-    for (const item of restored.slice(0, 100)) {
+    for (const rawItem of restored.slice(0, 100)) {
+      if (!rawItem?.id) continue;
+
+      const item = { ...rawItem };
+      const cachedOwnerId = String(item.ownerId || '');
+
+      if (cachedOwnerId && cachedOwnerId !== String(socket.data.userId)) {
+        continue;
+      }
+
+      if (!cachedOwnerId) {
+        item.ownerId = socket.data.userId;
+        item.members = [
+          ...new Set([
+            socket.data.userId,
+            ...(Array.isArray(item.members) ? item.members : [])
+          ])
+        ];
+      }
+
+      if (!item.inviteToken) {
+        item.inviteToken = crypto.randomBytes(18).toString('hex');
+      }
+
       mergeRestoredServer(item);
     }
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
   });
 
   socket.on('create-server', ({ name }) => {
-    const created = makeServer(cleanName(name, 'Novo servidor'));
+    if (!socket.data.userId) return;
+
+    const created = makeServer(
+      cleanName(name, 'Novo servidor'),
+      {
+        ownerId:socket.data.userId,
+        members:[socket.data.userId]
+      }
+    );
+
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('server-created', { serverId: created.id });
+  });
+
+  socket.on('join-server-invite', ({ token }) => {
+    if (!socket.data.userId) return;
+
+    const safeToken = String(token || '').trim().slice(0,100);
+
+    const serverData = [...servers.values()].find(item =>
+      item.inviteToken === safeToken
+    );
+
+    if (!serverData) {
+      socket.emit('permission-error',{
+        error:'Convite inválido ou expirado'
+      });
+      return;
+    }
+
+    if (!(serverData.members || []).includes(socket.data.userId)) {
+      serverData.members.push(socket.data.userId);
+      serverData.members = [...new Set(serverData.members)];
+      saveServersToDisk();
+    }
+
+    sendServerList(socket);
+
+    socket.emit('invite-joined',{
+      serverId:serverData.id,
+      serverName:serverData.name
+    });
   });
 
   socket.on('update-server-settings', ({ serverId, name, icon, accent, description, tags }) => {
     const safeId = String(serverId || '').slice(0,80);
     const serverData = servers.get(safeId);
 
-    if (!serverData) return;
+    if (!serverData || !requireServerAccess(serverData,socket)) return;
+
+    if (!hasServerPermission(serverData,socket,'manageServer')) {
+      permissionDenied(socket);
+      return;
+    }
 
     serverData.name = cleanName(name, serverData.name || 'Servidor');
     serverData.icon = String(icon || '').slice(0,350000);
@@ -4384,7 +4958,7 @@ io.on('connection', socket => {
       : [];
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
 
     socket.emit('server-settings-updated',{
       serverId:safeId,
@@ -4394,18 +4968,29 @@ io.on('connection', socket => {
 
   socket.on('delete-server', ({ serverId }) => {
     const safeId = String(serverId || '').slice(0, 80);
-    if (!safeId || !servers.has(safeId)) return;
+    const serverData = servers.get(safeId);
+    if (!serverData) return;
+
+    if (serverData.ownerId !== socket.data.userId) {
+      permissionDenied(socket);
+      return;
+    }
 
     servers.delete(safeId);
     saveServersToDisk();
 
     socket.emit('server-deleted', { serverId: safeId });
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
   });
 
-  socket.on('create-role', ({ serverId, name, color }) => {
+  socket.on('create-role', ({ serverId, name, color, permissions }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageRoles')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const safeName = cleanName(name, 'Cargo');
     const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || ''))
@@ -4421,22 +5006,77 @@ io.on('connection', socket => {
       id: id(),
       name: safeName,
       color: safeColor,
-      members: []
+      members: [],
+      permissions:{
+        administrator:!!permissions?.administrator,
+        manageServer:!!permissions?.manageServer,
+        manageChannels:!!permissions?.manageChannels,
+        manageRoles:!!permissions?.manageRoles
+      }
     });
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('role-updated', { message: 'Cargo criado' });
+  });
+
+  socket.on('update-role', ({ serverId, roleId, name, color, permissions }) => {
+    const s = servers.get(serverId);
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageRoles')) {
+      permissionDenied(socket);
+      return;
+    }
+
+    const role = s.roles.find(item=>item.id===roleId);
+    if (!role) return;
+
+    role.name = cleanName(name,role.name || 'Cargo');
+    role.color = /^#[0-9a-f]{6}$/i.test(String(color || ''))
+      ? String(color)
+      : role.color;
+
+    role.permissions = {
+      administrator:!!permissions?.administrator,
+      manageServer:!!permissions?.manageServer,
+      manageChannels:!!permissions?.manageChannels,
+      manageRoles:!!permissions?.manageRoles
+    };
+
+    saveServersToDisk();
+    broadcastServerLists();
+    socket.emit('role-updated',{message:'Cargo atualizado'});
   });
 
   socket.on('assign-role', ({ serverId, roleId, username }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageRoles')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const role = s.roles.find(item => item.id === roleId);
     if (!role) return;
 
     const safeUsername = cleanName(username);
+    const targetProfile = findProfileByUsername(safeUsername);
+
+    if (!targetProfile) {
+      socket.emit('permission-error',{error:'Esse usuário não existe no e-cord'});
+      return;
+    }
+
+    if (
+      targetProfile.id !== s.ownerId &&
+      !(s.members || []).includes(targetProfile.id)
+    ) {
+      socket.emit('permission-error',{error:'Essa pessoa não faz parte deste servidor'});
+      return;
+    }
+
     const exists = role.members.some(
       member => member.toLowerCase() === safeUsername.toLowerCase()
     );
@@ -4447,27 +5087,37 @@ io.on('connection', socket => {
     }
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('role-updated', { message: 'Cargo atribuído a ' + safeUsername });
   });
 
   socket.on('remove-role', ({ serverId, roleId }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageRoles')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const before = s.roles.length;
     s.roles = s.roles.filter(role => role.id !== roleId);
 
     if (s.roles.length !== before) {
       saveServersToDisk();
-      io.emit('server-list', publicServers());
+      broadcastServerLists();
       socket.emit('role-updated', { message: 'Cargo excluído' });
     }
   });
 
   socket.on('create-category', ({ serverId, name }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const category = {
       id: id(),
@@ -4478,13 +5128,18 @@ io.on('connection', socket => {
     s.categories.push(category);
     saveServersToDisk();
 
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('category-updated', { message: 'Categoria criada' });
   });
 
   socket.on('delete-category', ({ serverId, categoryId }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const safeCategoryId = String(categoryId || '').slice(0,80);
 
@@ -4499,13 +5154,18 @@ io.on('connection', socket => {
     s.categories.forEach((category,index)=>category.order=index);
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('category-updated', { message: 'Categoria excluída' });
   });
 
   socket.on('move-category', ({ serverId, categoryId, beforeCategoryId }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const sourceIndex = s.categories.findIndex(category => category.id === categoryId);
     if (sourceIndex < 0) return;
@@ -4519,13 +5179,18 @@ io.on('connection', socket => {
     s.categories.forEach((category,index)=>category.order=index);
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('category-updated', { message: 'Categoria movida' });
   });
 
   socket.on('move-channel', ({ serverId, type, channelId, targetCategoryId, beforeChannelId }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
 
     const list = type === 'voice' ? s.voiceChannels : s.textChannels;
     const sourceIndex = list.findIndex(channel => channel.id === channelId);
@@ -4563,13 +5228,18 @@ io.on('connection', socket => {
     list.forEach((channel,index)=>channel.order=index);
 
     saveServersToDisk();
-    io.emit('server-list', publicServers());
+    broadcastServerLists();
     socket.emit('category-updated', { message: 'Canal movido' });
   });
 
   socket.on('create-channel', ({ serverId, type, name }) => {
     const s = servers.get(serverId);
-    if (!s) return;
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
 
     if (type === 'text') {
       const channel = {
@@ -4581,7 +5251,7 @@ io.on('connection', socket => {
       s.textChannels.push(channel);
       s.messages.set(channel.id, []);
       saveServersToDisk();
-      io.emit('server-list', publicServers());
+      broadcastServerLists();
       socket.emit('channel-created', { serverId, type: 'text', channelId: channel.id });
       return;
     }
@@ -4595,14 +5265,86 @@ io.on('connection', socket => {
       };
       s.voiceChannels.push(channel);
       saveServersToDisk();
-      io.emit('server-list', publicServers());
+      broadcastServerLists();
       socket.emit('channel-created', { serverId, type: 'voice', channelId: channel.id });
+    }
+  });
+
+  socket.on('dm-history', ({ targetUserId, targetUsername }) => {
+    if (!socket.data.userId) return;
+
+    let targetId = String(targetUserId || '').slice(0,100);
+
+    if (!targetId && targetUsername) {
+      targetId = findProfileByUsername(targetUsername)?.id || '';
+    }
+
+    if (!targetId) {
+      socket.emit('dm-history',[]);
+      return;
+    }
+
+    const history = directMessages
+      .filter(message =>
+        (
+          message.fromUserId===socket.data.userId &&
+          message.toUserId===targetId
+        ) ||
+        (
+          message.fromUserId===targetId &&
+          message.toUserId===socket.data.userId
+        )
+      )
+      .slice(-200);
+
+    socket.emit('dm-history',history);
+  });
+
+  socket.on('dm-message', ({ targetUserId, targetUsername, text }) => {
+    if (!socket.data.userId) return;
+
+    let targetProfile = targetUserId
+      ? profiles.get(String(targetUserId).slice(0,100))
+      : null;
+
+    if (!targetProfile && targetUsername) {
+      targetProfile = findProfileByUsername(targetUsername);
+    }
+
+    if (!targetProfile) {
+      socket.emit('permission-error',{error:'Esse usuário não existe'});
+      return;
+    }
+
+    const safeText = String(text || '').trim().slice(0,1000);
+    if (!safeText) return;
+
+    const message = {
+      id:id(),
+      fromUserId:socket.data.userId,
+      toUserId:targetProfile.id,
+      fromUsername:socket.data.username || 'Usuário',
+      text:safeText,
+      at:Date.now()
+    };
+
+    directMessages.push(message);
+    while(directMessages.length>5000) directMessages.shift();
+
+    saveServersToDisk();
+
+    socket.emit('dm-message',message);
+
+    for (const client of io.sockets.sockets.values()) {
+      if (client.data.userId===targetProfile.id) {
+        client.emit('dm-message',message);
+      }
     }
   });
 
   socket.on('join-text', ({ serverId, channelId }) => {
     const s = servers.get(serverId);
-    if (!s || !s.textChannels.some(c => c.id === channelId)) return;
+    if (!s || !requireServerAccess(s,socket) || !s.textChannels.some(c => c.id === channelId)) return;
 
     if (socket.data.textRoom) socket.leave(socket.data.textRoom);
 
@@ -4617,7 +5359,7 @@ io.on('connection', socket => {
 
   socket.on('chat-message', ({ serverId, channelId, username, text }) => {
     const s = servers.get(serverId);
-    if (!s || !s.textChannels.some(c => c.id === channelId)) return;
+    if (!s || !requireServerAccess(s,socket) || !s.textChannels.some(c => c.id === channelId)) return;
 
     const safeText = String(text || '').trim().slice(0, 500);
     if (!safeText) return;
@@ -4761,7 +5503,7 @@ io.on('connection', socket => {
 
   socket.on('join-voice', ({ serverId, channelId, username }) => {
     const s = servers.get(serverId);
-    if (!s || !s.voiceChannels.some(c => c.id === channelId)) return;
+    if (!s || !requireServerAccess(s,socket) || !s.voiceChannels.some(c => c.id === channelId)) return;
 
     leaveVoiceRoom();
 
