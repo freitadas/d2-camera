@@ -259,7 +259,21 @@ function broadcastOnlineUsers() {
 
 const id = () => crypto.randomBytes(5).toString('hex');
 
-const DATA_FILE = process.env.ECORD_DATA_FILE || path.join(process.cwd(), 'ecord-data.json');
+const DEFAULT_PERSIST_DIR =
+  process.env.PERSISTENT_DATA_DIR ||
+  (fs.existsSync('/var/data') ? '/var/data' : process.cwd());
+
+const DATA_FILE =
+  process.env.ECORD_DATA_FILE ||
+  path.join(DEFAULT_PERSIST_DIR,'ecord-data.json');
+
+const DATA_BACKUP_FILE = DATA_FILE + '.bak';
+const DATA_PREVIOUS_FILE = DATA_FILE + '.previous';
+
+try{
+  fs.mkdirSync(path.dirname(DATA_FILE),{recursive:true});
+}catch{}
+
 const servers = new Map();
 const profiles = new Map();
 const accounts = new Map();
@@ -382,7 +396,8 @@ function serializeAccounts(){
     usernameKey:usernameKey(account.username),
     salt:String(account.salt||'').slice(0,256),
     passwordHash:String(account.passwordHash||'').slice(0,256),
-    createdAt:Number(account.createdAt||Date.now())
+    createdAt:Number(account.createdAt||Date.now()),
+    recoveredSessionOnly:!!account.recoveredSessionOnly
   }));
 }
 function serializeSessions(){
@@ -620,34 +635,71 @@ function serializeServers() {
 
 function saveServersToDisk() {
   try {
-    const tmp = DATA_FILE + '.tmp';
-    fs.writeFileSync(
-      tmp,
-      JSON.stringify({
-        version: 8,
-        servers: serializeServers(),
-        profiles: serializeProfiles(),
-        accounts: serializeAccounts(),
-        sessions: serializeSessions(),
-        auditLog: auditLog.slice(-2000),
-        directMessages: serializeDirectMessages(),
-        friendRequests: serializeFriendRequests(),
-        friendships: serializeFriendships(),
-        privateGroups: serializePrivateGroups()
-      }, null, 2),
-      'utf8'
-    );
-    fs.renameSync(tmp, DATA_FILE);
+    const payload=JSON.stringify({
+      version: 9,
+      savedAt:Date.now(),
+      servers: serializeServers(),
+      profiles: serializeProfiles(),
+      accounts: serializeAccounts(),
+      sessions: serializeSessions(),
+      auditLog: auditLog.slice(-2000),
+      directMessages: serializeDirectMessages(),
+      friendRequests: serializeFriendRequests(),
+      friendships: serializeFriendships(),
+      privateGroups: serializePrivateGroups()
+    },null,2);
+
+    const tmp=DATA_FILE+'.tmp';
+
+    // Rotação: previous <- bak <- principal <- novo
+    if(fs.existsSync(DATA_BACKUP_FILE)){
+      try{fs.copyFileSync(DATA_BACKUP_FILE,DATA_PREVIOUS_FILE)}catch{}
+    }
+
+    if(fs.existsSync(DATA_FILE)){
+      try{fs.copyFileSync(DATA_FILE,DATA_BACKUP_FILE)}catch{}
+    }
+
+    fs.writeFileSync(tmp,payload,'utf8');
+    fs.renameSync(tmp,DATA_FILE);
+
+    // Se ainda não havia backup, cria um imediatamente.
+    if(!fs.existsSync(DATA_BACKUP_FILE)){
+      try{fs.copyFileSync(DATA_FILE,DATA_BACKUP_FILE)}catch{}
+    }
   } catch (error) {
-    console.error('Não foi possível salvar os servidores:', error.message);
+    console.error('Não foi possível salvar os dados do Acord:', error.message);
   }
 }
 
 function loadServersFromDisk() {
   try {
-    if (!fs.existsSync(DATA_FILE)) return false;
+    const candidates=[DATA_FILE,DATA_BACKUP_FILE,DATA_PREVIOUS_FILE]
+      .filter(file=>fs.existsSync(file));
 
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    if(!candidates.length) return false;
+
+    let parsed=null;
+    let loadedFrom='';
+
+    for(const file of candidates){
+      try{
+        parsed=JSON.parse(fs.readFileSync(file,'utf8'));
+        loadedFrom=file;
+        break;
+      }catch(error){
+        console.warn('Arquivo de dados inválido, tentando backup:',file,error.message);
+      }
+    }
+
+    if(!parsed) return false;
+
+    if(loadedFrom!==DATA_FILE){
+      try{
+        fs.copyFileSync(loadedFrom,DATA_FILE);
+        console.log('Dados recuperados do backup:',loadedFrom);
+      }catch{}
+    }
     const list = Array.isArray(parsed?.servers) ? parsed.servers : [];
     const savedProfiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
     const savedAccounts = Array.isArray(parsed?.accounts) ? parsed.accounts : [];
@@ -674,7 +726,8 @@ function loadServersFromDisk() {
       if(!userId || username.length<3 || !salt || !passwordHash) continue;
       accounts.set(userId,{
         userId,username,usernameKey:usernameKey(username),salt,passwordHash,
-        createdAt:Number(rawAccount?.createdAt||Date.now())
+        createdAt:Number(rawAccount?.createdAt||Date.now()),
+        recoveredSessionOnly:!!rawAccount?.recoveredSessionOnly
       });
     }
 
@@ -4531,7 +4584,13 @@ function startAuthKeepalive(){
     if(socket.connected && state.authToken && state.profileReady){
       socket.emit('auth-keepalive',{token:state.authToken});
     }
+
+    if(state.profileReady){
+      saveLocalRecoverySnapshot();
+    }
   },1000*60*5);
+
+  saveLocalRecoverySnapshot();
 }
 
 function clearAccountState(){
@@ -4547,6 +4606,48 @@ function clearAccountState(){
   $('#profileModalWrap').classList.add('hidden');
   $('#authPassword').value='';$('#authPasswordConfirm').value='';
 }
+function buildLocalRecoverySnapshot(){
+  if(!state.userId || !state.username) return null;
+
+  return {
+    version:1,
+    savedAt:Date.now(),
+    userId:state.userId,
+    username:state.username,
+    displayName:state.displayName || state.username,
+    bio:state.bio || '',
+    avatar:state.avatar || '',
+    banner:state.banner || '',
+    status:state.status || 'online',
+    friends:readFriendCache(),
+    servers:getCachedServers()
+  };
+}
+
+function saveLocalRecoverySnapshot(){
+  try{
+    const snapshot=buildLocalRecoverySnapshot();
+    if(!snapshot) return;
+
+    localStorage.setItem(
+      'acord-recovery-v1',
+      JSON.stringify(snapshot)
+    );
+  }catch(error){
+    console.warn('Não foi possível atualizar o backup local',error);
+  }
+}
+
+function readLocalRecoverySnapshot(){
+  try{
+    const value=JSON.parse(localStorage.getItem('acord-recovery-v1') || 'null');
+    if(!value || value.version!==1 || !value.userId || !value.username) return null;
+    return value;
+  }catch{
+    return null;
+  }
+}
+
 function applyAuthProfile(profile,token){
   if(!profile?.id || !token) return;
   state.authToken=token;state.userId=profile.id;state.username=profile.username||'';
@@ -4558,6 +4659,7 @@ function applyAuthProfile(profile,token){
   localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{}
   $('#login').classList.add('hidden');$('#appShell').classList.remove('hidden');
   refreshOwnProfileUI();
+  saveLocalRecoverySnapshot();
   if(!state.appInitialized){setAppMode('hub');setView('friends')}else{restoreCurrentView()}
   socket.emit('get-servers');socket.emit('get-friend-state');socket.emit('get-group-state');
 }
@@ -5108,6 +5210,10 @@ function cacheServers(list){
 
     if(safe.length){
       localStorage.setItem('ecord-server-backup',payload);
+    }
+
+    if(state.profileReady){
+      saveLocalRecoverySnapshot();
     }
   }catch{}
 }
@@ -6660,6 +6766,10 @@ function saveFriends(list){
   // Assim uma atualização vazia temporária não apaga amizades salvas.
   if(safe.length){
     localStorage.setItem('ecord-friends-backup',payload);
+  }
+
+  if(state.profileReady){
+    saveLocalRecoverySnapshot();
   }
 }
 
@@ -9284,10 +9394,13 @@ socket.on('auth-success',payload=>{
 
   setTimeout(handlePendingServerInvite,80);
 
-  if(payload?.accountRecovered){
+  if(payload?.recoveredAfterUpdate){
+    setTimeout(()=>toast('Conta, servidores e amizades recuperados após a atualização'),250);
+  }else if(payload?.accountRecovered){
     setTimeout(()=>toast('Conta reativada e login concluído'),250);
   }
 
+  setTimeout(saveLocalRecoverySnapshot,300);
   requestNotifications();
 });
 socket.on('auth-error',payload=>{
@@ -9299,7 +9412,10 @@ socket.on('auth-restore-retry',()=>{
 
   setTimeout(()=>{
     if(socket.connected && state.authToken){
-      socket.emit('auth-restore',{token:state.authToken});
+      socket.emit('auth-restore',{
+          token:state.authToken,
+          recovery:readLocalRecoverySnapshot()
+        });
     }
   },1200);
 });
@@ -9320,7 +9436,10 @@ socket.on('auth-required',payload=>{
 
     setTimeout(()=>{
       if(socket.connected && state.authToken){
-        socket.emit('auth-restore',{token:state.authToken});
+        socket.emit('auth-restore',{
+          token:state.authToken,
+          recovery:readLocalRecoverySnapshot()
+        });
       }
     },800);
 
@@ -9930,7 +10049,10 @@ socket.on('connect',()=>{
   }
 
   if(state.authToken){
-    socket.emit('auth-restore',{token:state.authToken});
+    socket.emit('auth-restore',{
+      token:state.authToken,
+      recovery:readLocalRecoverySnapshot()
+    });
   }else{
     $('#login').classList.remove('hidden');
     $('#appShell').classList.add('hidden');
@@ -9965,6 +10087,9 @@ app.get('/health', (req,res) => {
     app:'Acord',
     accounts:accounts.size,
     servers:servers.size,
+    dataVersion:9,
+    dataFile:DATA_FILE,
+    persistentDataDir:DEFAULT_PERSIST_DIR,
     uptime:Math.round(process.uptime())
   });
 });
@@ -10193,7 +10318,13 @@ io.on('connection', socket => {
         return;
       }
 
-      if(!verifyAccountPassword(safePassword,account)){
+      if(account.recoveredSessionOnly){
+        const newSalt=crypto.randomBytes(16).toString('hex');
+        account.salt=newSalt;
+        account.passwordHash=passwordDigest(safePassword,newSalt);
+        account.recoveredSessionOnly=false;
+        saveServersToDisk();
+      }else if(!verifyAccountPassword(safePassword,account)){
         socket.emit('auth-error',{error:'Senha incorreta.'});
         return;
       }
@@ -10234,10 +10365,140 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('auth-restore',({token})=>{
+  socket.on('auth-restore',({token,recovery})=>{
     try{
-      const userId=sessionUserId(token,{renew:true});
-      const profile=userId?profiles.get(userId):null;
+      let userId=sessionUserId(token,{renew:true});
+      let profile=userId?profiles.get(userId):null;
+      let recoveredAfterUpdate=false;
+
+      // Recuperação de atualização:
+      // se o host perdeu o arquivo local, o navegador ainda possui token,
+      // id, perfil, servidores e amizades do próprio usuário.
+      if(!userId && recovery && String(token || '').length>=20){
+        const safeUserId=String(recovery.userId || '').slice(0,100);
+        const safeUsername=normalizeAccountUsername(recovery.username);
+        const key=usernameKey(safeUsername);
+
+        const conflicting=[...accounts.values()].find(account=>
+          account.usernameKey===key && account.userId!==safeUserId
+        );
+
+        if(
+          safeUserId &&
+          safeUsername.length>=3 &&
+          !conflicting &&
+          !accounts.has(safeUserId)
+        ){
+          // Conta recuperada em modo de sessão. A senha antiga não é armazenada
+          // no navegador e por isso não é reconstruída aqui.
+          const recoverySalt=crypto.randomBytes(16).toString('hex');
+
+          accounts.set(safeUserId,{
+            userId:safeUserId,
+            username:safeUsername,
+            usernameKey:key,
+            salt:recoverySalt,
+            passwordHash:passwordDigest(crypto.randomBytes(32).toString('hex'),recoverySalt),
+            createdAt:Number(recovery.savedAt || Date.now()),
+            recoveredSessionOnly:true
+          });
+
+          profile={
+            id:safeUserId,
+            username:safeUsername,
+            displayName:String(recovery.displayName || safeUsername).slice(0,40),
+            bio:String(recovery.bio || '').slice(0,300),
+            avatar:String(recovery.avatar || '').slice(0,350000),
+            banner:String(recovery.banner || '').slice(0,350000),
+            status:['online','away','busy','invisible'].includes(recovery.status)
+              ? recovery.status
+              : 'online',
+            createdAt:Number(recovery.savedAt || Date.now())
+          };
+
+          profiles.set(safeUserId,profile);
+
+          sessions.set(tokenHash(token),{
+            userId:safeUserId,
+            createdAt:Date.now(),
+            lastSeenAt:Date.now(),
+            expiresAt:Date.now()+SESSION_LIFETIME_MS
+          });
+
+          userId=safeUserId;
+          recoveredAfterUpdate=true;
+
+          // Recupera apenas servidores pertencentes ao próprio usuário.
+          const recoveredServers=Array.isArray(recovery.servers)
+            ? recovery.servers.slice(0,100)
+            : [];
+
+          for(const raw of recoveredServers){
+            const serverId=String(raw?.id || '').slice(0,80);
+            const ownerId=String(raw?.ownerId || '').slice(0,100);
+
+            if(!serverId || ownerId!==safeUserId || servers.has(serverId)) continue;
+
+            makeServer(
+              cleanName(raw?.name,'Servidor'),
+              {
+                id:serverId,
+                ownerId:safeUserId,
+                members:Array.isArray(raw?.members)
+                  ? [...new Set([safeUserId,...raw.members.map(v=>String(v||'').slice(0,100))])]
+                  : [safeUserId],
+                inviteToken:String(raw?.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
+                icon:String(raw?.icon || '').slice(0,350000),
+                accent:raw?.accent,
+                description:raw?.description,
+                tags:raw?.tags,
+                textChannels:raw?.textChannels,
+                voiceChannels:raw?.voiceChannels,
+                categories:raw?.categories,
+                roles:raw?.roles
+              }
+            );
+          }
+
+          // Restaura a lista pública de amigos salva no navegador.
+          // Essa compatibilidade preserva amizades antigas após perda do arquivo.
+          const recoveredFriends=Array.isArray(recovery.friends)
+            ? recovery.friends.slice(0,500)
+            : [];
+
+          for(const rawFriend of recoveredFriends){
+            const friendId=String(rawFriend?.id || '').slice(0,100);
+            const friendUsername=cleanName(rawFriend?.username,'Usuário');
+
+            if(!friendId || friendId===safeUserId) continue;
+
+            if(!profiles.has(friendId)){
+              profiles.set(friendId,{
+                id:friendId,
+                username:friendUsername,
+                displayName:friendUsername,
+                bio:String(rawFriend?.bio || '').slice(0,160),
+                avatar:String(rawFriend?.avatar || '').slice(0,350000),
+                banner:'',
+                status:'offline',
+                createdAt:Date.now()
+              });
+            }
+
+            if(!areFriends(safeUserId,friendId)){
+              friendships.push({
+                a:safeUserId,
+                b:friendId,
+                at:Date.now()
+              });
+            }
+          }
+
+          saveServersToDisk();
+        }
+      }
+
+      profile=userId ? profiles.get(userId) : null;
 
       if(!userId || !profile){
         socket.emit('auth-required',{reason:'invalid-session'});
@@ -10247,13 +10508,13 @@ io.on('connection', socket => {
       socket.data.userId=userId;
       socket.data.username=profile.username;
 
-      // A renovação é persistida para sobreviver a reinícios/deploys.
       saveServersToDisk();
 
       socket.emit('auth-success',{
         token,
         profile:publicProfile(profile),
-        sessionRestored:true
+        sessionRestored:true,
+        recoveredAfterUpdate
       });
 
       sendServerList(socket);
