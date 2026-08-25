@@ -3289,7 +3289,7 @@ html,body{
     <div class="sideHead">
       <div class="brand"><span class="brandDot"></span><span id="serverTitle" class="serverTitle">Acord</span></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <button id="inviteBtn" class="inviteBtn">Convidar</button>
+        <button id="inviteBtn" class="inviteBtn">Convite</button>
         <button id="serverSettingsBtn" class="inviteBtn" title="Configurações do servidor">⚙</button>
         <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
       </div>
@@ -5054,29 +5054,36 @@ function cacheServers(list){
   }catch{}
 }
 
-function encodeInviteServer(serverData){
+
+function pendingServerInviteToken(){
   try{
-    const json = JSON.stringify(safeServerSnapshot(serverData));
-    const bytes = new TextEncoder().encode(json);
-    let binary = '';
-    for(const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const params=new URLSearchParams(location.search);
+    const queryToken=String(params.get('invite') || '').trim();
+
+    if(queryToken) return queryToken.slice(0,100);
+
+    const match=location.pathname.match(/^\/invite\/([A-Za-z0-9_-]{10,100})\/?$/);
+    return match ? String(match[1] || '').slice(0,100) : '';
   }catch{
     return '';
   }
 }
 
-function decodeInviteServer(value){
+function clearServerInviteFromUrl(){
   try{
-    if(!value) return null;
-    let base = value.replace(/-/g,'+').replace(/_/g,'/');
-    while(base.length % 4) base += '=';
-    const binary = atob(base);
-    const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
-    return safeServerSnapshot(JSON.parse(new TextDecoder().decode(bytes)));
-  }catch{
-    return null;
-  }
+    const clean=new URL(location.origin + '/');
+    history.replaceState(null,'',clean);
+  }catch{}
+}
+
+function handlePendingServerInvite(){
+  if(state.privateInviteHandled || !state.profileReady || !state.authToken) return;
+
+  const token=pendingServerInviteToken();
+  if(!token) return;
+
+  state.privateInviteHandled=true;
+  socket.emit('join-server-invite',{token});
 }
 
 function currentServer(){
@@ -7389,21 +7396,25 @@ function deleteCurrentServer(){
 }
 
 async function copyInvite(){
-  const server = currentServer();
+  const server=currentServer();
 
   if(!server?.inviteToken){
     toast('Convite indisponível');
     return;
   }
 
-  const url = new URL(location.origin + location.pathname);
-  url.searchParams.set('invite',server.inviteToken);
+  // O link contém apenas o token de entrada. Nenhum dado, canal ou configuração
+  // do servidor é colocado no convite.
+  const url=new URL(
+    '/invite/' + encodeURIComponent(server.inviteToken),
+    location.origin
+  );
 
   try{
     await navigator.clipboard.writeText(url.toString());
-    toast('Convite privado copiado');
+    toast('Link de convite do servidor copiado');
   }catch{
-    prompt('Copie este convite privado:',url.toString());
+    prompt('Copie o link para entrar no servidor:',url.toString());
   }
 }
 
@@ -9092,6 +9103,8 @@ socket.on('auth-success',payload=>{
   applyAuthProfile(payload?.profile,payload?.token);
   startAuthKeepalive();
 
+  setTimeout(handlePendingServerInvite,80);
+
   if(payload?.accountRecovered){
     setTimeout(()=>toast('Conta reativada e login concluído'),250);
   }
@@ -9212,14 +9225,7 @@ socket.on('profile-saved',profile=>{
   socket.emit('get-servers');
   socket.emit('get-friend-state');
 
-  if(!state.privateInviteHandled){
-    const token = new URLSearchParams(location.search).get('invite');
-
-    if(token){
-      state.privateInviteHandled = true;
-      socket.emit('join-server-invite',{token});
-    }
-  }
+  handlePendingServerInvite();
 
   toast('Perfil salvo');
 });
@@ -9386,8 +9392,8 @@ socket.on('server-list',list=>{
     state.restoreAttempted = true;
 
     if(cached.length){
-      socket.emit('restore-servers',{servers:cached});
-      return;
+      // Cache local é somente visual. Nunca recria servidores no backend.
+      state.servers=cached;
     }
   }
 
@@ -9521,21 +9527,28 @@ socket.on('server-list',list=>{
   restoreCurrentView();
 });
 
-socket.on('invite-joined',({serverId,serverName})=>{
-  toast('Você entrou em ' + (serverName || 'um servidor'));
+socket.on('invite-joined',({serverId,serverName,alreadyMember})=>{
+  clearServerInviteFromUrl();
 
-  const url = new URL(location.href);
-  url.searchParams.delete('invite');
-  history.replaceState(null,'',url);
+  toast(
+    alreadyMember
+      ? 'Você já participa de ' + (serverName || 'este servidor')
+      : 'Você entrou em ' + (serverName || 'um servidor')
+  );
 
   socket.emit('get-servers');
 
   setTimeout(()=>{
     if(serverId) selectServer(serverId);
-  },120);
+  },140);
 });
 
 socket.on('permission-error',data=>{
+  if(pendingServerInviteToken()){
+    clearServerInviteFromUrl();
+    state.privateInviteHandled=false;
+  }
+
   toast(data?.error || 'Sem permissão');
 });
 
@@ -9781,6 +9794,13 @@ socket.on('connect',()=>{
 </script>
 </body>
 </html>`;
+
+app.get('/invite/:token', (req,res) => {
+  // O conteúdo do convite é sempre resolvido pelo backend depois do login.
+  // Esta rota não cria nem clona servidor.
+  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
+  res.type('html').send(APP_HTML);
+});
 
 app.get('/health', (req,res) => {
   res.setHeader('Cache-Control','no-store');
@@ -10565,39 +10585,6 @@ io.on('connection', socket => {
     sendServerList(socket);
   });
 
-  socket.on('restore-servers', ({ servers: restored }) => {
-    if (!Array.isArray(restored) || !socket.data.userId) return;
-
-    for (const rawItem of restored.slice(0, 100)) {
-      if (!rawItem?.id) continue;
-
-      const item = { ...rawItem };
-      const cachedOwnerId = String(item.ownerId || '');
-
-      if (cachedOwnerId && cachedOwnerId !== String(socket.data.userId)) {
-        continue;
-      }
-
-      if (!cachedOwnerId) {
-        item.ownerId = socket.data.userId;
-        item.members = [
-          ...new Set([
-            socket.data.userId,
-            ...(Array.isArray(item.members) ? item.members : [])
-          ])
-        ];
-      }
-
-      if (!item.inviteToken) {
-        item.inviteToken = crypto.randomBytes(18).toString('hex');
-      }
-
-      mergeRestoredServer(item);
-    }
-
-    saveServersToDisk();
-    broadcastServerLists();
-  });
 
   socket.on('create-server', ({ name }) => {
     if (!socket.data.userId) return;
@@ -10616,24 +10603,40 @@ io.on('connection', socket => {
   });
 
   socket.on('join-server-invite', ({ token }) => {
-    if (!socket.data.userId) return;
-
-    const safeToken = String(token || '').trim().slice(0,100);
-
-    const serverData = [...servers.values()].find(item =>
-      item.inviteToken === safeToken
-    );
-
-    if (!serverData) {
-      socket.emit('permission-error',{
-        error:'Convite inválido ou expirado'
-      });
+    if(!socket.data.userId || !accounts.has(socket.data.userId)){
+      socket.emit('permission-error',{error:'Entre na sua conta para usar o convite'});
       return;
     }
 
-    if (!(serverData.members || []).includes(socket.data.userId)) {
+    const safeToken=String(token || '').trim().slice(0,100);
+
+    if(!/^[A-Za-z0-9_-]{10,100}$/.test(safeToken)){
+      socket.emit('permission-error',{error:'Convite inválido ou expirado'});
+      return;
+    }
+
+    const serverData=[...servers.values()].find(item=>
+      item.inviteToken===safeToken
+    );
+
+    if(!serverData){
+      socket.emit('permission-error',{error:'Convite inválido ou expirado'});
+      return;
+    }
+
+    const alreadyMember=(serverData.members || []).includes(socket.data.userId);
+
+    if(!alreadyMember){
       serverData.members.push(socket.data.userId);
-      serverData.members = [...new Set(serverData.members)];
+      serverData.members=[...new Set(serverData.members)];
+
+      recordAudit(
+        serverData.id,
+        'join-via-invite',
+        socket.data.username || 'Usuário',
+        socket.data.userId
+      );
+
       saveServersToDisk();
     }
 
@@ -10641,7 +10644,8 @@ io.on('connection', socket => {
 
     socket.emit('invite-joined',{
       serverId:serverData.id,
-      serverName:serverData.name
+      serverName:serverData.name,
+      alreadyMember
     });
   });
 
