@@ -3169,6 +3169,63 @@ html,body{
   }
 }
 
+
+.channelActions{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:3px;
+  flex:0 0 auto;
+  opacity:0;
+  transition:.12s ease;
+}
+.channelBtn:hover .channelActions,
+.channelBtn:focus-visible .channelActions{
+  opacity:1;
+}
+.channelAction,
+.categoryEdit,
+.categoryDelete{
+  width:26px;
+  height:26px;
+  min-width:26px;
+  min-height:26px;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:var(--low);
+  cursor:pointer;
+  font-size:12px;
+  line-height:1;
+}
+.channelAction:hover,
+.channelAction:focus-visible,
+.categoryEdit:hover,
+.categoryEdit:focus-visible{
+  color:var(--text);
+  background:var(--bg3);
+  outline:none;
+}
+.channelAction.danger:hover,
+.channelAction.danger:focus-visible,
+.categoryDelete:hover,
+.categoryDelete:focus-visible{
+  color:#ff8d8d!important;
+  background:rgba(223,76,76,.12)!important;
+}
+.categoryHeader .categoryEdit,
+.categoryHeader .categoryDelete{
+  opacity:0;
+}
+.categoryHeader:hover .categoryEdit,
+.categoryHeader:hover .categoryDelete,
+.categoryHeader:focus-within .categoryEdit,
+.categoryHeader:focus-within .categoryDelete{
+  opacity:1;
+}
+
 </style>
 </head>
 <body>
@@ -5574,8 +5631,93 @@ function renderSidebar(){
     }
 
     if(canManageChannelsLocally()){
+      const actions = document.createElement('span');
+      actions.className = 'channelActions';
+
+      const edit = document.createElement('span');
+      edit.className = 'channelAction';
+      edit.setAttribute('role','button');
+      edit.setAttribute('tabindex','0');
+      edit.textContent = '✎';
+      edit.title = 'Editar nome';
+
+      const requestEdit = event=>{
+        event.preventDefault();
+        event.stopPropagation();
+
+        const nextName=prompt(
+          type==='text' ? 'Novo nome do chat:' : (isStage ? 'Novo nome do palco:' : 'Novo nome do canal:'),
+          channel.name || ''
+        );
+
+        if(nextName===null) return;
+
+        socket.emit('rename-channel',{
+          serverId:state.serverId,
+          type,
+          channelId:channel.id,
+          name:nextName
+        });
+      };
+
+      edit.addEventListener('click',requestEdit);
+      edit.addEventListener('keydown',event=>{
+        if(event.key==='Enter' || event.key===' ') requestEdit(event);
+      });
+
+      const move = document.createElement('span');
+      move.className = 'channelAction';
+      move.setAttribute('role','button');
+      move.setAttribute('tabindex','0');
+      move.textContent = '⇄';
+      move.title = 'Mover para outra categoria';
+
+      const requestMove = event=>{
+        event.preventDefault();
+        event.stopPropagation();
+
+        const server=currentServer();
+        const categories=Array.isArray(server?.categories) ? server.categories : [];
+
+        const options=[
+          {id:null,name:'Sem categoria'},
+          ...categories.map(category=>({id:category.id,name:category.name}))
+        ];
+
+        const textOptions=options
+          .map((option,index)=>(index+1) + ' - ' + option.name)
+          .join('\n');
+
+        const choice=prompt(
+          'Mover "' + channel.name + '" para qual categoria?\n\n' + textOptions,
+          '1'
+        );
+
+        if(choice===null) return;
+
+        const selectedIndex=Number(choice)-1;
+
+        if(!Number.isInteger(selectedIndex) || selectedIndex<0 || selectedIndex>=options.length){
+          toast('Categoria inválida');
+          return;
+        }
+
+        socket.emit('move-channel',{
+          serverId:state.serverId,
+          type,
+          channelId:channel.id,
+          targetCategoryId:options[selectedIndex].id,
+          beforeChannelId:null
+        });
+      };
+
+      move.addEventListener('click',requestMove);
+      move.addEventListener('keydown',event=>{
+        if(event.key==='Enter' || event.key===' ') requestMove(event);
+      });
+
       const del = document.createElement('span');
-      del.className = 'channelDelete';
+      del.className = 'channelAction danger';
       del.setAttribute('role','button');
       del.setAttribute('tabindex','0');
       del.textContent = '🗑';
@@ -5600,12 +5742,11 @@ function renderSidebar(){
 
       del.addEventListener('click',requestDelete);
       del.addEventListener('keydown',event=>{
-        if(event.key==='Enter' || event.key===' '){
-          requestDelete(event);
-        }
+        if(event.key==='Enter' || event.key===' ') requestDelete(event);
       });
 
-      b.appendChild(del);
+      actions.append(edit,move,del);
+      b.appendChild(actions);
     }
 
     b.addEventListener('click',()=>{
@@ -5675,6 +5816,25 @@ function renderSidebar(){
       header.draggable = true;
 
       if(canManageChannelsLocally()){
+        const edit = document.createElement('button');
+        edit.className = 'categoryEdit';
+        edit.type = 'button';
+        edit.textContent = '✎';
+        edit.title = 'Editar nome da categoria';
+
+        edit.addEventListener('click',event=>{
+          event.stopPropagation();
+
+          const nextName=prompt('Novo nome da categoria:',category.name || '');
+          if(nextName===null) return;
+
+          socket.emit('rename-category',{
+            serverId:state.serverId,
+            categoryId:category.id,
+            name:nextName
+          });
+        });
+
         const del = document.createElement('button');
         del.className = 'categoryDelete';
         del.type = 'button';
@@ -5692,7 +5852,7 @@ function renderSidebar(){
           }
         });
 
-        header.appendChild(del);
+        header.append(edit,del);
       }
 
       header.addEventListener('dragstart',event=>{
@@ -10983,6 +11143,36 @@ io.on('connection', socket => {
     socket.emit('category-updated', { message: 'Categoria criada' });
   });
 
+  socket.on('rename-category', ({ serverId, categoryId, name }) => {
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+
+    if(!hasServerPermission(s,socket,'manageChannels')){
+      permissionDenied(socket);
+      return;
+    }
+
+    const safeCategoryId=String(categoryId || '').slice(0,80);
+    const category=s.categories.find(item=>item.id===safeCategoryId);
+    if(!category) return;
+
+    const safeName=cleanName(name,category.name || 'Categoria');
+    if(!safeName) return;
+
+    category.name=safeName;
+
+    recordAudit(
+      serverId,
+      'rename-category',
+      socket.data.username || 'Usuário',
+      safeCategoryId
+    );
+
+    saveServersToDisk();
+    broadcastServerLists();
+    socket.emit('category-updated',{message:'Categoria renomeada'});
+  });
+
   socket.on('delete-category', ({ serverId, categoryId }) => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
@@ -11032,6 +11222,41 @@ io.on('connection', socket => {
     saveServersToDisk();
     broadcastServerLists();
     socket.emit('category-updated', { message: 'Categoria movida' });
+  });
+
+  socket.on('rename-channel', ({ serverId, type, channelId, name }) => {
+    const s=servers.get(serverId);
+    if(!s || !requireServerAccess(s,socket)) return;
+
+    if(!hasServerPermission(s,socket,'manageChannels')){
+      permissionDenied(socket);
+      return;
+    }
+
+    const safeType=type==='voice' ? 'voice' : 'text';
+    const list=safeType==='voice' ? s.voiceChannels : s.textChannels;
+    const channel=list.find(item=>item.id===String(channelId || '').slice(0,80));
+    if(!channel) return;
+
+    const safeName=
+      safeType==='text'
+        ? cleanChannel(name,channel.name || 'chat')
+        : cleanName(name,channel.name || 'Canal');
+
+    if(!safeName) return;
+
+    channel.name=safeName;
+
+    recordAudit(
+      serverId,
+      'rename-channel',
+      socket.data.username || 'Usuário',
+      channel.id
+    );
+
+    saveServersToDisk();
+    broadcastServerLists();
+    socket.emit('category-updated',{message:'Canal renomeado'});
   });
 
   socket.on('move-channel', ({ serverId, type, channelId, targetCategoryId, beforeChannelId }) => {
