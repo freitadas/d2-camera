@@ -240,22 +240,21 @@ function emitGroupStateToMembers(group) {
 }
 
 function broadcastOnlineUsers() {
-  const users=[...io.sockets.sockets.values()]
-    .filter(s=>{
-      if(!s.data.username) return false;
-      const profile=s.data.userId?profiles.get(s.data.userId):null;
-      return profile?.status!=='invisible';
-    })
-    .map(s=>{
-      const profile=s.data.userId?profiles.get(s.data.userId):null;
+  const users = [...io.sockets.sockets.values()]
+    .filter(s => s.data.username)
+    .map(s => {
+      const profile = s.data.userId ? profiles.get(s.data.userId) : null;
+
       return {
-        socketId:s.id,id:profile?.id||s.data.userId||s.id,
-        username:profile?.username||s.data.username,
-        displayName:profile?.displayName||profile?.username||s.data.username,
-        bio:profile?.bio||'',avatar:profile?.avatar||'',status:profile?.status||'online'
+        socketId: s.id,
+        id: profile?.id || s.data.userId || s.id,
+        username: profile?.username || s.data.username,
+        bio: profile?.bio || '',
+        avatar: profile?.avatar || ''
       };
     });
-  io.emit('online-users',users);
+
+  io.emit('online-users', users);
 }
 
 const id = () => crypto.randomBytes(5).toString('hex');
@@ -270,14 +269,6 @@ const auditLog = [];
 const friendRequests = [];
 const friendships = [];
 const privateGroups = new Map();
-const privateCalls = new Map();
-
-setInterval(()=>{
-  const now=Date.now();
-  for(const [callId,call] of privateCalls){
-    if(Number(call?.expiresAt||0)<=now) privateCalls.delete(callId);
-  }
-},60*1000).unref?.();
 
 
 function normalizeAccountUsername(value){
@@ -292,6 +283,18 @@ function usernameExists(username, exceptId = null){
     if(account.userId !== exceptId && account.usernameKey === key) return true;
   }
   return false;
+}
+function legacyProfileForUsername(username){
+  const key=usernameKey(username);
+  if(!key) return null;
+
+  for(const profile of profiles.values()){
+    if(usernameKey(profile?.username)===key && !accounts.has(profile.id)){
+      return profile;
+    }
+  }
+
+  return null;
 }
 function passwordDigest(password,salt){
   return crypto.scryptSync(
@@ -1045,8 +1048,8 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-secure-v2';
-const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
+const CACHE='acord-app-stable-v5';
+const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(
@@ -1067,18 +1070,27 @@ self.addEventListener('activate',event=>{
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET') return;
 
-  // Socket.IO e API sempre pela rede.
   const url=new URL(event.request.url);
-  if(url.pathname.startsWith('/socket.io/')) return;
 
+  // HTML principal e Socket.IO sempre vêm da versão atual do servidor.
+  if(url.pathname==='/' || url.pathname.startsWith('/socket.io/')){
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Apenas arquivos estáticos usam cache.
   event.respondWith(
-    fetch(event.request)
-      .then(response=>{
-        const clone=response.clone();
-        caches.open(CACHE).then(cache=>cache.put(event.request,clone)).catch(()=>{});
+    caches.match(event.request).then(cached=>{
+      if(cached) return cached;
+
+      return fetch(event.request).then(response=>{
+        if(response && response.ok){
+          const clone=response.clone();
+          caches.open(CACHE).then(cache=>cache.put(event.request,clone)).catch(()=>{});
+        }
         return response;
-      })
-      .catch(()=>caches.match(event.request).then(cached=>cached || caches.match('/')))
+      });
+    })
   );
 });
   `);
@@ -2791,358 +2803,245 @@ select{
 }
 
 
-/* ===== ACORD — REDESIGN FINAL ===== */
-:root{
-  --accent:var(--coral);
-  --accent-2:var(--coral2);
-  --accent-soft:color-mix(in srgb,var(--coral) 16%,transparent);
-  --panel:color-mix(in srgb,var(--bg1) 94%,black);
-  --panel-2:color-mix(in srgb,var(--bg2) 94%,black);
-  --panel-3:color-mix(in srgb,var(--bg3) 92%,black);
-}
-
-body{
-  background:
-    radial-gradient(circle at 35% 8%,color-mix(in srgb,var(--coral) 8%,transparent),transparent 33%),
-    linear-gradient(180deg,var(--bg0),color-mix(in srgb,var(--bg0) 90%,black));
+/* ===== ACORD — INTERFACE ESTÁVEL ===== */
+html,body{
+  overflow:hidden;
 }
 
 .app{
-  background:transparent;
+  width:100vw;
+  height:100vh;
+  min-width:0;
+  min-height:0;
 }
 
-.rail{
-  width:76px;
-  padding:14px 10px;
-  gap:10px;
-  background:rgba(4,12,11,.92);
-  border-right:1px solid color-mix(in srgb,var(--coral) 18%,var(--line));
+.app.hubMode{
+  grid-template-columns:72px minmax(0,1fr) 260px!important;
 }
 
-.serverIcon,
-.homeHubIcon,
-.addServer{
-  width:50px!important;
-  height:50px!important;
-  border-radius:14px!important;
-  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
-  background:var(--panel-2)!important;
+.app.hubMode .sidebar{
+  display:none!important;
 }
 
-.serverIcon.active,
-.homeHubIcon.active{
-  border-color:var(--coral)!important;
-  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 40%,transparent),
-             0 0 24px color-mix(in srgb,var(--coral) 24%,transparent)!important;
+.app.serverMode{
+  grid-template-columns:72px 260px minmax(0,1fr) 260px!important;
 }
 
-.homeHubMonitor{
-  width:100%;
-  height:100%;
-}
-
-.sidebar{
-  width:300px;
-  background:rgba(7,18,16,.96)!important;
-  border-right:1px solid color-mix(in srgb,var(--coral) 14%,var(--line));
-}
-
-.sideHead{
-  height:64px;
-  padding:0 16px;
-  border-bottom:1px solid var(--line);
-}
-
-.sideScroll{
-  padding:12px;
-}
-
-.channelBtn{
-  min-height:38px;
-  padding:9px 11px;
-  border-radius:9px!important;
-  color:var(--muted);
-}
-
-.channelBtn:hover{
-  background:var(--panel-3)!important;
-  color:var(--text);
-}
-
-.channelBtn.active{
-  background:color-mix(in srgb,var(--coral) 17%,var(--panel-3))!important;
-  color:var(--text)!important;
-  border:1px solid color-mix(in srgb,var(--coral) 35%,var(--line))!important;
-}
-
-.groupHead{
-  color:var(--coral)!important;
-  letter-spacing:.08em;
-  font-size:10px;
-  font-weight:900;
+.rail,
+.sidebar,
+.main,
+.rightbar{
+  min-width:0;
+  min-height:0;
 }
 
 .main{
-  background:transparent!important;
+  overflow:hidden;
 }
 
-.topbar{
-  height:64px;
-  padding:0 20px;
-  background:rgba(7,17,15,.94)!important;
-  border-bottom:1px solid var(--line);
+.content{
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
 }
 
-#topTitle{
-  font-size:17px!important;
-  font-weight:900!important;
-}
-
-#topSub{
-  color:var(--muted)!important;
+.view{
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
 }
 
 .friendsHome{
-  background:transparent!important;
-  padding-bottom:64px!important;
+  position:relative;
+  width:100%;
+  height:100%;
+  min-width:0;
+  min-height:0;
+  display:grid!important;
+  grid-template-rows:auto auto minmax(0,1fr)!important;
+  padding-bottom:62px!important;
+  overflow:hidden;
 }
 
 .friendsHomeTop{
-  padding:20px 24px 14px!important;
-  border-bottom:1px solid var(--line);
-  background:rgba(7,17,15,.78);
+  min-height:58px!important;
+  padding:10px 18px!important;
+  gap:7px!important;
+  flex-wrap:wrap!important;
 }
 
-.friendTab{
-  min-height:36px;
-  padding:8px 11px!important;
-  border-radius:8px!important;
-  color:var(--muted)!important;
-  background:transparent!important;
+.friendsSearchWrap{
+  padding:12px 18px 8px!important;
 }
 
-.friendTab.active{
-  color:var(--coral)!important;
-  background:color-mix(in srgb,var(--coral) 12%,transparent)!important;
-  box-shadow:inset 0 -2px 0 var(--coral)!important;
-}
-
-.friendTab.add{
-  color:#fff!important;
-  background:var(--coral)!important;
-}
-
-.friendSearch{
-  margin:12px 16px 0!important;
-  border:1px solid color-mix(in srgb,var(--coral) 12%,var(--line))!important;
-  background:rgba(7,18,16,.82)!important;
+.friendsSearchWrap input{
+  width:100%!important;
+  min-width:0!important;
 }
 
 .friendsListArea{
-  padding:16px!important;
-}
-
-.friendRow{
-  min-height:62px;
-  padding:10px 12px!important;
-  border-radius:0!important;
-  border-bottom:1px solid color-mix(in srgb,var(--line) 84%,transparent)!important;
-  background:transparent!important;
-}
-
-.friendRow:hover{
-  background:color-mix(in srgb,var(--coral) 7%,transparent)!important;
-}
-
-.friendsSectionTitle{
-  color:var(--coral)!important;
-  font-size:10px!important;
-  letter-spacing:.11em!important;
+  min-height:0!important;
+  overflow:auto!important;
+  padding:6px 18px 18px!important;
 }
 
 .friendsAccountBar{
+  position:absolute!important;
   left:0!important;
   right:0!important;
   bottom:0!important;
+  height:62px!important;
   min-height:62px!important;
-  background:rgba(5,15,13,.97)!important;
-  border-top:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
-  padding:9px 16px!important;
+  z-index:50!important;
 }
 
 .rightbar{
-  width:310px;
-  background:rgba(7,18,16,.95)!important;
-  border-left:1px solid color-mix(in srgb,var(--coral) 14%,var(--line));
+  overflow:auto!important;
 }
 
-#rightTitle{
-  color:var(--text)!important;
-  font-size:13px!important;
-  font-weight:900!important;
-}
-
-.serverMemberRow,
-.settingsMember{
-  min-height:52px;
-  border-radius:8px!important;
-  padding:8px 10px!important;
-}
-
-.serverMemberRow:hover,
-.settingsMember:hover{
-  background:color-mix(in srgb,var(--coral) 7%,transparent)!important;
-}
-
-.messages{
-  padding:20px 26px 90px!important;
-  background:
-    radial-gradient(circle at 70% 15%,color-mix(in srgb,var(--coral) 5%,transparent),transparent 32%);
-}
-
-.message{
-  padding:9px 10px!important;
-  margin-bottom:2px!important;
-  border-radius:8px!important;
-}
-
-.message:hover{
-  background:color-mix(in srgb,var(--coral) 6%,transparent)!important;
-}
-
-.message strong{
-  font-size:13px!important;
-}
-
-.compose{
-  position:sticky;
-  bottom:0;
-  padding:12px 16px!important;
-  background:linear-gradient(180deg,transparent,rgba(5,14,12,.98) 28%)!important;
-  border-top:0!important;
-}
-
-.compose input{
-  min-height:44px!important;
-  border-radius:12px!important;
-  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
-  background:rgba(8,20,18,.96)!important;
-}
-
-.btn.primary{
-  background:var(--coral)!important;
-  border-color:var(--coral)!important;
-}
-
-.control{
-  min-height:44px;
-  border-radius:11px!important;
-  border:1px solid color-mix(in srgb,var(--coral) 13%,var(--line))!important;
-  background:rgba(9,23,20,.96)!important;
-}
-
-.control:hover{
-  background:color-mix(in srgb,var(--coral) 14%,var(--panel-3))!important;
-}
-
-.control.sharing,
-.control.musicActive,
-.stageHandBtn{
-  color:var(--coral)!important;
-  background:color-mix(in srgb,var(--coral) 12%,var(--panel-2))!important;
-  border-color:color-mix(in srgb,var(--coral) 40%,var(--line))!important;
-}
-
-.controls{
-  min-height:68px!important;
-  background:rgba(5,15,13,.98)!important;
-  border-top:1px solid color-mix(in srgb,var(--coral) 14%,var(--line))!important;
-}
-
-.videoGrid{
-  padding:18px!important;
-  gap:14px!important;
-}
-
-.videoCard{
-  background:linear-gradient(180deg,
-    color-mix(in srgb,var(--coral) 5%,var(--panel-2)),
-    var(--panel))!important;
-  border:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
-  border-radius:14px!important;
-}
-
-.callSettingsPanel,
-.localMusicShell,
-.modal{
-  background:rgba(7,18,16,.98)!important;
-  border:1px solid color-mix(in srgb,var(--coral) 16%,var(--line))!important;
-}
-
-.modal{
-  border-radius:16px!important;
-}
-
-.profileTabs,
-.authSwitch{
-  background:var(--panel-2)!important;
-  border-color:color-mix(in srgb,var(--coral) 14%,var(--line))!important;
-}
-
-.profileTabBtn.active,
-.authTab.active{
-  color:var(--coral)!important;
-  background:color-mix(in srgb,var(--coral) 12%,var(--panel-3))!important;
-}
-
-.profileThemeBtn.active,
-.profilePaletteBtn.active{
-  border-color:var(--coral)!important;
-  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 25%,transparent)!important;
-}
-
-.customColorPreview{
-  border-color:var(--coral)!important;
+.login{
+  overflow:auto!important;
+  padding:24px!important;
 }
 
 .loginShell{
-  background:
-    radial-gradient(circle at 18% 15%,color-mix(in srgb,var(--coral) 12%,transparent),transparent 30%),
-    var(--bg0)!important;
+  width:min(1040px,100%)!important;
+  min-height:min(650px,calc(100vh - 48px))!important;
+  max-height:none!important;
+  margin:auto!important;
 }
 
-.loginBrandPanel{
-  background:rgba(5,15,13,.96)!important;
+.loginCard{
+  min-width:0!important;
 }
 
-.loginMark{
-  background:var(--coral)!important;
+.authField input{
+  width:100%!important;
 }
 
+.passwordField{
+  width:100%!important;
+}
+
+#loginBtn:disabled{
+  opacity:.65!important;
+  cursor:wait!important;
+}
+
+.authError{
+  display:block!important;
+  min-height:34px!important;
+  padding-top:8px!important;
+  line-height:1.35!important;
+}
+
+.chatView{
+  min-width:0!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+
+.messages{
+  min-width:0!important;
+  min-height:0!important;
+  overflow:auto!important;
+}
+
+.compose{
+  min-width:0!important;
+}
+
+.compose input{
+  min-width:0!important;
+}
+
+#voiceView{
+  position:relative!important;
+  min-width:0!important;
+  min-height:0!important;
+}
+
+.videoGrid{
+  min-width:0!important;
+  min-height:0!important;
+  overflow:auto!important;
+}
+
+.controls{
+  flex-wrap:wrap!important;
+}
+
+.modalWrap,
+.sharePickerWrap{
+  overflow:auto!important;
+}
+
+.modal,
 .sharePicker{
-  background:rgba(7,18,16,.98)!important;
+  max-height:calc(100vh - 36px)!important;
+  overflow:auto!important;
 }
 
-.shareChoice:hover{
-  border-color:var(--coral)!important;
+@media(max-width:1100px){
+  .app.hubMode{
+    grid-template-columns:68px minmax(0,1fr)!important;
+  }
+
+  .app.serverMode{
+    grid-template-columns:68px 240px minmax(0,1fr)!important;
+  }
+
+  .rightbar{
+    display:none!important;
+  }
 }
 
-.messageContextMenu{
-  background:rgba(7,18,16,.99)!important;
-  border-color:color-mix(in srgb,var(--coral) 20%,var(--line))!important;
-}
+@media(max-width:760px){
+  .app.hubMode{
+    grid-template-columns:60px minmax(0,1fr)!important;
+  }
 
-.toast{
-  background:rgba(7,18,16,.98)!important;
-  border:1px solid color-mix(in srgb,var(--coral) 18%,var(--line))!important;
-}
+  .app.serverMode{
+    grid-template-columns:60px minmax(0,1fr)!important;
+  }
 
-@media(max-width:1050px){
-  .rightbar{display:none!important}
-}
+  .app.serverMode .sidebar{
+    display:none!important;
+  }
 
-@media(max-width:820px){
-  .sidebar{width:240px}
+  .rail{
+    padding-left:5px!important;
+    padding-right:5px!important;
+  }
+
+  .friendsHomeTop{
+    padding:8px 10px!important;
+  }
+
+  .friendsSearchWrap,
+  .friendsListArea{
+    padding-left:10px!important;
+    padding-right:10px!important;
+  }
+
+  .login{
+    padding:10px!important;
+  }
+
+  .loginBrandPanel{
+    display:none!important;
+  }
+
+  .loginShell{
+    display:block!important;
+    min-height:auto!important;
+  }
+
+  .loginCard{
+    width:100%!important;
+    max-width:520px!important;
+    margin:0 auto!important;
+  }
 }
 
 </style>
@@ -3156,7 +3055,7 @@ body{
       <div>
         <div class="loginBrandTop">
           <div class="loginMark">e</div>
-          <div class="loginBrandName" style="color:var(--coral)">Acord</div>
+          <div class="loginBrandName">Acord</div>
         </div>
 
         <div class="loginHero">
@@ -4371,27 +4270,65 @@ function setAuthMode(mode){
   $('#authPassword').setAttribute('autocomplete',registering?'new-password':'current-password');
   $('#authError').textContent='';
 }
+let authSubmitTimer=null;
+
+function resetAuthSubmitButton(){
+  clearTimeout(authSubmitTimer);
+  authSubmitTimer=null;
+
+  const button=$('#loginBtn');
+  if(!button) return;
+
+  button.disabled=false;
+  button.textContent=state.authMode==='register'?'Criar conta':'Entrar';
+}
+
 function submitAuthentication(){
   const username=$('#authUsername').value.trim().slice(0,30);
   const password=$('#authPassword').value;
   const confirmation=$('#authPasswordConfirm').value;
-  $('#authError').textContent='';
+  const error=$('#authError');
+
+  error.textContent='';
+
+  if(!socket.connected){
+    error.textContent='Sem conexão com o servidor. Aguarde alguns segundos e tente novamente.';
+    resetAuthSubmitButton();
+    return;
+  }
+
+  if(username.length<3){
+    error.textContent='O nome precisa ter pelo menos 3 caracteres.';
+    resetAuthSubmitButton();
+    return;
+  }
+
+  if(password.length<6){
+    error.textContent='A senha precisa ter pelo menos 6 caracteres.';
+    resetAuthSubmitButton();
+    return;
+  }
+
+  if(state.authMode==='register' && password!==confirmation){
+    error.textContent='As senhas não são iguais.';
+    resetAuthSubmitButton();
+    return;
+  }
 
   const button=$('#loginBtn');
   button.disabled=true;
   button.textContent=state.authMode==='register'?'Criando...':'Entrando...';
 
-  const restoreButton=()=>{
-    button.disabled=false;
-    button.textContent=state.authMode==='register'?'Criar conta':'Entrar';
-  };
-  if(username.length<3){$('#authError').textContent='O nome precisa ter pelo menos 3 caracteres.';restoreButton();return}
-  if(password.length<6){$('#authError').textContent='A senha precisa ter pelo menos 6 caracteres.';restoreButton();return}
+  authSubmitTimer=setTimeout(()=>{
+    resetAuthSubmitButton();
+    error.textContent='O servidor demorou para responder. Tente novamente.';
+  },10000);
+
   if(state.authMode==='register'){
-    if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';restoreButton();return}
-    socket.emit('auth-register',{username,password});return;
+    socket.emit('auth-register',{username,password});
+  }else{
+    socket.emit('auth-login',{username,password});
   }
-  socket.emit('auth-login',{username,password});
 }
 function clearAccountState(){
   state.authToken='';state.userId='';state.username='';state.displayName='';
@@ -5121,7 +5058,7 @@ function returnToActiveCall(){
     $('#voiceTitle').textContent = state.activeVoiceName;
   }
 
-  $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Somente convidados' : 'Conectado';
+  $('#voiceStatus').textContent = 'Conectado';
   syncVoiceControlsUI();
   updateCallDock();
 }
@@ -7747,7 +7684,7 @@ async function enterPrivateCall(callId,peerName){
     $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
     $('#topTitle').textContent = '☎ Chamada privada';
     $('#topSub').textContent = state.privatePeerName;
-    $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Conectando...' : 'Conectando...';
+    $('#voiceStatus').textContent = 'Conectando...';
 
     syncVoiceControlsUI();
 
@@ -8927,18 +8864,23 @@ document.addEventListener('keydown',e=>{
 
 
 socket.on('auth-success',payload=>{
-  $('#loginBtn').disabled=false;
-  $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
+  resetAuthSubmitButton();
   $('#authError').textContent='';
   applyAuthProfile(payload?.profile,payload?.token);
   requestNotifications();
 });
 socket.on('auth-error',payload=>{
-  $('#loginBtn').disabled=false;
-  $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
+  resetAuthSubmitButton();
   $('#authError').textContent=payload?.error||'Não foi possível entrar.';
 });
-socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord-auth-token');$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')});
+socket.on('auth-required',()=>{
+  resetAuthSubmitButton();
+  state.authToken='';
+  localStorage.removeItem('acord-auth-token');
+  $('#login').classList.remove('hidden');
+  $('#appShell').classList.add('hidden');
+  $('#authError').textContent='Sua sessão expirou. Entre novamente.';
+});
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
 socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
@@ -9035,13 +8977,25 @@ socket.on('friend-state',payload=>{
   state.outgoingFriendRequests = Array.isArray(payload?.outgoing) ? payload.outgoing : [];
   state.friendStateLoaded = true;
 
-  state.serverFriends = incomingFriends;
-  saveFriends(incomingFriends);
-  state.friendsRestoreAttempted = false;
+  if(incomingFriends.length){
+    state.serverFriends = incomingFriends;
+    saveFriends(incomingFriends);
+    state.friendsRestoreAttempted = false;
+  }else if(cachedFriends.length){
+    // Uma resposta vazia não apaga os amigos.
+    // Mantém o backup local e tenta reconstruir a relação no servidor.
+    state.serverFriends = cachedFriends;
 
-  if(!incomingFriends.length){
+    if(!state.friendsRestoreAttempted){
+      state.friendsRestoreAttempted = true;
+
+      socket.emit('restore-friends',{
+        friends:cachedFriends
+      });
+    }
+  }else{
+    state.serverFriends = [];
     localStorage.setItem('ecord-friends','[]');
-    localStorage.setItem('ecord-friends-backup','[]');
   }
 
   renderFriends();
@@ -9162,7 +9116,20 @@ socket.on('server-list',list=>{
 
   const incoming = Array.isArray(list) ? list : [];
 
-  state.restoreAttempted = true;
+  if(!incoming.length && !state.restoreAttempted){
+    const cached = getCachedServers();
+
+    state.restoreAttempted = true;
+
+    if(cached.length){
+      socket.emit('restore-servers',{servers:cached});
+      return;
+    }
+  }
+
+  if(incoming.length){
+    state.restoreAttempted = true;
+  }
 
   const previousServerId = state.serverId;
   const previousView = state.currentView || 'friends';
@@ -9456,10 +9423,21 @@ socket.on('user-left',({id})=>{
 });
 
 socket.on('disconnect',()=>{
+  resetAuthSubmitButton();
+
+  if(!state.profileReady && $('#authError')){
+    $('#authError').textContent='Conexão perdida. Tentando reconectar...';
+  }
+
   if(state.joinedVoiceId) $('#voiceStatus').textContent='Reconectando servidor...';
 });
 
 socket.on('connect',()=>{
+  if($('#authError') && !state.profileReady){
+    $('#authError').textContent='';
+    resetAuthSubmitButton();
+  }
+
   if(state.authToken) socket.emit('auth-restore',{token:state.authToken});
   else{$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')}
 
@@ -9478,8 +9456,21 @@ socket.on('connect',()=>{
 </body>
 </html>`;
 
-app.get('/', (req, res) => {
+app.get('/health', (req,res) => {
   res.setHeader('Cache-Control','no-store');
+  res.json({
+    ok:true,
+    app:'Acord',
+    accounts:accounts.size,
+    servers:servers.size,
+    uptime:Math.round(process.uptime())
+  });
+});
+
+app.get('/', (req, res) => {
+  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma','no-cache');
+  res.setHeader('Expires','0');
   res.type('html').send(APP_HTML);
 });
 
@@ -9543,57 +9534,135 @@ io.on('connection', socket => {
   }
 
   socket.on('auth-register',({username,password})=>{
-    if(!allowLoginAttempt()){
-      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
-      return;
+    try{
+      if(!allowLoginAttempt()){
+        socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
+        return;
+      }
+
+      const safeUsername=normalizeAccountUsername(username);
+      const safePassword=String(password||'');
+
+      if(safeUsername.length<3){
+        socket.emit('auth-error',{error:'O nome precisa ter pelo menos 3 caracteres.'});
+        return;
+      }
+
+      if(usernameExists(safeUsername)){
+        socket.emit('auth-error',{error:'Esse nome já possui uma conta. Use a aba Entrar.'});
+        return;
+      }
+
+      if(safePassword.length<6 || safePassword.length>128){
+        socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'});
+        return;
+      }
+
+      // Se existir um perfil antigo sem senha, transforma esse mesmo perfil
+      // em conta para preservar servidores, amigos e identidade.
+      const legacy=legacyProfileForUsername(safeUsername);
+      const userId=legacy?.id || crypto.randomUUID();
+      const salt=crypto.randomBytes(16).toString('hex');
+
+      accounts.set(userId,{
+        userId,
+        username:safeUsername,
+        usernameKey:usernameKey(safeUsername),
+        salt,
+        passwordHash:passwordDigest(safePassword,salt),
+        createdAt:Number(legacy?.createdAt || Date.now())
+      });
+
+      const profile=legacy || {
+        id:userId,
+        username:safeUsername,
+        displayName:safeUsername,
+        bio:'',
+        avatar:'',
+        banner:'',
+        status:'online',
+        createdAt:Date.now()
+      };
+
+      profile.username=safeUsername;
+      profile.displayName=profile.displayName || safeUsername;
+      profile.status=profile.status || 'online';
+      profiles.set(userId,profile);
+
+      const token=newSession(userId);
+      socket.data.userId=userId;
+      socket.data.username=safeUsername;
+
+      saveServersToDisk();
+
+      socket.emit('auth-success',{
+        token,
+        profile:publicProfile(profile),
+        migratedLegacy:!!legacy
+      });
+
+      sendServerList(socket);
+      emitFriendState(userId);
+      emitGroupState(userId);
+      broadcastOnlineUsers();
+    }catch(error){
+      console.error('Erro ao criar conta:',error);
+      socket.emit('auth-error',{
+        error:'Não foi possível criar a conta agora. Tente novamente.'
+      });
     }
-    const safeUsername=normalizeAccountUsername(username);
-    const safePassword=String(password||'');
-    if(safeUsername.length<3){
-      socket.emit('auth-error',{error:'O nome precisa ter pelo menos 3 caracteres.'});return;
-    }
-    if(usernameExists(safeUsername)){
-      socket.emit('auth-error',{error:'Esse nome já está sendo usado.'});return;
-    }
-    if(safePassword.length<6 || safePassword.length>128){
-      socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'});return;
-    }
-    const userId=crypto.randomUUID();
-    const salt=crypto.randomBytes(16).toString('hex');
-    accounts.set(userId,{
-      userId,username:safeUsername,usernameKey:usernameKey(safeUsername),salt,
-      passwordHash:passwordDigest(safePassword,salt),createdAt:Date.now()
-    });
-    const profile={
-      id:userId,username:safeUsername,displayName:safeUsername,bio:'',avatar:'',
-      banner:'',status:'online',createdAt:Date.now()
-    };
-    profiles.set(userId,profile);
-    const token=newSession(userId);
-    socket.data.userId=userId;
-    socket.data.username=safeUsername;
-    saveServersToDisk();
-    socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
   socket.on('auth-login',({username,password})=>{
-    if(!allowLoginAttempt()){
-      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});return;
+    try{
+      if(!allowLoginAttempt()){
+        socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
+        return;
+      }
+
+      const key=usernameKey(username);
+      const account=[...accounts.values()].find(item=>item.usernameKey===key);
+
+      if(!account){
+        const legacy=legacyProfileForUsername(username);
+
+        socket.emit('auth-error',{
+          error:legacy
+            ? 'Seu perfil antigo ainda não tem senha. Abra “Criar conta” e use este mesmo nome para ativá-lo.'
+            : 'Conta não encontrada. Confira o nome ou crie uma conta.'
+        });
+        return;
+      }
+
+      if(!verifyAccountPassword(String(password||''),account)){
+        socket.emit('auth-error',{error:'Senha incorreta.'});
+        return;
+      }
+
+      const profile=profiles.get(account.userId);
+
+      if(!profile){
+        socket.emit('auth-error',{error:'O perfil desta conta não foi encontrado.'});
+        return;
+      }
+
+      socket.data.userId=account.userId;
+      socket.data.username=account.username;
+
+      const token=newSession(account.userId);
+      saveServersToDisk();
+
+      socket.emit('auth-success',{token,profile:publicProfile(profile)});
+      sendServerList(socket);
+      emitFriendState(account.userId);
+      emitGroupState(account.userId);
+      broadcastOnlineUsers();
+    }catch(error){
+      console.error('Erro ao entrar:',error);
+      socket.emit('auth-error',{
+        error:'Não foi possível entrar agora. Tente novamente.'
+      });
     }
-    const key=usernameKey(username);
-    const account=[...accounts.values()].find(item=>item.usernameKey===key);
-    if(!account || !verifyAccountPassword(String(password||''),account)){
-      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});return;
-    }
-    const profile=profiles.get(account.userId);
-    if(!profile){socket.emit('auth-error',{error:'Conta inválida.'});return}
-    socket.data.userId=account.userId;
-    socket.data.username=account.username;
-    const token=newSession(account.userId);
-    saveServersToDisk();
-    socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);emitFriendState(account.userId);emitGroupState(account.userId);broadcastOnlineUsers();
   });
 
   socket.on('auth-restore',({token})=>{
@@ -9607,7 +9676,6 @@ io.on('connection', socket => {
   });
 
   socket.on('auth-logout',({token})=>{
-    leaveVoiceRoom();
     const hash=tokenHash(token);
     const session=sessions.get(hash);
     if(session?.userId===socket.data.userId) sessions.delete(hash);
@@ -9711,6 +9779,26 @@ io.on('connection', socket => {
     socket.data.userId = safeId;
     socket.data.username = profile.username;
 
+    const knownIds = new Set(
+      Array.isArray(knownServerIds)
+        ? knownServerIds.map(value=>String(value || '').slice(0,80))
+        : []
+    );
+
+    for (const serverData of servers.values()) {
+      const legacyServer =
+        !serverData.ownerId &&
+        (!Array.isArray(serverData.members) || !serverData.members.length);
+
+      if (legacyServer && knownIds.has(serverData.id)) {
+        serverData.ownerId = safeId;
+        serverData.members = [safeId];
+
+        if (!serverData.inviteToken) {
+          serverData.inviteToken = crypto.randomBytes(18).toString('hex');
+        }
+      }
+    }
 
     saveServersToDisk();
     socket.emit('profile-saved', publicProfile(profile));
@@ -9721,6 +9809,51 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
+  socket.on('restore-friends', ({ friends }) => {
+    if (!socket.data.userId || !Array.isArray(friends)) return;
+
+    const ownerId = socket.data.userId;
+    let changed = false;
+
+    for (const rawFriend of friends.slice(0,500)) {
+      const friendId = String(rawFriend?.id || '').trim().slice(0,100);
+      const username = cleanName(rawFriend?.username,'Usuário');
+
+      if (!friendId || friendId === ownerId) continue;
+
+      // Se o perfil do amigo sumiu após reinício do servidor,
+      // restaura os dados públicos guardados no navegador.
+      if (!profiles.has(friendId)) {
+        profiles.set(friendId,{
+          id:friendId,
+          username,
+          bio:String(rawFriend?.bio || '').trim().slice(0,160),
+          avatar:String(rawFriend?.avatar || '').slice(0,350000)
+        });
+        changed = true;
+      }
+
+      if (!areFriends(ownerId,friendId)) {
+        friendships.push({
+          a:ownerId,
+          b:friendId,
+          at:Date.now()
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveServersToDisk();
+    }
+
+    emitFriendState(ownerId);
+
+    for (const friend of friends.slice(0,500)) {
+      const friendId = String(friend?.id || '').trim().slice(0,100);
+      if (friendId) emitFriendState(friendId);
+    }
+  });
 
   socket.on('friend-request-send', ({ username }) => {
     if (!socket.data.userId) return;
@@ -9996,6 +10129,39 @@ io.on('connection', socket => {
     sendServerList(socket);
   });
 
+  socket.on('restore-servers', ({ servers: restored }) => {
+    if (!Array.isArray(restored) || !socket.data.userId) return;
+
+    for (const rawItem of restored.slice(0, 100)) {
+      if (!rawItem?.id) continue;
+
+      const item = { ...rawItem };
+      const cachedOwnerId = String(item.ownerId || '');
+
+      if (cachedOwnerId && cachedOwnerId !== String(socket.data.userId)) {
+        continue;
+      }
+
+      if (!cachedOwnerId) {
+        item.ownerId = socket.data.userId;
+        item.members = [
+          ...new Set([
+            socket.data.userId,
+            ...(Array.isArray(item.members) ? item.members : [])
+          ])
+        ];
+      }
+
+      if (!item.inviteToken) {
+        item.inviteToken = crypto.randomBytes(18).toString('hex');
+      }
+
+      mergeRestoredServer(item);
+    }
+
+    saveServersToDisk();
+    broadcastServerLists();
+  });
 
   socket.on('create-server', ({ name }) => {
     if (!socket.data.userId) return;
@@ -10620,81 +10786,106 @@ io.on('connection', socket => {
   }
 
   socket.on('private-call-invite', ({ targetUserId, targetUsername }) => {
-    if(!socket.data.userId || !accounts.has(socket.data.userId)){
-      socket.emit('private-call-error',{error:'Você precisa estar autenticado'}); return;
-    }
-    const target=[...io.sockets.sockets.values()].find(candidate=>{
-      if(candidate.id===socket.id || !candidate.data.userId) return false;
-      if(targetUserId) return String(candidate.data.userId)===String(targetUserId);
-      return String(candidate.data.username||'').toLowerCase()===String(targetUsername||'').toLowerCase();
+    const target = [...io.sockets.sockets.values()].find(candidate => {
+      if (candidate.id === socket.id) return false;
+
+      if (targetUserId && candidate.data.userId) {
+        return String(candidate.data.userId) === String(targetUserId);
+      }
+
+      return String(candidate.data.username || '').toLowerCase() ===
+        String(targetUsername || '').toLowerCase();
     });
-    if(!target){ socket.emit('private-call-error',{error:'Esse amigo está offline'}); return; }
-    if(!areFriends(socket.data.userId,target.data.userId)){
-      socket.emit('private-call-error',{error:'Calls privadas só podem ser iniciadas com amigos'}); return;
+
+    if (!target) {
+      socket.emit('private-call-error', {
+        error: 'Esse amigo está offline'
+      });
+      return;
     }
-    const callId=crypto.randomBytes(18).toString('hex');
-    privateCalls.set(callId,{
-      callId,callerUserId:socket.data.userId,calleeUserId:target.data.userId,
-      callerSocketId:socket.id,calleeSocketId:target.id,accepted:false,
-      createdAt:Date.now(),expiresAt:Date.now()+1000*60*60*4
-    });
-    target.emit('incoming-private-call',{
-      callId,callerSocketId:socket.id,fromUserId:socket.data.userId,
-      fromUsername:socket.data.username||'Usuário'
+
+    const callId = id();
+
+    target.emit('incoming-private-call', {
+      callId,
+      callerSocketId: socket.id,
+      fromUserId: socket.data.userId || null,
+      fromUsername: socket.data.username || 'Usuário'
     });
   });
 
   socket.on('private-call-response', ({ callId, callerSocketId, accept }) => {
-    if(!callId || !socket.data.userId) return;
-    const safeCallId=String(callId).slice(0,100);
-    const call=privateCalls.get(safeCallId);
-    if(!call || call.calleeUserId!==socket.data.userId || call.calleeSocketId!==socket.id || call.callerSocketId!==String(callerSocketId||'')){
-      socket.emit('private-call-error',{error:'Convite de call inválido ou expirado'}); return;
-    }
-    const caller=io.sockets.sockets.get(call.callerSocketId);
-    if(!caller?.data?.userId || caller.data.userId!==call.callerUserId || !areFriends(call.callerUserId,call.calleeUserId)){
-      privateCalls.delete(safeCallId); socket.emit('private-call-error',{error:'A call não está mais disponível'}); return;
-    }
-    if(accept){
-      call.accepted=true; call.expiresAt=Date.now()+1000*60*60*4;
-      caller.emit('private-call-accepted',{callId:safeCallId,username:socket.data.username||'Usuário',userId:socket.data.userId});
-    }else{
-      privateCalls.delete(safeCallId);
-      caller.emit('private-call-declined',{callId:safeCallId,username:socket.data.username||'Usuário'});
+    if (!callerSocketId || !callId || !socket.data.userId) return;
+
+    const caller = io.sockets.sockets.get(String(callerSocketId));
+    if(!caller?.data?.userId || !areFriends(socket.data.userId,caller.data.userId)) return;
+
+    if (accept) {
+      io.to(callerSocketId).emit('private-call-accepted', {
+        callId,
+        username: socket.data.username || 'Usuário',
+        userId: socket.data.userId || null
+      });
+    } else {
+      io.to(callerSocketId).emit('private-call-declined', {
+        callId,
+        username: socket.data.username || 'Usuário'
+      });
     }
   });
 
-  socket.on('join-private-call', ({ callId }) => {
-    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
-    const safeCallId=String(callId||'').slice(0,100);
-    const call=privateCalls.get(safeCallId);
-    if(!call || !call.accepted || Number(call.expiresAt||0)<=Date.now()){
-      socket.emit('private-call-error',{error:'Call privada inválida ou expirada'}); return;
-    }
-    const allowed=socket.data.userId===call.callerUserId || socket.data.userId===call.calleeUserId;
-    if(!allowed){ socket.emit('private-call-error',{error:'Você não tem acesso a esta call privada'}); return; }
+  socket.on('join-private-call', ({ callId, username, userId }) => {
+    if (!callId) return;
+
     leaveVoiceRoom();
-    const room='private:'+safeCallId;
-    const participants=[...(io.sockets.adapter.rooms.get(room)||[])].map(socketId=>{
-      const participant=io.sockets.sockets.get(socketId);
-      if(!participant?.data?.userId) return null;
-      const ok=participant.data.userId===call.callerUserId || participant.data.userId===call.calleeUserId;
-      return ok?{id:socketId,username:participant.data.username||'Usuário'}:null;
-    }).filter(Boolean);
-    if(participants.length>=2){ socket.emit('private-call-error',{error:'Esta call privada já está completa'}); return; }
-    socket.data.voiceRoom=room; socket.data.voiceServerId=null; socket.data.voiceChannelId=null;
+
+    const room = 'private:' + String(callId).slice(0, 100);
+
+    const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
+      .map(socketId => {
+        const participant = io.sockets.sockets.get(socketId);
+
+        return participant
+          ? {
+              id: socketId,
+              username: participant.data.username || 'Usuário'
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    socket.data.username = socket.data.username || cleanName(username);
+    if(!socket.data.userId) return;
+    socket.data.voiceRoom = room;
+    socket.data.voiceServerId = null;
+    socket.data.voiceChannelId = null;
+
     socket.join(room);
-    socket.emit('voice-participants',participants);
-    socket.to(room).emit('user-joined',{id:socket.id,username:socket.data.username||'Usuário'});
-    const members=[...(io.sockets.adapter.rooms.get(room)||[])].map(socketId=>{
-      const participant=io.sockets.sockets.get(socketId);
-      return participant?{id:socketId,username:participant.data.username||'Usuário'}:null;
-    }).filter(Boolean);
-    io.to(room).emit('voice-members',members);
+
+    socket.emit('voice-participants', participants);
+
+    socket.to(room).emit('user-joined', {
+      id: socket.id,
+      username: socket.data.username
+    });
+
+    const members = [...(io.sockets.adapter.rooms.get(room) || [])]
+      .map(socketId => {
+        const participant = io.sockets.sockets.get(socketId);
+
+        return participant
+          ? {
+              id: socketId,
+              username: participant.data.username || 'Usuário'
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    io.to(room).emit('voice-members', members);
   });
 
-  socket.on('join-voice', ({ serverId, channelId }) => {
-    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+  socket.on('join-voice', ({ serverId, channelId, username }) => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket) || !s.voiceChannels.some(c => c.id === channelId)) return;
 
@@ -10709,8 +10900,7 @@ io.on('connection', socket => {
       })
       .filter(Boolean);
 
-    const ownProfile=profiles.get(socket.data.userId);
-    socket.data.username=ownProfile?.username || socket.data.username || 'Usuário';
+    socket.data.username = cleanName(username);
     socket.data.voiceRoom = room;
     socket.data.voiceServerId = serverId;
     socket.data.voiceChannelId = channelId;
@@ -10779,9 +10969,6 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
-    for(const [callId,call] of privateCalls){
-      if(call.callerSocketId===socket.id || call.calleeSocketId===socket.id) privateCalls.delete(callId);
-    }
     const room = socket.data.voiceRoom;
     setTimeout(broadcastOnlineUsers, 0);
     if (room) {
