@@ -313,23 +313,51 @@ function verifyAccountPassword(password,account){
 function tokenHash(token){
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
+const SESSION_LIFETIME_MS = 1000 * 60 * 60 * 24 * 365;
+const SESSION_GRACE_MS = 1000 * 60 * 60 * 24 * 7;
+
 function newSession(userId){
   const token=crypto.randomBytes(32).toString('hex');
+  const now=Date.now();
+
   sessions.set(tokenHash(token),{
     userId,
-    createdAt:Date.now(),
-    expiresAt:Date.now()+1000*60*60*24*30
+    createdAt:now,
+    lastSeenAt:now,
+    expiresAt:now + SESSION_LIFETIME_MS
   });
+
   return token;
 }
-function sessionUserId(token){
-  const key=tokenHash(token);
+
+function sessionUserId(token,{renew=true}={}){
+  const rawToken=String(token || '');
+  if(rawToken.length < 20) return null;
+
+  const key=tokenHash(rawToken);
   const session=sessions.get(key);
+
   if(!session) return null;
-  if(Number(session.expiresAt||0)<Date.now() || !accounts.has(session.userId)){
+
+  const now=Date.now();
+  const expiresAt=Number(session.expiresAt || 0);
+
+  if(!accounts.has(session.userId)){
     sessions.delete(key);
     return null;
   }
+
+  // Pequena tolerância para uma aba que ficou aberta durante uma atualização/reconexão.
+  if(expiresAt && expiresAt < now - SESSION_GRACE_MS){
+    sessions.delete(key);
+    return null;
+  }
+
+  if(renew){
+    session.lastSeenAt=now;
+    session.expiresAt=now + SESSION_LIFETIME_MS;
+  }
+
   return session.userId;
 }
 function clearSessionsForUser(userId){
@@ -352,7 +380,8 @@ function serializeSessions(){
     hash:String(hash||'').slice(0,128),
     userId:String(session?.userId||'').slice(0,100),
     createdAt:Number(session?.createdAt||Date.now()),
-    expiresAt:Number(session?.expiresAt||Date.now())
+    lastSeenAt:Number(session?.lastSeenAt||session?.createdAt||Date.now()),
+    expiresAt:Number(session?.expiresAt||Date.now()+SESSION_LIFETIME_MS)
   }));
 }
 function recordAudit(serverId,action,actor,target=''){
@@ -643,8 +672,22 @@ function loadServersFromDisk() {
       const hash=String(rawSession?.hash||'').slice(0,128);
       const userId=String(rawSession?.userId||'').slice(0,100);
       const expiresAt=Number(rawSession?.expiresAt||0);
-      if(!hash || !userId || !accounts.has(userId) || expiresAt<Date.now()) continue;
-      sessions.set(hash,{userId,createdAt:Number(rawSession?.createdAt||Date.now()),expiresAt});
+
+      if(
+        !hash ||
+        !userId ||
+        !accounts.has(userId) ||
+        (expiresAt && expiresAt < Date.now() - SESSION_GRACE_MS)
+      ){
+        continue;
+      }
+
+      sessions.set(hash,{
+        userId,
+        createdAt:Number(rawSession?.createdAt||Date.now()),
+        lastSeenAt:Number(rawSession?.lastSeenAt||rawSession?.createdAt||Date.now()),
+        expiresAt:Math.max(expiresAt,Date.now()+SESSION_LIFETIME_MS)
+      });
     }
 
     for(const entry of savedAuditLog.slice(-2000)){
@@ -3939,6 +3982,8 @@ const PAGE_WAS_RELOADED=pageWasReloaded();
 const state = {
   authToken:localStorage.getItem('acord-auth-token')||'',
   authMode:'login',
+  authRestoreFailures:0,
+  authKeepaliveTimer:null,
   userId:'',
   username:'',
   displayName:'',
@@ -4366,7 +4411,28 @@ function submitAuthentication(){
     socket.emit('auth-login',{username,password});
   }
 }
+function stopAuthKeepalive(){
+  if(state.authKeepaliveTimer){
+    clearInterval(state.authKeepaliveTimer);
+    state.authKeepaliveTimer=null;
+  }
+}
+
+function startAuthKeepalive(){
+  stopAuthKeepalive();
+
+  if(!state.authToken) return;
+
+  state.authKeepaliveTimer=setInterval(()=>{
+    if(socket.connected && state.authToken && state.profileReady){
+      socket.emit('auth-keepalive',{token:state.authToken});
+    }
+  },1000*60*5);
+}
+
 function clearAccountState(){
+  stopAuthKeepalive();
+  state.authRestoreFailures=0;
   state.authToken='';state.userId='';state.username='';state.displayName='';
   state.bio='';state.avatar='';state.banner='';state.profileReady=false;state.appInitialized=false;
   localStorage.removeItem('acord-auth-token');
@@ -8957,8 +9023,10 @@ document.addEventListener('keydown',e=>{
 
 socket.on('auth-success',payload=>{
   resetAuthSubmitButton();
+  state.authRestoreFailures=0;
   $('#authError').textContent='';
   applyAuthProfile(payload?.profile,payload?.token);
+  startAuthKeepalive();
 
   if(payload?.accountRecovered){
     setTimeout(()=>toast('Conta reativada e login concluído'),250);
@@ -8970,13 +9038,48 @@ socket.on('auth-error',payload=>{
   resetAuthSubmitButton();
   $('#authError').textContent=payload?.error||'Não foi possível entrar.';
 });
-socket.on('auth-required',()=>{
+socket.on('auth-restore-retry',()=>{
+  if(!state.authToken) return;
+
+  setTimeout(()=>{
+    if(socket.connected && state.authToken){
+      socket.emit('auth-restore',{token:state.authToken});
+    }
+  },1200);
+});
+
+socket.on('auth-alive',()=>{
+  state.authRestoreFailures=0;
+});
+socket.on('auth-required',payload=>{
   resetAuthSubmitButton();
+
+  // Não derruba a conta por uma falha isolada de restauração.
+  if(
+    state.authToken &&
+    socket.connected &&
+    state.authRestoreFailures < 1
+  ){
+    state.authRestoreFailures+=1;
+
+    setTimeout(()=>{
+      if(socket.connected && state.authToken){
+        socket.emit('auth-restore',{token:state.authToken});
+      }
+    },800);
+
+    return;
+  }
+
+  stopAuthKeepalive();
+  state.authRestoreFailures=0;
   state.authToken='';
+  state.profileReady=false;
   localStorage.removeItem('acord-auth-token');
+
   $('#login').classList.remove('hidden');
   $('#appShell').classList.add('hidden');
-  $('#authError').textContent='Sua sessão expirou. Entre novamente.';
+  $('#authError').textContent='Sua sessão não pôde ser restaurada. Entre novamente.';
 });
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
@@ -9575,7 +9678,9 @@ socket.on('user-left',({id})=>{
 
 socket.on('disconnect',()=>{
   resetAuthSubmitButton();
+  stopAuthKeepalive();
 
+  // Uma queda de internet não encerra a sessão local.
   if(!state.profileReady && $('#authError')){
     $('#authError').textContent='Conexão perdida. Tentando reconectar...';
   }
@@ -9589,8 +9694,12 @@ socket.on('connect',()=>{
     resetAuthSubmitButton();
   }
 
-  if(state.authToken) socket.emit('auth-restore',{token:state.authToken});
-  else{$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')}
+  if(state.authToken){
+    socket.emit('auth-restore',{token:state.authToken});
+  }else{
+    $('#login').classList.remove('hidden');
+    $('#appShell').classList.add('hidden');
+  }
 
   if(state.joinedVoiceId && state.profileReady){
     closePeers();
@@ -9884,13 +9993,56 @@ io.on('connection', socket => {
   });
 
   socket.on('auth-restore',({token})=>{
-    const userId=sessionUserId(token);
-    const profile=userId?profiles.get(userId):null;
-    if(!userId || !profile){socket.emit('auth-required');return}
-    socket.data.userId=userId;
-    socket.data.username=profile.username;
-    socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
+    try{
+      const userId=sessionUserId(token,{renew:true});
+      const profile=userId?profiles.get(userId):null;
+
+      if(!userId || !profile){
+        socket.emit('auth-required',{reason:'invalid-session'});
+        return;
+      }
+
+      socket.data.userId=userId;
+      socket.data.username=profile.username;
+
+      // A renovação é persistida para sobreviver a reinícios/deploys.
+      saveServersToDisk();
+
+      socket.emit('auth-success',{
+        token,
+        profile:publicProfile(profile),
+        sessionRestored:true
+      });
+
+      sendServerList(socket);
+      emitFriendState(userId);
+      emitGroupState(userId);
+      broadcastOnlineUsers();
+    }catch(error){
+      console.error('Erro ao restaurar sessão:',error);
+      socket.emit('auth-restore-retry',{reason:'temporary-error'});
+    }
+  });
+
+  socket.on('auth-keepalive',({token})=>{
+    const userId=sessionUserId(token,{renew:true});
+
+    if(!userId || userId!==socket.data.userId){
+      socket.emit('auth-required',{reason:'invalid-session'});
+      return;
+    }
+
+    // Evita gravar o arquivo a cada ping. Grava aproximadamente a cada 30 minutos.
+    const hash=tokenHash(token);
+    const session=sessions.get(hash);
+    const lastPersisted=Number(session?.lastPersistedAt || 0);
+
+    if(session && Date.now()-lastPersisted > 1000*60*30){
+      session.lastPersistedAt=Date.now();
+      saveServersToDisk();
+    }
+
+    socket.emit('auth-alive',{at:Date.now()});
   });
 
   socket.on('auth-logout',({token})=>{
