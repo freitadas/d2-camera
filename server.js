@@ -32,8 +32,6 @@ function originAllowed(origin){
 const io = new Server(server, {
   maxHttpBufferSize: 512 * 1024,
   perMessageDeflate: false,
-  pingInterval: 25000,
-  pingTimeout: 60000,
   cors: {
     origin(origin, callback){
       callback(null, originAllowed(origin));
@@ -242,21 +240,22 @@ function emitGroupStateToMembers(group) {
 }
 
 function broadcastOnlineUsers() {
-  const users = [...io.sockets.sockets.values()]
-    .filter(s => s.data.username)
-    .map(s => {
-      const profile = s.data.userId ? profiles.get(s.data.userId) : null;
-
+  const users=[...io.sockets.sockets.values()]
+    .filter(s=>{
+      if(!s.data.username) return false;
+      const profile=s.data.userId?profiles.get(s.data.userId):null;
+      return profile?.status!=='invisible';
+    })
+    .map(s=>{
+      const profile=s.data.userId?profiles.get(s.data.userId):null;
       return {
-        socketId: s.id,
-        id: profile?.id || s.data.userId || s.id,
-        username: profile?.username || s.data.username,
-        bio: profile?.bio || '',
-        avatar: profile?.avatar || ''
+        socketId:s.id,id:profile?.id||s.data.userId||s.id,
+        username:profile?.username||s.data.username,
+        displayName:profile?.displayName||profile?.username||s.data.username,
+        bio:profile?.bio||'',avatar:profile?.avatar||'',status:profile?.status||'online'
       };
     });
-
-  io.emit('online-users', users);
+  io.emit('online-users',users);
 }
 
 const id = () => crypto.randomBytes(5).toString('hex');
@@ -271,6 +270,14 @@ const auditLog = [];
 const friendRequests = [];
 const friendships = [];
 const privateGroups = new Map();
+const privateCalls = new Map();
+
+setInterval(()=>{
+  const now=Date.now();
+  for(const [callId,call] of privateCalls){
+    if(Number(call?.expiresAt||0)<=now) privateCalls.delete(callId);
+  }
+},60*1000).unref?.();
 
 
 function normalizeAccountUsername(value){
@@ -308,7 +315,7 @@ function newSession(userId){
   sessions.set(tokenHash(token),{
     userId,
     createdAt:Date.now(),
-    expiresAt:Date.now()+1000*60*60*24*365
+    expiresAt:Date.now()+1000*60*60*24*30
   });
   return token;
 }
@@ -993,92 +1000,6 @@ function permissionDenied(socket) {
 }
 
 
-function recoverServerForWrite(socket,serverId,serverSnapshot,legacyUserId){
-  const safeId=String(serverId||'').slice(0,80);
-
-  let serverData=servers.get(safeId);
-  if(serverData) return serverData;
-
-  if(!serverSnapshot || typeof serverSnapshot!=='object') return null;
-
-  const snapshotId=String(serverSnapshot.id||'').slice(0,80);
-  if(!snapshotId || snapshotId!==safeId) return null;
-
-  const cachedOwnerId=String(serverSnapshot.ownerId||'').slice(0,100);
-  const safeLegacyId=String(legacyUserId||'').slice(0,100);
-
-  // Só recupera automaticamente quando o navegador comprova que este
-  // era o ID antigo da própria conta que possuía o servidor.
-  if(
-    cachedOwnerId &&
-    cachedOwnerId!==socket.data.userId &&
-    cachedOwnerId!==safeLegacyId
-  ){
-    return null;
-  }
-
-  const recovered={
-    ...serverSnapshot,
-    id:safeId,
-    ownerId:socket.data.userId,
-    members:[
-      ...new Set([
-        socket.data.userId,
-        ...(Array.isArray(serverSnapshot.members) ? serverSnapshot.members : [])
-      ])
-    ]
-  };
-
-  if(!recovered.inviteToken){
-    recovered.inviteToken=crypto.randomBytes(18).toString('hex');
-  }
-
-  mergeRestoredServer(recovered);
-  serverData=servers.get(safeId);
-
-  if(serverData){
-    serverData.ownerId=socket.data.userId;
-
-    if(!(serverData.members||[]).includes(socket.data.userId)){
-      serverData.members=[
-        ...new Set([
-          socket.data.userId,
-          ...(serverData.members||[])
-        ])
-      ];
-    }
-
-    saveServersToDisk();
-  }
-
-  return serverData||null;
-}
-
-function canManageChannelsCompat(serverData,socket){
-  if(!serverData || !socket.data.userId) return false;
-
-  if(hasServerPermission(serverData,socket,'manageChannels')) return true;
-
-  // Compatibilidade com servidores antigos:
-  // se o antigo ownerId ficou órfão após a migração de contas e o usuário atual
-  // já consta como membro, ele assume a propriedade para não perder o servidor.
-  const ownerStillExists =
-    !!profiles.get(serverData.ownerId) ||
-    !!accounts.get(serverData.ownerId);
-
-  if(
-    !ownerStillExists &&
-    (serverData.members || []).includes(socket.data.userId)
-  ){
-    serverData.ownerId=socket.data.userId;
-    saveServersToDisk();
-    return true;
-  }
-
-  return false;
-}
-
-
 function cleanName(value, fallback = 'Usuário') {
   return String(value || fallback).trim().slice(0, 30) || fallback;
 }
@@ -1124,7 +1045,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-groups-invites-v20';
+const CACHE='acord-app-secure-v2';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -1136,27 +1057,19 @@ self.addEventListener('install',event=>{
 
 self.addEventListener('activate',event=>{
   event.waitUntil(
-    Promise.all([
-      caches.keys().then(keys=>Promise.all(
-        keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))
-      )),
-      self.clients.claim()
-    ])
+    caches.keys().then(keys=>Promise.all(
+      keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))
+    ))
   );
+  self.clients.claim();
 });
 
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET') return;
 
+  // Socket.IO e API sempre pela rede.
   const url=new URL(event.request.url);
-
   if(url.pathname.startsWith('/socket.io/')) return;
-
-  // HTML principal sempre atualizado.
-  if(event.request.mode==='navigate' || url.pathname==='/'){
-    event.respondWith(fetch(event.request,{cache:'no-store'}));
-    return;
-  }
 
   event.respondWith(
     fetch(event.request)
@@ -1165,7 +1078,7 @@ self.addEventListener('fetch',event=>{
         caches.open(CACHE).then(cache=>cache.put(event.request,clone)).catch(()=>{});
         return response;
       })
-      .catch(()=>caches.match(event.request))
+      .catch(()=>caches.match(event.request).then(cached=>cached || caches.match('/')))
   );
 });
   `);
@@ -1262,6 +1175,9 @@ button{cursor:pointer}
 .homeHubIcon img{
   width:100%;
   height:100%;
+  object-fit:cover;
+  display:block;
+  border-radius:inherit;
 }
 .homeHubMonitor{
   width:100%;
@@ -1273,7 +1189,6 @@ button{cursor:pointer}
 .homeHubIcon.active .homeHubMonitor{
   transform:scale(1.02);
 }
-
 .serverIcon.active:before{content:"";position:absolute;left:-14px;width:4px;height:24px;background:var(--text);border-radius:0 4px 4px 0}
 .addServer{background:var(--bg2);color:var(--mint);font-size:24px}
 .addServer:hover{background:var(--mint);color:#082116}
@@ -3230,1297 +3145,6 @@ body{
   .sidebar{width:240px}
 }
 
-
-.uiIcon{
-  width:16px;
-  height:16px;
-  display:inline-block;
-  flex:0 0 auto;
-  fill:currentColor;
-  vertical-align:-3px;
-}
-.btn .uiIcon,.inviteBtn .uiIcon,.friendTab .uiIcon,.settingsNavBtn .uiIcon,.control .uiIcon{
-  margin-right:6px;
-}
-.iconOnly .uiIcon{margin-right:0}
-.passwordToggle .uiIcon{width:17px;height:17px;margin:0}
-.friendsAccountGear .uiIcon{width:17px;height:17px}
-*{
-  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Segoe UI Symbol","Segoe UI Emoji",sans-serif;
-}
-
-
-/* ===== ACORD — REPARO DE LAYOUT E ÍCONES ===== */
-:root{
-  --accent-contrast:#07110e;
-}
-
-html[data-theme="black"]{
-  --accent-contrast:#07110e;
-}
-html[data-theme="white"],
-html[data-theme="blue"],
-html[data-theme="purple"]{
-  --accent-contrast:#ffffff;
-}
-html[data-palette="sunset"],
-html[data-palette="forest"]{
-  --accent-contrast:#07110e;
-}
-html[data-palette="ocean"],
-html[data-palette="candy"]{
-  --accent-contrast:#ffffff;
-}
-
-/* O grid precisa usar as mesmas larguras reais das colunas. */
-.app{
-  width:100vw!important;
-  height:100vh!important;
-  min-width:0!important;
-  overflow:hidden!important;
-}
-
-.app.hubMode{
-  grid-template-columns:76px minmax(0,1fr) 280px!important;
-}
-
-.app.serverMode{
-  grid-template-columns:76px 300px minmax(0,1fr) 280px!important;
-}
-
-.rail{
-  width:auto!important;
-  min-width:0!important;
-  max-width:none!important;
-  padding:12px 10px!important;
-  overflow-x:hidden!important;
-}
-
-.sidebar{
-  width:auto!important;
-  min-width:0!important;
-  max-width:none!important;
-}
-
-.main{
-  width:auto!important;
-  min-width:0!important;
-  overflow:hidden!important;
-}
-
-.rightbar{
-  width:auto!important;
-  min-width:0!important;
-  max-width:none!important;
-}
-
-/* Não usar background shorthand nos servidores:
-   ele apagava a imagem do servidor. */
-.serverIcon{
-  overflow:hidden!important;
-  padding:0!important;
-  background-color:var(--bg2)!important;
-  background-image:none!important;
-}
-
-.serverIcon:hover{
-  background-color:color-mix(in srgb,var(--coral) 15%,var(--bg2))!important;
-}
-
-.serverIcon.active{
-  background-color:color-mix(in srgb,var(--coral) 18%,var(--bg2))!important;
-}
-
-.serverIconImage{
-  display:block!important;
-  width:100%!important;
-  height:100%!important;
-  object-fit:cover!important;
-  border-radius:inherit!important;
-  pointer-events:none!important;
-}
-
-#serverRail{
-  width:100%!important;
-  align-items:center!important;
-}
-
-/* Barra de amigos sempre organizada e sem estourar. */
-.friendsHomeTop{
-  display:flex!important;
-  align-items:center!important;
-  gap:6px!important;
-  min-height:60px!important;
-  padding:10px 16px!important;
-  overflow-x:auto!important;
-  overflow-y:hidden!important;
-  white-space:nowrap!important;
-  scrollbar-width:none!important;
-}
-.friendsHomeTop::-webkit-scrollbar{
-  display:none!important;
-}
-
-.friendTab{
-  flex:0 0 auto!important;
-}
-
-.friendTab.add,
-.btn.primary{
-  color:var(--accent-contrast)!important;
-  background-color:var(--coral)!important;
-}
-
-/* Corrige o botão branco sem texto quando a cor principal é branca. */
-.friendTab.add{
-  min-width:116px!important;
-  font-weight:900!important;
-}
-
-/* Campo de busca correto. */
-.friendsSearchWrap{
-  padding:12px 16px 0!important;
-}
-
-.friendsSearchWrap input{
-  height:42px!important;
-  min-height:42px!important;
-  padding:0 14px!important;
-  border:1px solid var(--line)!important;
-  background:var(--bg2)!important;
-  color:var(--text)!important;
-}
-
-/* Área central não pode ficar esmagada por regras antigas. */
-.content,
-.view,
-.friendsHome,
-.chatView,
-.voiceView{
-  min-width:0!important;
-  min-height:0!important;
-}
-
-.chatView{
-  width:100%!important;
-}
-
-.chatHead{
-  min-height:52px!important;
-  padding:13px 18px!important;
-}
-
-/* Sidebar de servidor limpa e proporcional. */
-.sideHead{
-  min-height:64px!important;
-  height:64px!important;
-  padding:0 14px!important;
-}
-
-.sideHead .brand{
-  flex:1 1 auto!important;
-  min-width:0!important;
-}
-
-.sideHead > div:last-child{
-  flex:0 0 auto!important;
-}
-
-.sideScroll{
-  padding:12px!important;
-  min-width:0!important;
-}
-
-#channelTree{
-  width:100%!important;
-  min-width:0!important;
-}
-
-.channelBtn{
-  width:100%!important;
-  min-width:0!important;
-  max-width:100%!important;
-  overflow:hidden!important;
-}
-
-.channelBtn > span{
-  min-width:0!important;
-}
-
-.channelBtn .stageText{
-  overflow:hidden!important;
-}
-
-.channelBtn .stageText strong,
-.channelBtn .stageText small{
-  overflow:hidden!important;
-  text-overflow:ellipsis!important;
-  white-space:nowrap!important;
-}
-
-/* Os 3 botões de criar canal não devem ficar apertados demais. */
-.sideScroll > div[style*="grid-template-columns:repeat(3,1fr)"]{
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:6px!important;
-}
-
-#createTextQuickBtn,
-#createVoiceQuickBtn,
-#createStageQuickBtn{
-  min-width:0!important;
-  padding:8px 5px!important;
-  font-size:11px!important;
-  overflow:hidden!important;
-}
-
-/* Ícones SVG sempre visíveis. */
-.uiIcon{
-  display:inline-block!important;
-  width:16px!important;
-  height:16px!important;
-  min-width:16px!important;
-  min-height:16px!important;
-  fill:currentColor!important;
-  stroke:none!important;
-  opacity:1!important;
-}
-
-.iconOnly{
-  display:inline-grid!important;
-  place-items:center!important;
-  min-width:32px!important;
-  min-height:32px!important;
-  padding:6px!important;
-}
-
-.iconOnly .uiIcon{
-  margin:0!important;
-}
-
-/* Conta inferior e botões nunca somem. */
-.userbar,
-.friendsAccountBar{
-  flex-shrink:0!important;
-}
-
-.friendsAccountBar{
-  width:100%!important;
-}
-
-.controls{
-  width:100%!important;
-  overflow-x:auto!important;
-  flex-wrap:nowrap!important;
-}
-
-.control{
-  flex:0 0 auto!important;
-}
-
-/* Corrige cores em temas claros/escuros sem fixar verde. */
-.brandDot,
-.serverMemberStatusDot{
-  background:var(--coral)!important;
-}
-
-.friendTab.active,
-.groupHead,
-.friendsSectionTitle{
-  color:var(--coral)!important;
-}
-
-/* Responsividade: esconder painel direito antes de esmagar o centro. */
-@media(max-width:1180px){
-  .app.hubMode{
-    grid-template-columns:76px minmax(0,1fr)!important;
-  }
-
-  .app.serverMode{
-    grid-template-columns:76px 280px minmax(0,1fr)!important;
-  }
-
-  .rightbar{
-    display:none!important;
-  }
-}
-
-@media(max-width:760px){
-  .app.serverMode{
-    grid-template-columns:64px 230px minmax(0,1fr)!important;
-  }
-
-  .app.hubMode{
-    grid-template-columns:64px minmax(0,1fr)!important;
-  }
-
-  .rail{
-    padding-left:6px!important;
-    padding-right:6px!important;
-  }
-
-  .serverIcon,
-  .homeHubIcon,
-  .addServer{
-    width:46px!important;
-    height:46px!important;
-  }
-}
-
-
-.chatSearchInput{
-  width:min(250px,32vw)!important;height:34px!important;min-height:34px!important;
-  padding:0 10px!important;font-size:11px!important
-}
-.typingIndicator{min-height:24px;padding:4px 16px 7px;color:var(--muted);font-size:10px;font-style:italic}
-.notificationPanel{
-  position:fixed;top:62px;right:18px;z-index:2000000;width:min(360px,calc(100vw - 36px));
-  max-height:520px;overflow:hidden;border:1px solid var(--line);border-radius:12px;
-  background:var(--bg1);box-shadow:0 18px 50px rgba(0,0,0,.35)
-}
-.notificationPanelHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;border-bottom:1px solid var(--line)}
-.notificationList{max-height:450px;overflow:auto;padding:6px}
-.notificationItem{padding:10px;border-radius:8px;color:var(--muted);font-size:11px}
-.notificationItem:hover{background:var(--bg2);color:var(--text)}
-.notificationItem strong{display:block;color:var(--text);font-size:12px;margin-bottom:3px}
-.notificationEmpty{padding:18px;color:var(--low);font-size:11px;text-align:center}
-.videoCard.speaking{outline:3px solid var(--coral)!important;outline-offset:2px!important;box-shadow:0 0 26px color-mix(in srgb,var(--coral) 28%,transparent)!important}
-.serverMemberRow.blockedUser,.friendRow.blockedUser{opacity:.42!important}
-
-
-/* Os botões rápidos viram uma barra compacta de criação. */
-.sideScroll > div[style*="grid-template-columns:repeat(3,1fr)"]{
-  display:flex!important;
-  gap:5px!important;
-  margin-bottom:10px!important;
-}
-
-#createTextQuickBtn,
-#createVoiceQuickBtn,
-#createStageQuickBtn{
-  flex:1 1 0!important;
-  min-width:0!important;
-  min-height:30px!important;
-  padding:6px!important;
-  font-size:10px!important;
-  border-radius:6px!important;
-}
-
-/* A ação de categoria fica parecida com uma ação discreta do Discord. */
-#createCategoryBtn{
-  width:100%!important;
-  min-height:30px!important;
-  justify-content:flex-start!important;
-  border:0!important;
-  background:transparent!important;
-  color:var(--low)!important;
-  padding:6px 8px!important;
-  font-size:10px!important;
-}
-
-#createCategoryBtn:hover{
-  color:var(--text)!important;
-  background:var(--bg3)!important;
-}
-
-
-.createCategoryMainBtn{
-  width:100%!important;
-  min-height:34px!important;
-  display:flex!important;
-  align-items:center!important;
-  justify-content:flex-start!important;
-  padding:7px 9px!important;
-  margin:2px 0 8px!important;
-  border:1px dashed color-mix(in srgb,var(--coral) 30%,var(--line))!important;
-  border-radius:7px!important;
-  background:color-mix(in srgb,var(--coral) 5%,transparent)!important;
-  color:var(--muted)!important;
-  font-size:11px!important;
-  font-weight:800!important;
-}
-.createCategoryMainBtn:hover{
-  border-color:var(--coral)!important;
-  color:var(--text)!important;
-  background:color-mix(in srgb,var(--coral) 10%,transparent)!important;
-}
-
-
-/* ===== COR PRINCIPAL EM TODA A INTERFACE ===== */
-:root{
-  --accent-border:var(--line);
-}
-
-/* As estruturas principais seguem a cor principal, não o verde antigo. */
-.rail,
-.sidebar,
-.rightbar,
-.topbar,
-.sideHead,
-.userbar,
-.friendsAccountBar,
-.friendSearch,
-.friendsSearchWrap input,
-.compose input,
-.videoCard,
-.modal,
-.callSettingsPanel,
-.localMusicShell,
-.messageContextMenu,
-.notificationPanel,
-.categoryAddMenu,
-.profileTabs,
-.authSwitch,
-.customColorBox,
-.settingsCard,
-.memberProfileBio,
-.memberRoleToggle,
-.serverIcon,
-.homeHubIcon,
-.addServer,
-.discordEmptyCategory,
-.discordCreateCategory,
-.createCategoryMainBtn{
-  border-color:color-mix(
-    in srgb,
-    var(--coral) 34%,
-    var(--line)
-  )!important;
-}
-
-.rail{
-  border-right-color:color-mix(
-    in srgb,
-    var(--coral) 38%,
-    var(--line)
-  )!important;
-}
-
-.sidebar{
-  border-right-color:color-mix(
-    in srgb,
-    var(--coral) 34%,
-    var(--line)
-  )!important;
-}
-
-.rightbar{
-  border-left-color:color-mix(
-    in srgb,
-    var(--coral) 34%,
-    var(--line)
-  )!important;
-}
-
-.topbar,
-.sideHead,
-.userbar,
-.friendsAccountBar{
-  border-bottom-color:color-mix(
-    in srgb,
-    var(--coral) 30%,
-    var(--line)
-  )!important;
-}
-
-.friendsAccountBar,
-.userbar{
-  border-top-color:color-mix(
-    in srgb,
-    var(--coral) 30%,
-    var(--line)
-  )!important;
-}
-
-.railSep,
-.friendRow,
-.messageReply,
-.replyBar{
-  border-color:color-mix(
-    in srgb,
-    var(--coral) 25%,
-    var(--line)
-  )!important;
-}
-
-.discordChannel.active,
-.channelBtn.active,
-.profileThemeBtn.active,
-.profilePaletteBtn.active,
-.serverIcon.active,
-.homeHubIcon.active{
-  border-color:var(--coral)!important;
-}
-
-.discordCategoryHeader.dragOver,
-.discordChannel.dragOver,
-.discordEmptyCategory:hover,
-.discordCreateCategory:hover,
-.createCategoryMainBtn:hover{
-  border-color:var(--coral)!important;
-}
-
-.brandDot,
-.serverMemberStatusDot{
-  background:var(--coral)!important;
-}
-
-.addServer{
-  color:var(--coral)!important;
-}
-
-.addServer:hover{
-  background:var(--coral)!important;
-  color:var(--accent-contrast)!important;
-}
-
-
-.discordCategory{
-  display:block!important;
-  min-height:28px!important;
-}
-.discordCategoryHeader{
-  display:flex!important;
-  visibility:visible!important;
-  opacity:1!important;
-}
-.discordCategoryName{
-  display:block!important;
-  visibility:visible!important;
-  opacity:1!important;
-}
-
-
-#createTextQuickBtn,
-#createVoiceQuickBtn,
-#createStageQuickBtn,
-#createCategoryQuickBtn{
-  position:relative!important;
-  z-index:20!important;
-  pointer-events:auto!important;
-  cursor:pointer!important;
-}
-
-#createTextQuickBtn:active,
-#createVoiceQuickBtn:active,
-#createStageQuickBtn:active,
-#createCategoryQuickBtn:active{
-  transform:translateY(1px)!important;
-}
-
-
-.sidebar{
-  position:relative!important;
-  z-index:40!important;
-}
-
-.sideScroll{
-  position:relative!important;
-  z-index:50!important;
-  pointer-events:auto!important;
-}
-
-
-.serverManagerModal{
-  width:min(620px,calc(100vw - 30px))!important;
-  max-height:min(720px,calc(100vh - 40px))!important;
-  display:flex!important;
-  flex-direction:column!important;
-  padding:0!important;
-  overflow:hidden!important;
-}
-.serverManagerHead{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  padding:18px;
-  border-bottom:1px solid color-mix(in srgb,var(--coral) 28%,var(--line));
-}
-.serverManagerHead h3{
-  margin:0 0 4px;
-  font-size:18px;
-}
-.serverManagerHead p{
-  margin:0;
-  color:var(--muted);
-  font-size:11px;
-}
-.serverManagerList{
-  min-height:100px;
-  overflow:auto;
-  padding:10px;
-}
-.serverManagerRow{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  min-height:58px;
-  padding:9px 10px;
-  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
-  border-radius:9px;
-  margin-bottom:7px;
-  background:var(--bg2);
-}
-.serverManagerIcon{
-  width:40px;
-  height:40px;
-  flex:0 0 40px;
-  display:grid;
-  place-items:center;
-  overflow:hidden;
-  border-radius:11px;
-  background:var(--bg3);
-  font-weight:900;
-}
-.serverManagerIcon img{
-  width:100%;
-  height:100%;
-  display:block;
-  object-fit:cover;
-}
-.serverManagerMeta{
-  min-width:0;
-  flex:1;
-}
-.serverManagerMeta strong{
-  display:block;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  font-size:13px;
-}
-.serverManagerMeta span{
-  display:block;
-  margin-top:3px;
-  color:var(--muted);
-  font-size:10px;
-}
-.serverManagerActions{
-  display:flex;
-  align-items:center;
-  gap:6px;
-}
-.dangerBtn{
-  border:1px solid color-mix(in srgb,var(--danger) 60%,var(--line))!important;
-  background:color-mix(in srgb,var(--danger) 16%,var(--bg2))!important;
-  color:#ffb4b4!important;
-}
-.dangerBtn:hover{
-  background:color-mix(in srgb,var(--danger) 28%,var(--bg2))!important;
-}
-.serverManagerFoot{
-  padding:12px 18px 18px;
-  border-top:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
-}
-.serverManagerEmpty{
-  padding:28px 12px;
-  text-align:center;
-  color:var(--low);
-  font-size:12px;
-}
-
-
-/* ===== COR PRINCIPAL TAMBÉM NA COLUNA "ATIVO AGORA" ===== */
-.rightbar{
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb,var(--coral) 7%,var(--bg1)),
-      color-mix(in srgb,var(--coral) 3%,var(--bg1))
-    )!important;
-  border-left:1px solid color-mix(
-    in srgb,
-    var(--coral) 42%,
-    var(--line)
-  )!important;
-}
-
-.rightTitle{
-  color:var(--coral)!important;
-}
-
-#members{
-  color:color-mix(in srgb,var(--coral) 24%,var(--muted))!important;
-}
-
-#members > div[style]{
-  color:color-mix(
-    in srgb,
-    var(--coral) 22%,
-    var(--muted)
-  )!important;
-}
-
-.activeFriendCard,
-.serverPresenceSection,
-.serverMemberRow{
-  border-color:color-mix(
-    in srgb,
-    var(--coral) 32%,
-    var(--line)
-  )!important;
-}
-
-.activeFriendCard{
-  background:color-mix(
-    in srgb,
-    var(--coral) 7%,
-    var(--bg2)
-  )!important;
-}
-
-.serverMemberRow:hover{
-  background:color-mix(
-    in srgb,
-    var(--coral) 8%,
-    var(--bg3)
-  )!important;
-}
-
-/* Bordas estruturais acompanham a cor principal escolhida. */
-.rail,
-.sidebar,
-.topbar,
-.sideHead,
-.friendsHomeTop,
-.friendsSearchWrap input,
-.friendSearch,
-.settingsMenu,
-.settingsCard,
-.profileTabs,
-.modal,
-.messageContextMenu,
-.notificationPanel,
-.categoryAddMenu,
-.serverManagerModal,
-.serverManagerRow,
-.callSettingsPanel,
-.localMusicShell,
-.videoCard,
-.memberVolume button{
-  border-color:color-mix(
-    in srgb,
-    var(--coral) 36%,
-    var(--line)
-  )!important;
-}
-
-.rail{
-  border-right-color:color-mix(
-    in srgb,
-    var(--coral) 38%,
-    var(--line)
-  )!important;
-}
-
-.sidebar{
-  border-right-color:color-mix(
-    in srgb,
-    var(--coral) 38%,
-    var(--line)
-  )!important;
-}
-
-.topbar,
-.sideHead,
-.friendsHomeTop{
-  border-bottom-color:color-mix(
-    in srgb,
-    var(--coral) 34%,
-    var(--line)
-  )!important;
-}
-
-.friendRow,
-.friendsSectionTitle{
-  border-bottom-color:color-mix(
-    in srgb,
-    var(--coral) 24%,
-    var(--line)
-  )!important;
-}
-
-.memberDot,
-.serverMemberStatusDot{
-  background:var(--coral)!important;
-}
-
-
-/* ===== ACORD POWER PACK ===== */
-.chatPowerRow{
-  display:flex;
-  align-items:center;
-  gap:6px;
-}
-.quickSwitcherModal{
-  width:min(650px,calc(100vw - 30px))!important;
-  max-height:min(720px,calc(100vh - 40px))!important;
-  display:flex!important;
-  flex-direction:column!important;
-  padding:12px!important;
-}
-.quickSwitcherHead{
-  display:flex;
-  gap:8px;
-  margin-bottom:10px;
-}
-.quickSwitcherHead input{flex:1}
-.quickSwitcherList{
-  overflow:auto;
-  display:grid;
-  gap:5px;
-}
-.quickSwitcherItem{
-  width:100%;
-  min-height:46px;
-  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
-  background:var(--bg2);
-  color:var(--text);
-  border-radius:8px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:8px 10px;
-  text-align:left;
-}
-.quickSwitcherItem:hover{
-  background:color-mix(in srgb,var(--coral) 10%,var(--bg3));
-  border-color:var(--coral);
-}
-.quickSwitcherKind{
-  width:54px;
-  flex:0 0 54px;
-  color:var(--coral);
-  font-size:9px;
-  font-weight:900;
-  text-transform:uppercase;
-}
-.quickSwitcherMeta{
-  min-width:0;
-  flex:1;
-}
-.quickSwitcherMeta strong,
-.quickSwitcherMeta span{
-  display:block;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.quickSwitcherMeta span{
-  color:var(--muted);
-  font-size:10px;
-  margin-top:2px;
-}
-.messageUtilityModal{
-  width:min(760px,calc(100vw - 30px))!important;
-  max-height:min(760px,calc(100vh - 40px))!important;
-  display:flex!important;
-  flex-direction:column!important;
-  padding:0!important;
-  overflow:hidden!important;
-}
-.messageUtilityHead{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:10px;
-  padding:16px 18px;
-  border-bottom:1px solid color-mix(in srgb,var(--coral) 28%,var(--line));
-}
-.messageUtilityHead h3{margin:0 0 4px}
-.messageUtilityHead p{margin:0;color:var(--muted);font-size:11px}
-.messageUtilityList{
-  padding:10px;
-  overflow:auto;
-}
-.utilityMessage{
-  border:1px solid color-mix(in srgb,var(--coral) 22%,var(--line));
-  border-radius:9px;
-  background:var(--bg2);
-  padding:10px;
-  margin-bottom:7px;
-}
-.utilityMessage strong{
-  display:block;
-  font-size:11px;
-  color:var(--coral);
-  margin-bottom:5px;
-}
-.utilityMessage p{
-  margin:0;
-  white-space:pre-wrap;
-  font-size:12px;
-  line-height:1.45;
-}
-.utilityMessageActions{
-  display:flex;
-  gap:6px;
-  margin-top:8px;
-}
-.messagePinned{
-  box-shadow:inset 3px 0 0 var(--coral)!important;
-}
-.messageSavedMark{
-  position:absolute;
-  top:6px;
-  right:7px;
-  color:var(--coral);
-  font-size:10px;
-  font-weight:900;
-}
-.channelUnreadBadge{
-  margin-left:auto;
-  min-width:18px;
-  height:18px;
-  display:grid;
-  place-items:center;
-  border-radius:999px;
-  background:var(--coral);
-  color:var(--accent-contrast);
-  font-size:9px;
-  font-weight:900;
-}
-.channelFavoriteMark{
-  color:var(--coral);
-  font-size:11px;
-  margin-left:4px;
-}
-.pollCard{
-  border:1px solid color-mix(in srgb,var(--coral) 35%,var(--line));
-  border-radius:11px;
-  background:color-mix(in srgb,var(--coral) 6%,var(--bg2));
-  padding:10px;
-  margin-top:6px;
-}
-.pollCard strong{display:block;margin-bottom:8px}
-.pollOption{
-  width:100%;
-  display:flex;
-  align-items:center;
-  gap:8px;
-  border:1px solid color-mix(in srgb,var(--coral) 20%,var(--line));
-  border-radius:8px;
-  background:var(--bg3);
-  color:var(--text);
-  padding:8px;
-  margin-top:5px;
-}
-.pollOption:hover{border-color:var(--coral)}
-.pollBar{
-  height:4px;
-  flex:1;
-  background:var(--bg4);
-  border-radius:99px;
-  overflow:hidden;
-}
-.pollBar > span{
-  display:block;
-  height:100%;
-  background:var(--coral);
-}
-.unreadSeparator{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  color:var(--coral);
-  font-size:9px;
-  font-weight:900;
-  text-transform:uppercase;
-  margin:8px 0;
-}
-.unreadSeparator:before,
-.unreadSeparator:after{
-  content:"";
-  height:1px;
-  flex:1;
-  background:var(--coral);
-}
-
-
-/* ===== APARÊNCIA GLOBAL CORRIGIDA ===== */
-:root{
-  --theme-soft-1:color-mix(in srgb,var(--coral) 8%,var(--bg0));
-  --theme-soft-2:color-mix(in srgb,var(--coral) 12%,var(--bg1));
-  --theme-soft-3:color-mix(in srgb,var(--coral) 16%,var(--bg2));
-  --theme-soft-4:color-mix(in srgb,var(--coral) 22%,var(--bg3));
-  --theme-line:color-mix(in srgb,var(--coral) 28%,var(--line));
-  --theme-line-strong:color-mix(in srgb,var(--coral) 42%,var(--line));
-  --theme-glow:0 0 24px color-mix(in srgb,var(--coral) 20%,transparent);
-}
-
-.rail,
-.sidebar,
-.main,
-.rightbar,
-.topbar,
-.sideHead,
-.friendsHomeTop,
-.friendsSearchWrap,
-.userbar,
-.authCard,
-.homeCard,
-.settingsMenu,
-.settingsCard,
-.settingsPanel,
-.voiceHead,
-.chatHead,
-.compose,
-.profileSidebar,
-.profilePanel{
-  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease,color .18s ease;
-}
-
-.rail{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 8%,var(--bg0)),var(--bg0)) !important;
-  border-right:1px solid var(--theme-line) !important;
-}
-
-.sidebar{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 6%,var(--bg0)),color-mix(in srgb,var(--coral) 2%,var(--bg0))) !important;
-  border-right:1px solid var(--theme-line) !important;
-}
-
-.sideHead,
-.topbar,
-.friendsHomeTop,
-.userbar{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 9%,var(--bg1)),color-mix(in srgb,var(--coral) 3%,var(--bg1))) !important;
-}
-
-.sideHead,
-.topbar,
-.friendsHomeTop{
-  border-bottom:1px solid var(--theme-line) !important;
-}
-
-.userbar{
-  border-top:1px solid var(--theme-line) !important;
-  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--coral) 10%,transparent);
-}
-
-.rightbar{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg0)),var(--bg0)) !important;
-  border-left:1px solid var(--theme-line) !important;
-}
-
-.serverIcon,
-.homeHubIcon,
-.addServer{
-  background:linear-gradient(180deg,var(--theme-soft-3),var(--theme-soft-2)) !important;
-  border:1px solid var(--theme-line) !important;
-}
-
-.serverIcon:hover,
-.homeHubIcon:hover,
-.addServer:hover{
-  border-color:var(--theme-line-strong) !important;
-  box-shadow:var(--theme-glow) !important;
-}
-
-.serverIcon.active,
-.homeHubIcon.active{
-  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 22%,var(--bg2)),color-mix(in srgb,var(--coral) 14%,var(--bg1))) !important;
-  border-color:var(--coral) !important;
-  box-shadow:0 0 0 1px color-mix(in srgb,var(--coral) 42%,transparent),var(--theme-glow) !important;
-}
-
-.addServer{
-  color:var(--coral) !important;
-}
-
-.addServer:hover{
-  background:var(--coral) !important;
-  color:var(--accent-contrast, #111) !important;
-}
-
-.inviteBtn,
-.btn.secondary,
-.friendTab:not(.add),
-.navBtn,
-.channelBtn,
-#notificationBtn,
-#quickInviteBtn{
-  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
-  border:1px solid var(--theme-line) !important;
-  color:var(--text) !important;
-}
-
-.inviteBtn:hover,
-.btn.secondary:hover,
-.friendTab:hover:not(.add),
-.navBtn:hover,
-.channelBtn:hover,
-#notificationBtn:hover,
-#quickInviteBtn:hover{
-  background:linear-gradient(180deg,var(--theme-soft-4),var(--theme-soft-3)) !important;
-  border-color:var(--theme-line-strong) !important;
-}
-
-.friendTab.active,
-.navBtn.active,
-.channelBtn.active{
-  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 18%,var(--bg2)),color-mix(in srgb,var(--coral) 10%,var(--bg1))) !important;
-  border-color:var(--coral) !important;
-  color:var(--coral) !important;
-  box-shadow:inset 0 -2px 0 var(--coral), 0 0 0 1px color-mix(in srgb,var(--coral) 16%,transparent) !important;
-}
-
-.friendTab.add,
-.btn.primary{
-  box-shadow:0 8px 24px color-mix(in srgb,var(--coral) 24%,transparent) !important;
-}
-
-.friendsSearchWrap,
-.friendSearch,
-.friendsSearchWrap input,
-#friendsSearchInput,
-#chatSearchInput{
-  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
-  border-color:var(--theme-line) !important;
-}
-
-#activeNowPanel,
-.activeNow,
-.rightPanelCard,
-.rightbarCard{
-  background:linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg1)),color-mix(in srgb,var(--coral) 2%,var(--bg1))) !important;
-  border-color:var(--theme-line) !important;
-}
-
-#appShell .brandDot,
-#appShell .avatar,
-#appShell .homeMark{
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--coral) 15%,transparent);
-}
-
-#serverRail,
-.railSep{
-  border-color:var(--theme-line) !important;
-}
-
-.railSep{
-  background:var(--theme-line) !important;
-}
-
-#appShell *:focus-visible{
-  outline:2px solid var(--coral) !important;
-  outline-offset:2px !important;
-}
-
-/* partes específicas mostradas nas imagens */
-#profileBtn,
-#notificationBtn,
-#quickInviteBtn,
-#inviteBtn,
-#serverSettingsBtn,
-#deleteServerBtn{
-  background:linear-gradient(180deg,var(--theme-soft-2),var(--theme-soft-1)) !important;
-  border:1px solid var(--theme-line) !important;
-}
-
-#profileBtn:hover,
-#notificationBtn:hover,
-#quickInviteBtn:hover,
-#inviteBtn:hover,
-#serverSettingsBtn:hover,
-#deleteServerBtn:hover{
-  border-color:var(--theme-line-strong) !important;
-  box-shadow:var(--theme-glow) !important;
-}
-
-#friendsHomeView,
-#friendsHome,
-.friendsHome{
-  background:
-    radial-gradient(circle at 18% 12%,color-mix(in srgb,var(--coral) 8%,transparent),transparent 28%),
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
-}
-
-
-/* ===== LOGIN/TELA INICIAL SEGUE A COR DA APARÊNCIA ===== */
-.login{
-  background:
-    radial-gradient(circle at 18% 14%,color-mix(in srgb,var(--coral) 13%,transparent),transparent 30%),
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
-}
-
-.loginShell{
-  background:transparent!important;
-}
-
-.loginBrandPanel{
-  background:
-    radial-gradient(circle at 15% 12%,color-mix(in srgb,var(--coral) 10%,transparent),transparent 28%),
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 4%,var(--bg0)),var(--bg0)) !important;
-  border-right:1px solid color-mix(in srgb,var(--coral) 28%,var(--line))!important;
-}
-
-.loginMark{
-  background:var(--coral)!important;
-  color:var(--accent-contrast,#111)!important;
-  box-shadow:0 10px 32px color-mix(in srgb,var(--coral) 28%,transparent)!important;
-}
-
-.loginBrandName{
-  color:var(--coral)!important;
-}
-
-.loginBadge{
-  color:var(--coral)!important;
-  border-color:color-mix(in srgb,var(--coral) 55%,var(--line))!important;
-  background:color-mix(in srgb,var(--coral) 8%,transparent)!important;
-}
-
-.loginHero h1{
-  color:var(--text)!important;
-}
-
-.loginHero p,
-.loginSignature{
-  color:color-mix(in srgb,var(--coral) 14%,var(--muted))!important;
-}
-
-.loginFeature{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 9%,var(--bg2)),color-mix(in srgb,var(--coral) 4%,var(--bg1)))!important;
-  border:1px solid color-mix(in srgb,var(--coral) 34%,var(--line))!important;
-  color:var(--text)!important;
-  box-shadow:0 10px 30px color-mix(in srgb,var(--coral) 8%,transparent)!important;
-}
-
-.loginFeature strong{
-  color:var(--coral)!important;
-}
-
-.loginCard{
-  background:
-    linear-gradient(180deg,color-mix(in srgb,var(--coral) 7%,var(--bg1)),color-mix(in srgb,var(--coral) 3%,var(--bg1)))!important;
-  border:1px solid color-mix(in srgb,var(--coral) 30%,var(--line))!important;
-}
-
-.authSwitch{
-  border-color:color-mix(in srgb,var(--coral) 30%,var(--line))!important;
-}
-
-.authTab.active{
-  color:var(--coral)!important;
-  background:color-mix(in srgb,var(--coral) 12%,var(--bg3))!important;
-}
-
-.loginCard input{
-  border-color:color-mix(in srgb,var(--coral) 28%,var(--line))!important;
-  background:color-mix(in srgb,var(--coral) 4%,var(--bg2))!important;
-}
-
-.loginCard input:focus{
-  border-color:var(--coral)!important;
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--coral) 14%,transparent)!important;
-}
-
 </style>
 </head>
 <body>
@@ -4586,7 +3210,7 @@ html[data-palette="candy"]{
         <label class="loginLabel" for="authPassword">Senha</label>
         <div class="passwordField">
           <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
-          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Zm10 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg></button>
+          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
         </div>
       </div>
 
@@ -4594,7 +3218,7 @@ html[data-palette="candy"]{
         <label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label>
         <div class="passwordField">
           <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
-          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Zm10 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg></button>
+          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
         </div>
       </div>
 
@@ -4642,8 +3266,8 @@ html[data-palette="candy"]{
       <div class="brand"><span class="brandDot"></span><span id="serverTitle" class="serverTitle">Acord</span></div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="inviteBtn" class="inviteBtn">Convidar</button>
-        <button id="serverSettingsBtn" class="inviteBtn iconOnly" title="Configurações do servidor"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></button>
-        <button id="deleteServerBtn" class="inviteBtn iconOnly" title="Apagar servidor"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10l-.8 11H7.8L7 8Zm2-3h6l1 2H8l1-2Zm-3 2h12v2H6V7Z"/></svg></button>
+        <button id="serverSettingsBtn" class="inviteBtn" title="Configurações do servidor">⚙</button>
+        <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
       </div>
     </div>
 
@@ -4656,8 +3280,8 @@ html[data-palette="candy"]{
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
         <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
-        <button id="createVoiceQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Voz</button>
-        <button id="createStageQuickBtn" class="btn secondary small" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14Zm-3 5h6v4H9v-4Z"/></svg>Palco</button>
+        <button id="createVoiceQuickBtn" class="btn secondary small" type="button">🔊 Voz</button>
+        <button id="createStageQuickBtn" class="btn secondary small" type="button">◉ Palco</button>
       </div>
 
       <button id="createCategoryQuickBtn" class="navBtn" type="button" style="font-size:12px;">▣ Criar categoria</button>
@@ -4671,7 +3295,7 @@ html[data-palette="candy"]{
         <strong id="userName">Você</strong>
         <span id="userBioMini">● Online · Editar perfil</span>
       </div>
-      <span style="color:var(--low);font-size:16px;"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></span>
+      <span style="color:var(--low);font-size:16px;">⚙</span>
     </button>
   </aside>
 
@@ -4681,10 +3305,7 @@ html[data-palette="candy"]{
         <div id="topTitle" class="topTitle">Acord</div>
         <div id="topSub" class="topSub">servidores, chat, voz, câmera e tela</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <button id="notificationBtn" class="btn secondary small" type="button">Notificações <span id="notificationBadge" class="unreadBadge hidden">0</span></button>
-        <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
-      </div>
+      <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
     </header>
 
     <div class="content">
@@ -4706,7 +3327,7 @@ html[data-palette="candy"]{
         <div class="friendsHome">
           <div class="friendsHomeTop">
             <strong style="margin-right:8px;">Acord</strong>
-            <button id="hubFriendsBtn" class="friendTab active" type="button"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7H2Zm13-7c4 0 7 2.6 7 6h-4.2c-.3-2.2-1.3-4.1-2.8-5.5V13Z"/></svg>Amigos</button>
+            <button id="hubFriendsBtn" class="friendTab active" type="button">👥 Amigos</button>
             <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens privadas</button>
             <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
@@ -4714,7 +3335,6 @@ html[data-palette="candy"]{
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
             <button id="createPrivateGroupBtn" class="friendTab" type="button">Criar grupo</button>
             <button id="friendsProfileBtn" class="friendTab" type="button">Perfil</button>
-            <button id="friendsServersBtn" class="friendTab" type="button">Servidores</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -4733,7 +3353,7 @@ html[data-palette="candy"]{
               <strong id="friendsAccountName">Você</strong>
               <span id="friendsAccountStatus">● Online · Editar perfil</span>
             </div>
-            <span class="friendsAccountGear"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg></span>
+            <span class="friendsAccountGear">⚙</span>
           </button>
         </div>
       </section>
@@ -4751,10 +3371,6 @@ html[data-palette="candy"]{
           <div style="display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--line);">
               <strong id="dmTitle">Selecione um amigo</strong>
-              <div id="groupCallActions" class="hidden" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-                <button id="groupCallBtn" class="btn primary small" type="button">Ligar para o grupo</button>
-                <button id="groupAddMemberBtn" class="btn secondary small" type="button">Adicionar pessoa</button>
-              </div>
               <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
             </div>
 
@@ -4774,18 +3390,18 @@ html[data-palette="candy"]{
           <aside class="settingsMenu">
             <div id="settingsServerName" class="settingsServerName">Servidor</div>
 
-            <button class="settingsNavBtn active" data-settings-page="profile"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 4.6v-2.2l-2-.7a7.3 7.3 0 0 0-.7-1.6l.9-1.9-1.6-1.6-1.9.9a7.3 7.3 0 0 0-1.6-.7l-.7-2h-2.2l-.7 2a7.3 7.3 0 0 0-1.6.7l-1.9-.9-1.6 1.6.9 1.9a7.3 7.3 0 0 0-.7 1.6l-2 .7v2.2l2 .7c.2.6.4 1.1.7 1.6l-.9 1.9 1.6 1.6 1.9-.9c.5.3 1 .5 1.6.7l.7 2h2.2l.7-2c.6-.2 1.1-.4 1.6-.7l1.9.9 1.6-1.6-.9-1.9c.3-.5.5-1 .7-1.6l2-.7Z"/></svg>Perfil do servidor</button>
+            <button class="settingsNavBtn active" data-settings-page="profile">⚙ Perfil do servidor</button>
 
             <div class="settingsGroup">Pessoas</div>
-            <button class="settingsNavBtn" data-settings-page="members"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7H2Zm13-7c4 0 7 2.6 7 6h-4.2c-.3-2.2-1.3-4.1-2.8-5.5V13Z"/></svg>Membros</button>
+            <button class="settingsNavBtn" data-settings-page="members">👥 Membros</button>
             <button class="settingsNavBtn" data-settings-page="roles">🛡 Cargos</button>
             <button class="settingsNavBtn" data-settings-page="invites">✉ Convites</button>
 
             <div class="settingsGroup">Moderação</div>
-            <button class="settingsNavBtn" data-settings-page="security"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2h2v11H5V10h2Zm2 0h6V8a3 3 0 0 0-6 0v2Z"/></svg>Segurança</button>
+            <button class="settingsNavBtn" data-settings-page="security">🔒 Segurança</button>
 
             <div class="settingsGroup">Servidor</div>
-            <button class="settingsNavBtn danger" data-settings-page="delete"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10l-.8 11H7.8L7 8Zm2-3h6l1 2H8l1-2Zm-3 2h12v2H6V7Z"/></svg>Excluir servidor</button>
+            <button class="settingsNavBtn danger" data-settings-page="delete">🗑 Excluir servidor</button>
           </aside>
 
           <div class="settingsBody">
@@ -4923,23 +3539,15 @@ html[data-palette="candy"]{
       </section>
 
       <section id="chatView" class="view chatView hidden">
-        <div class="chatHead" style="display:flex;align-items:center;gap:10px;">
-          <div style="min-width:0;flex:1;"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
-          <button id="chatPinsBtn" class="btn secondary small" type="button" title="Mensagens fixadas">Fixadas</button>
-        <button id="chatSavedBtn" class="btn secondary small" type="button" title="Mensagens salvas">Salvas</button>
-        <button id="chatPollBtn" class="btn secondary small" type="button" title="Criar enquete">Enquete</button>
-        <button id="markChannelReadBtn" class="btn secondary small" type="button" title="Marcar canal como lido">Lido</button>
-        <input id="chatSearchInput" class="chatSearchInput" type="search" placeholder="Pesquisar mensagens">
-        </div>
+        <div class="chatHead"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
         <div id="messages" class="messages"></div>
-        <div id="typingIndicator" class="typingIndicator hidden"></div>
         <div id="replyBar" class="replyBar hidden">
           <span id="replyBarText">Respondendo...</span>
           <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
         </div>
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
         <div class="compose" style="grid-template-columns:auto 1fr auto;">
-          <button id="chatImageBtn" class="btn secondary iconOnly" type="button" title="Anexar imagem"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 6.7-6.7a4 4 0 1 1 5.6 5.6l-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2 1.4 1.4-9.2 9.2a4 4 0 0 0 5.7 5.7l8.9-8.9A2 2 0 0 0 16.6 7l-6.7 6.7a1.5 1.5 0 1 0 2.1 2.1l5.3-5.3 1.4 1.4-5.3 5.3a3.5 3.5 0 0 1-5-5Z"/></svg></button>
+          <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
           <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem...">
           <button id="sendBtn" class="btn primary">Enviar</button>
         </div>
@@ -4957,12 +3565,12 @@ html[data-palette="candy"]{
         <div id="localMusicPanel" class="localMusicPanel hidden">
           <div class="localMusicShell">
             <div class="localMusicHead">
-              <div class="localMusicTitle"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v11.2A3.5 3.5 0 1 0 11 18V8h7v7.2A3.5 3.5 0 1 0 20 18V4H9Z"/></svg> Minha música</div>
+              <div class="localMusicTitle">🎵 Minha música</div>
               <div class="localMusicOnly">SÓ VOCÊ OUVE</div>
             </div>
 
             <div class="localMusicBody">
-              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.oga,.opus,.flac,.webm" multiple>
+              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*" multiple>
 
               <div class="localMusicAdd">
                 <button id="localMusicChooseBtn" class="localMusicChoose" type="button">+ Escolher música</button>
@@ -5013,7 +3621,7 @@ html[data-palette="candy"]{
           <button id="micBtn" class="control">Microfone</button>
           <button id="musicBtn" class="control">Música</button>
           <button id="deafenBtn" class="control">Áudio</button>
-          <button id="audioGateBtn" class="control audioGate hidden"><svg class="uiIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12.2-.8a5 5 0 0 1 0 7.6l-1.3-1.5a3 3 0 0 0 0-4.6l1.3-1.5Zm2.8-2.5a8.5 8.5 0 0 1 0 12.6l-1.3-1.5a6.5 6.5 0 0 0 0-9.6L19 5.7Z"/></svg>Ativar áudio</button>
+          <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">Câmera</button>
           <button id="screenBtn" class="control">Compartilhar</button>
           <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
@@ -5037,47 +3645,6 @@ html[data-palette="candy"]{
     <div id="rightTitle" class="rightTitle">Ativo agora</div>
     <div id="members"></div>
   </aside>
-</div>
-
-
-<div id="quickSwitcherWrap" class="modalWrap hidden">
-  <div class="modal quickSwitcherModal">
-    <div class="quickSwitcherHead">
-      <input id="quickSwitcherInput" placeholder="Buscar servidor, canal ou amigo..." autocomplete="off">
-      <button id="quickSwitcherCloseBtn" class="btn secondary small" type="button">Fechar</button>
-    </div>
-    <div id="quickSwitcherList" class="quickSwitcherList"></div>
-  </div>
-</div>
-
-<div id="messageUtilityWrap" class="modalWrap hidden">
-  <div class="modal messageUtilityModal">
-    <div class="messageUtilityHead">
-      <div>
-        <h3 id="messageUtilityTitle">Mensagens</h3>
-        <p id="messageUtilitySub">Itens salvos</p>
-      </div>
-      <button id="messageUtilityCloseBtn" class="btn secondary small" type="button">Fechar</button>
-    </div>
-    <div id="messageUtilityList" class="messageUtilityList"></div>
-  </div>
-</div>
-
-<div id="pollWrap" class="modalWrap hidden">
-  <div class="modal">
-    <h2>Criar enquete</h2>
-    <p>Pergunta e até 5 opções.</p>
-    <input id="pollQuestionInput" placeholder="Pergunta">
-    <input id="pollOption1" placeholder="Opção 1">
-    <input id="pollOption2" placeholder="Opção 2">
-    <input id="pollOption3" placeholder="Opção 3">
-    <input id="pollOption4" placeholder="Opção 4">
-    <input id="pollOption5" placeholder="Opção 5">
-    <div class="modalActions">
-      <button id="pollCancelBtn" class="btn secondary" type="button">Cancelar</button>
-      <button id="pollCreateBtn" class="btn primary" type="button">Criar</button>
-    </div>
-  </div>
 </div>
 
 <div id="sharePickerWrap" class="sharePickerWrap hidden">
@@ -5133,27 +3700,6 @@ html[data-palette="candy"]{
 
     <div class="sharePickerFoot">
       A qualidade final também depende do navegador, da resolução da tela e da conexão dos participantes.
-    </div>
-  </div>
-</div>
-
-
-<div id="serverManagerWrap" class="modalWrap hidden">
-  <div class="modal serverManagerModal">
-    <div class="serverManagerHead">
-      <div>
-        <h3>Meus servidores</h3>
-        <p>Você pode apagar seus servidores mesmo estando na aba Amigos.</p>
-      </div>
-      <button id="serverManagerCloseBtn" class="btn secondary small" type="button">Fechar</button>
-    </div>
-
-    <div id="serverManagerList" class="serverManagerList"></div>
-
-    <div class="serverManagerFoot">
-      <button id="deleteAllOwnedServersBtn" class="btn dangerBtn" type="button">
-        Apagar todos os meus servidores
-      </button>
     </div>
   </div>
 </div>
@@ -5418,24 +3964,6 @@ html[data-palette="candy"]{
 </div>
 
 <button id="installAppBtn" class="installAppBtn hidden" type="button">⬇ Instalar aplicativo</button>
-<div id="notificationPanel" class="notificationPanel hidden">
-  <div class="notificationPanelHead">
-    <strong>Notificações</strong>
-    <button id="clearNotificationsBtn" class="btn secondary small" type="button">Limpar</button>
-  </div>
-  <div id="notificationList" class="notificationList">
-    <div class="notificationEmpty">Nenhuma notificação.</div>
-  </div>
-</div>
-
-<div id="userContextMenu" class="messageContextMenu hidden">
-  <button id="userContextProfileBtn" type="button">Ver perfil</button>
-  <button id="userContextMessageBtn" type="button">Mensagem</button>
-  <button id="userContextCallBtn" type="button">Ligar</button>
-  <button id="userContextBlockBtn" type="button">Bloquear</button>
-  <button id="userContextKickBtn" class="danger hidden" type="button">Expulsar do servidor</button>
-</div>
-
 <div id="messageContextMenu" class="messageContextMenu hidden">
   <button id="contextReplyBtn" type="button">Responder</button>
   <button id="contextEditBtn" type="button">Editar</button>
@@ -5446,14 +3974,7 @@ html[data-palette="candy"]{
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const socket = io({
-  reconnection:true,
-  reconnectionAttempts:Infinity,
-  reconnectionDelay:700,
-  reconnectionDelayMax:4000,
-  randomizationFactor:0.35,
-  timeout:20000
-});
+const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
 
@@ -5480,27 +4001,9 @@ function pageWasReloaded(){
 
 const PAGE_WAS_RELOADED=pageWasReloaded();
 
-
-function safeStoredEntries(key){
-  try{
-    const value=JSON.parse(localStorage.getItem(key)||'[]');
-    return Array.isArray(value) ? value.filter(item=>Array.isArray(item)&&item.length>=2) : [];
-  }catch{return []}
-}
-function safeStoredList(key){
-  try{
-    const value=JSON.parse(localStorage.getItem(key)||'[]');
-    return Array.isArray(value) ? value : [];
-  }catch{return []}
-}
-
 const state = {
   authToken:localStorage.getItem('acord-auth-token')||'',
   authMode:'login',
-  legacyUserId:localStorage.getItem('ecord-user-id')||'',
-  legacyUsername:localStorage.getItem('ecord-name')||'',
-  legacyBio:localStorage.getItem('ecord-bio')||'',
-  legacyAvatar:localStorage.getItem('ecord-avatar')||'',
   userId:'',
   username:'',
   displayName:'',
@@ -5549,8 +4052,6 @@ const state = {
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
-  activePrivateGroupId:null,
-  activeGroupCallId:null,
   pendingAvatar:null,
   pendingBanner:null,
   selectedServerMemberId:null,
@@ -5588,46 +4089,7 @@ const state = {
     : 'friends',
   appInitialized: false,
   restoringReload: PAGE_WAS_RELOADED,
-  profileReady: false,
-  authRestoreAttempts:0,
-  authRestoreTimer:null,
-  voiceReconnectPending:false,
-  voiceReconnectTimer:null,
-  voiceReconnectAttempts:0,
-  notifications:[],
-  blockedUsers:new Set((()=>{
-    try{
-      const value=JSON.parse(localStorage.getItem('acord-blocked-users')||'[]');
-      return Array.isArray(value)?value:[];
-    }catch{return []}
-  })()),
-  userContextProfile:null,
-  typingTimer:null,
-  typingUsers:new Map(),
-  chatSearch:'',
-  speakingMonitors:new Map(),
-  savedMessages:new Map((()=>{
-    try{return JSON.parse(localStorage.getItem('acord-saved-messages')||'[]')}catch{return []}
-  })()),
-  pinnedMessages:new Map((()=>{
-    try{return JSON.parse(localStorage.getItem('acord-pinned-messages')||'[]')}catch{return []}
-  })()),
-  unreadChannels:new Map((()=>{
-    try{return JSON.parse(localStorage.getItem('acord-unread-channels')||'[]')}catch{return []}
-  })()),
-  favoriteChannels:new Set(safeStoredList('acord-favorite-channels')),
-  messageDrafts:new Map((()=>{
-    try{return JSON.parse(localStorage.getItem('acord-message-drafts')||'[]')}catch{return []}
-  })()),
-  quickSwitcherItems:[],
-  activeUtilityMode:null,
-  pendingChannelCategoryId:null,
-  collapsedCategories:new Set((()=>{
-    try{
-      const value=JSON.parse(localStorage.getItem('acord-collapsed-categories')||'[]');
-      return Array.isArray(value)?value:[];
-    }catch{return []}
-  })())
+  profileReady: false
 };
 
 const rtcConfig = {
@@ -5712,80 +4174,20 @@ async function playLocalMusicTrack(index,autoplay=true){
 
   state.localMusicIndex = index;
 
-  $('#localMusicTrack').textContent = track.name || 'Música';
-  $('#localMusicCurrent').textContent = '0:00';
-  $('#localMusicDuration').textContent = 'Carregando...';
-  $('#localMusicSeek').value = 0;
+  if(audio.src !== track.url){
+    audio.src = track.url;
+    audio.load();
+  }
 
+  $('#localMusicTrack').textContent = track.name || 'Música';
   renderLocalMusicQueue();
 
-  try{
-    if(audio.src !== track.url){
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
-
-      audio.src = track.url;
-      audio.preload = 'auto';
-      audio.load();
-    }
-
-    if(audio.readyState < 2){
-      await new Promise((resolve,reject)=>{
-        let finished=false;
-
-        const cleanup=()=>{
-          audio.removeEventListener('canplay',onReady);
-          audio.removeEventListener('loadeddata',onReady);
-          audio.removeEventListener('error',onError);
-        };
-
-        const onReady=()=>{
-          if(finished) return;
-          finished=true;
-          cleanup();
-          resolve();
-        };
-
-        const onError=()=>{
-          if(finished) return;
-          finished=true;
-          cleanup();
-          reject(audio.error || new Error('Formato de áudio não suportado'));
-        };
-
-        audio.addEventListener('canplay',onReady,{once:true});
-        audio.addEventListener('loadeddata',onReady,{once:true});
-        audio.addEventListener('error',onError,{once:true});
-
-        setTimeout(()=>{
-          if(finished) return;
-
-          // Alguns navegadores já estão prontos mas não dispararam
-          // o evento após uma troca muito rápida de src.
-          if(audio.readyState >= 2){
-            onReady();
-          }
-        },1200);
-      });
-    }
-
-    if(autoplay){
+  if(autoplay){
+    try{
       await audio.play();
-    }
-
-    $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
-  }catch(error){
-    console.warn('Não foi possível reproduzir a música:',error);
-
-    const code = audio.error?.code || 0;
-
-    if(code === 4){
-      toast('Esse formato de áudio não é suportado. Tente MP3, WAV ou OGG.');
-    }else if(track.local){
-      toast('Não consegui abrir esse arquivo. Tente outro MP3.');
-    }else{
-      toast('Esse link não fornece um áudio reproduzível diretamente.');
+    }catch(error){
+      console.warn('Não foi possível iniciar a música:',error);
+      toast('Clique em ▶ para tocar a música');
     }
   }
 
@@ -5793,15 +4195,10 @@ async function playLocalMusicTrack(index,autoplay=true){
 }
 
 function addLocalMusicFiles(files){
-  const supportedExtensions = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|webm)$/i;
-
-  const list = Array.from(files || []).filter(file=>
-    String(file.type || '').startsWith('audio/') ||
-    supportedExtensions.test(String(file.name || ''))
-  );
+  const list = Array.from(files || []).filter(file=>String(file.type || '').startsWith('audio/'));
 
   if(!list.length){
-    toast('Escolha um arquivo de áudio compatível');
+    toast('Escolha um arquivo de áudio');
     return;
   }
 
@@ -5814,19 +4211,17 @@ function addLocalMusicFiles(files){
     state.localMusicQueue.push({
       name:String(file.name || 'Música').replace(/\.[^.]+$/,''),
       url,
-      local:true,
-      type:String(file.type || ''),
-      size:Number(file.size || 0)
+      local:true
     });
   });
 
   renderLocalMusicQueue();
 
-  // A escolha do arquivo já é um gesto do usuário:
-  // podemos iniciar a reprodução imediatamente.
-  playLocalMusicTrack(firstNewIndex,true);
+  if(state.localMusicIndex < 0){
+    playLocalMusicTrack(firstNewIndex,false);
+  }
 
-  toast(list.length === 1 ? 'Música adicionada e reproduzindo' : 'Músicas adicionadas');
+  toast(list.length === 1 ? 'Música adicionada' : 'Músicas adicionadas');
 }
 
 function addLocalMusicUrl(){
@@ -5941,15 +4336,9 @@ async function toggleLocalMusicPlayback(){
 
   if(audio.paused){
     try{
-      if(audio.readyState < 2){
-        await playLocalMusicTrack(state.localMusicIndex,true);
-        return;
-      }
-
       await audio.play();
-    }catch(error){
-      console.warn('Falha ao tocar:',error);
-      toast('Não foi possível tocar. Tente um arquivo MP3.');
+    }catch{
+      toast('Não foi possível tocar essa música');
     }
   }else{
     audio.pause();
@@ -5989,11 +4378,6 @@ function submitAuthentication(){
   $('#authError').textContent='';
 
   const button=$('#loginBtn');
-
-  if(!socket.connected){
-    $('#authError').textContent='Conectando ao servidor... tente novamente em alguns segundos.';
-    return;
-  }
   button.disabled=true;
   button.textContent=state.authMode==='register'?'Criando...':'Entrando...';
 
@@ -6007,26 +4391,7 @@ function submitAuthentication(){
     if(password!==confirmation){$('#authError').textContent='As senhas não são iguais.';restoreButton();return}
     socket.emit('auth-register',{username,password});return;
   }
-  socket.emit('auth-login',{
-    username,
-    password,
-    legacyUserId:state.legacyUserId,
-    legacyProfile:{
-      displayName:state.legacyUsername||username,
-      bio:state.legacyBio||'',
-      avatar:state.legacyAvatar||'',
-      banner:'',
-      status:'online'
-    }
-  });
-
-  setTimeout(()=>{
-    if(button.disabled){
-      button.disabled=false;
-      button.textContent='Entrar';
-      $('#authError').textContent='O servidor demorou para responder. Tente novamente.';
-    }
-  },8000);
+  socket.emit('auth-login',{username,password});
 }
 function clearAccountState(){
   state.authToken='';state.userId='';state.username='';state.displayName='';
@@ -6044,31 +4409,9 @@ function applyAuthProfile(profile,token){
   state.authToken=token;state.userId=profile.id;state.username=profile.username||'';
   state.displayName=profile.displayName||profile.username||'';state.bio=profile.bio||'';
   state.avatar=profile.avatar||'';state.banner=profile.banner||'';state.status=profile.status||'online';
-  state.legacyUserId=state.userId;
-  state.legacyUsername=state.username;
-  state.legacyBio=state.bio;
-  state.legacyAvatar=state.avatar;
   state.profileReady=true;
   localStorage.setItem('acord-auth-token',token);
-  localStorage.setItem('ecord-user-id',state.userId);
-  localStorage.setItem('ecord-name',state.username);
-  localStorage.setItem('acord-remember-login','1');
-
-  try{
-    localStorage.setItem(
-      'acord-login-profile',
-      JSON.stringify({
-        id:state.userId,
-        username:state.username,
-        displayName:state.displayName,
-        bio:state.bio,
-        avatar:state.avatar,
-        banner:state.banner,
-        status:state.status
-      })
-    );
-  }catch{}
-
+  localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);
   localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{}
   $('#login').classList.add('hidden');$('#appShell').classList.remove('hidden');
   refreshOwnProfileUI();
@@ -6131,9 +4474,9 @@ function togglePasswordVisibility(inputSelector,buttonSelector){
 
   const showing=input.type==='text';
   input.type=showing?'password':'text';
+  button.textContent=showing?'◉':'◎';
   button.title=showing?'Mostrar senha':'Ocultar senha';
   button.setAttribute('aria-label',button.title);
-  button.classList.toggle('showing',!showing);
 }
 
 let messageContextTarget=null;
@@ -6166,473 +4509,6 @@ function openMessageContextMenu(event,message){
 
   menu.style.left=Math.max(margin,x)+'px';
   menu.style.top=Math.max(margin,y)+'px';
-}
-
-
-function persistBlockedUsers(){
-  localStorage.setItem('acord-blocked-users',JSON.stringify([...state.blockedUsers]));
-}
-
-function addNotification(title,body=''){
-  state.notifications.unshift({
-    id:'n-'+Date.now()+'-'+Math.random().toString(36).slice(2,8),
-    title:String(title||'Acord').slice(0,80),
-    body:String(body||'').slice(0,180),
-    at:Date.now()
-  });
-  state.notifications=state.notifications.slice(0,50);
-  renderNotifications();
-  if(document.visibilityState!=='visible') maybeNotify(title,body);
-}
-
-function renderNotifications(){
-  const list=$('#notificationList');
-  const badge=$('#notificationBadge');
-  if(!list||!badge) return;
-
-  badge.textContent=String(state.notifications.length);
-  badge.classList.toggle('hidden',!state.notifications.length);
-  list.innerHTML='';
-
-  if(!state.notifications.length){
-    const empty=document.createElement('div');
-    empty.className='notificationEmpty';
-    empty.textContent='Nenhuma notificação.';
-    list.appendChild(empty);
-    return;
-  }
-
-  state.notifications.forEach(item=>{
-    const row=document.createElement('div');
-    row.className='notificationItem';
-    const title=document.createElement('strong');
-    title.textContent=item.title;
-    const body=document.createElement('div');
-    body.textContent=item.body;
-    row.append(title,body);
-    list.appendChild(row);
-  });
-}
-
-function closeUserContextMenu(){
-  state.userContextProfile=null;
-  $('#userContextMenu')?.classList.add('hidden');
-}
-
-function openUserContextMenu(event,profile,serverMode=false){
-  event.preventDefault();
-  if(!profile?.id || profile.id===state.userId) return;
-
-  state.userContextProfile=profile;
-  const menu=$('#userContextMenu');
-
-  $('#userContextBlockBtn').textContent=
-    state.blockedUsers.has(profile.id)?'Desbloquear':'Bloquear';
-
-  const canKick=
-    serverMode &&
-    currentServer() &&
-    currentServer().ownerId===state.userId &&
-    profile.id!==currentServer().ownerId;
-
-  $('#userContextKickBtn').classList.toggle('hidden',!canKick);
-
-  menu.classList.remove('hidden');
-  const rect=menu.getBoundingClientRect();
-  menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-rect.width-8))+'px';
-  menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-rect.height-8))+'px';
-}
-
-
-function persistPowerState(){
-  try{
-    localStorage.setItem('acord-saved-messages',JSON.stringify([...state.savedMessages.entries()]));
-    localStorage.setItem('acord-pinned-messages',JSON.stringify([...state.pinnedMessages.entries()]));
-    localStorage.setItem('acord-unread-channels',JSON.stringify([...state.unreadChannels.entries()]));
-    localStorage.setItem('acord-favorite-channels',JSON.stringify([...state.favoriteChannels]));
-    localStorage.setItem('acord-message-drafts',JSON.stringify([...state.messageDrafts.entries()]));
-  }catch{}
-}
-
-function messageStorageKey(message){
-  return [
-    message?.serverId || state.serverId || '',
-    message?.channelId || state.textChannelId || '',
-    message?.id || ''
-  ].join(':');
-}
-
-function saveMessageToggle(message){
-  const key=messageStorageKey(message);
-  if(!message?.id) return;
-
-  if(state.savedMessages.has(key)){
-    state.savedMessages.delete(key);
-    toast('Removida das mensagens salvas');
-  }else{
-    state.savedMessages.set(key,{
-      ...message,
-      serverName:currentServer()?.name||'',
-      channelName:currentText()?.name||''
-    });
-    toast('Mensagem salva');
-  }
-
-  persistPowerState();
-  renderMessagePowerMarks();
-}
-
-function pinMessageToggle(message){
-  const key=messageStorageKey(message);
-  if(!message?.id) return;
-
-  if(state.pinnedMessages.has(key)){
-    state.pinnedMessages.delete(key);
-    toast('Mensagem desafixada');
-  }else{
-    state.pinnedMessages.set(key,{
-      ...message,
-      serverName:currentServer()?.name||'',
-      channelName:currentText()?.name||''
-    });
-    toast('Mensagem fixada');
-  }
-
-  persistPowerState();
-  renderMessagePowerMarks();
-}
-
-function renderMessagePowerMarks(){
-  document.querySelectorAll('#messages .message').forEach(row=>{
-    const id=row.dataset.messageId;
-    if(!id) return;
-
-    const key=[state.serverId||'',state.textChannelId||'',id].join(':');
-    row.classList.toggle('messagePinned',state.pinnedMessages.has(key));
-
-    row.querySelector('.messageSavedMark')?.remove();
-
-    if(state.savedMessages.has(key)){
-      const mark=document.createElement('span');
-      mark.className='messageSavedMark';
-      mark.textContent='SALVA';
-      row.appendChild(mark);
-    }
-  });
-}
-
-function openMessageUtility(mode){
-  state.activeUtilityMode=mode;
-  $('#messageUtilityTitle').textContent=mode==='pins'?'Mensagens fixadas':'Mensagens salvas';
-  $('#messageUtilitySub').textContent=mode==='pins'
-    ? 'Fixadas por você'
-    : 'Salvas por você';
-
-  const map=mode==='pins'?state.pinnedMessages:state.savedMessages;
-  const list=$('#messageUtilityList');
-  list.innerHTML='';
-
-  const values=[...map.values()].reverse();
-
-  if(!values.length){
-    const empty=document.createElement('div');
-    empty.className='serverManagerEmpty';
-    empty.textContent='Nenhuma mensagem aqui.';
-    list.appendChild(empty);
-  }
-
-  values.forEach(message=>{
-    const card=document.createElement('div');
-    card.className='utilityMessage';
-
-    const meta=document.createElement('strong');
-    meta.textContent=(message.serverName||'Servidor')+' · #'+(message.channelName||'chat');
-
-    const body=document.createElement('p');
-    body.textContent=message.text||'[anexo/mensagem]';
-
-    const actions=document.createElement('div');
-    actions.className='utilityMessageActions';
-
-    const remove=document.createElement('button');
-    remove.className='btn secondary small';
-    remove.type='button';
-    remove.textContent='Remover';
-    remove.addEventListener('click',()=>{
-      map.delete(messageStorageKey(message));
-      persistPowerState();
-      openMessageUtility(mode);
-      renderMessagePowerMarks();
-    });
-
-    actions.append(remove);
-    card.append(meta,body,actions);
-    list.appendChild(card);
-  });
-
-  $('#messageUtilityWrap').classList.remove('hidden');
-}
-
-function closeMessageUtility(){
-  $('#messageUtilityWrap').classList.add('hidden');
-}
-
-function quickSwitcherCollect(){
-  const items=[];
-
-  state.servers.forEach(server=>{
-    items.push({
-      kind:'Servidor',
-      title:server.name,
-      subtitle:'Abrir servidor',
-      action:()=>selectServer(server.id)
-    });
-
-    (server.textChannels||[]).forEach(channel=>{
-      items.push({
-        kind:'Chat',
-        title:'# '+channel.name,
-        subtitle:server.name,
-        action:()=>{
-          state.serverId=server.id;
-          selectText(channel.id);
-        }
-      });
-    });
-
-    (server.voiceChannels||[]).forEach(channel=>{
-      items.push({
-        kind:'Voz',
-        title:channel.name,
-        subtitle:server.name,
-        action:()=>{
-          state.serverId=server.id;
-          selectVoice(channel.id);
-        }
-      });
-    });
-  });
-
-  getFriends().forEach(friend=>{
-    items.push({
-      kind:'Amigo',
-      title:friend.username,
-      subtitle:'Mensagem privada',
-      action:()=>{
-        setView('dm');
-        openDm(friend);
-      }
-    });
-  });
-
-  state.quickSwitcherItems=items;
-  return items;
-}
-
-function renderQuickSwitcher(){
-  const q=String($('#quickSwitcherInput')?.value||'').trim().toLowerCase();
-  const box=$('#quickSwitcherList');
-  if(!box) return;
-
-  box.innerHTML='';
-
-  const items=quickSwitcherCollect()
-    .filter(item=>!q || (item.title+' '+item.subtitle+' '+item.kind).toLowerCase().includes(q))
-    .slice(0,80);
-
-  items.forEach(item=>{
-    const button=document.createElement('button');
-    button.className='quickSwitcherItem';
-    button.type='button';
-
-    const kind=document.createElement('span');
-    kind.className='quickSwitcherKind';
-    kind.textContent=item.kind;
-
-    const meta=document.createElement('span');
-    meta.className='quickSwitcherMeta';
-
-    const title=document.createElement('strong');
-    title.textContent=item.title;
-
-    const sub=document.createElement('span');
-    sub.textContent=item.subtitle||'';
-
-    meta.append(title,sub);
-    button.append(kind,meta);
-
-    button.addEventListener('click',()=>{
-      $('#quickSwitcherWrap').classList.add('hidden');
-      item.action();
-    });
-
-    box.appendChild(button);
-  });
-}
-
-function openQuickSwitcher(){
-  $('#quickSwitcherWrap').classList.remove('hidden');
-  $('#quickSwitcherInput').value='';
-  renderQuickSwitcher();
-  setTimeout(()=>$('#quickSwitcherInput').focus(),0);
-}
-
-function closeQuickSwitcher(){
-  $('#quickSwitcherWrap').classList.add('hidden');
-}
-
-function channelKey(serverId=state.serverId,channelId=state.textChannelId){
-  return String(serverId||'')+':'+String(channelId||'');
-}
-
-function markCurrentChannelRead(){
-  const key=channelKey();
-  state.unreadChannels.delete(key);
-  persistPowerState();
-  renderSidebar();
-  toast('Canal marcado como lido');
-}
-
-function addUnread(serverId,channelId){
-  if(
-    serverId===state.serverId &&
-    channelId===state.textChannelId &&
-    state.currentView==='chat' &&
-    document.visibilityState==='visible'
-  ) return;
-
-  const key=channelKey(serverId,channelId);
-  state.unreadChannels.set(key,(state.unreadChannels.get(key)||0)+1);
-  persistPowerState();
-  renderSidebar();
-}
-
-function saveDraft(){
-  const input=$('#messageInput');
-  if(!input) return;
-
-  const key=channelKey();
-  const value=input.value;
-
-  if(value) state.messageDrafts.set(key,value);
-  else state.messageDrafts.delete(key);
-
-  persistPowerState();
-}
-
-function restoreDraft(){
-  const input=$('#messageInput');
-  if(!input) return;
-
-  input.value=state.messageDrafts.get(channelKey())||'';
-}
-
-function sendPoll(){
-  const question=$('#pollQuestionInput').value.trim();
-  const options=[
-    '#pollOption1','#pollOption2','#pollOption3','#pollOption4','#pollOption5'
-  ].map(sel=>$(sel).value.trim()).filter(Boolean);
-
-  if(!question || options.length<2){
-    toast('Digite uma pergunta e pelo menos 2 opções');
-    return;
-  }
-
-  const token='[ENQUETE]'+JSON.stringify({
-    question,
-    options,
-    votes:{}
-  });
-
-  socket.emit('chat-message',{
-    serverId:state.serverId,
-    channelId:state.textChannelId,
-    text:token,
-    replyTo:state.replyToMessageId||null
-  });
-
-  $('#pollWrap').classList.add('hidden');
-  ['#pollQuestionInput','#pollOption1','#pollOption2','#pollOption3','#pollOption4','#pollOption5']
-    .forEach(sel=>$(sel).value='');
-}
-
-function parsePoll(text){
-  if(!String(text||'').startsWith('[ENQUETE]')) return null;
-  try{
-    return JSON.parse(String(text).slice(9));
-  }catch{return null}
-}
-
-function filterVisibleMessages(){
-  const search=String(state.chatSearch||'').trim().toLowerCase();
-  document.querySelectorAll('#messages .message').forEach(row=>{
-    row.classList.toggle('hidden',!!search && !String(row.textContent||'').toLowerCase().includes(search));
-  });
-}
-
-function updateTypingIndicator(){
-  const indicator=$('#typingIndicator');
-  if(!indicator) return;
-
-  const now=Date.now();
-  for(const [id,value] of state.typingUsers){
-    if(now-value.at>2600) state.typingUsers.delete(id);
-  }
-
-  const names=[...state.typingUsers.values()].map(v=>v.username).filter(Boolean);
-
-  if(!names.length){
-    indicator.classList.add('hidden');
-    indicator.textContent='';
-    return;
-  }
-
-  indicator.textContent=names.length===1
-    ? names[0]+' está digitando...'
-    : names.slice(0,2).join(' e ')+' estão digitando...';
-
-  indicator.classList.remove('hidden');
-}
-
-function startSpeakingMonitor(peerId,stream){
-  if(!stream?.getAudioTracks?.().length) return;
-
-  try{
-    const context=getSharedAudioContext();
-    if(!context) return;
-
-    const source=context.createMediaStreamSource(stream);
-    const analyser=context.createAnalyser();
-    analyser.fftSize=256;
-    analyser.smoothingTimeConstant=.65;
-    source.connect(analyser);
-
-    const data=new Uint8Array(analyser.frequencyBinCount);
-    const monitor={source,analyser,frame:null};
-
-    const tick=()=>{
-      analyser.getByteFrequencyData(data);
-      let total=0;
-      for(const value of data) total+=value;
-      const average=total/data.length;
-      document.getElementById('v-'+peerId)?.classList.toggle('speaking',average>18);
-      monitor.frame=requestAnimationFrame(tick);
-    };
-
-    monitor.frame=requestAnimationFrame(tick);
-    state.speakingMonitors.set(peerId,monitor);
-  }catch{}
-}
-
-function stopSpeakingMonitor(peerId){
-  const monitor=state.speakingMonitors.get(peerId);
-  if(!monitor) return;
-
-  try{cancelAnimationFrame(monitor.frame)}catch{}
-  try{monitor.source?.disconnect()}catch{}
-  try{monitor.analyser?.disconnect()}catch{}
-  state.speakingMonitors.delete(peerId);
-  document.getElementById('v-'+peerId)?.classList.remove('speaking');
 }
 
 function toast(text){
@@ -6777,75 +4653,15 @@ function hexToRgb(hex){
 }
 function applyCustomColor(hex){
   const rgb=hexToRgb(hex);
-  const root=document.documentElement;
-
   if(!rgb){
-    [
-      '--coral',
-      '--coral2',
-      '--accent-contrast',
-      '--line',
-      '--mint',
-      '--mintbg',
-      '--accent-border',
-      '--accent-soft'
-    ].forEach(property=>root.style.removeProperty(property));
-
+    document.documentElement.style.removeProperty('--coral');
+    document.documentElement.style.removeProperty('--coral2');
     return;
   }
-
   const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
-
-  const lighter=rgbToHex(
-    Math.min(255,rgb.r+24),
-    Math.min(255,rgb.g+24),
-    Math.min(255,rgb.b+24)
-  );
-
-  const dark=rgbToHex(
-    Math.round(rgb.r*.48),
-    Math.round(rgb.g*.48),
-    Math.round(rgb.b*.48)
-  );
-
-  const soft=rgbToHex(
-    Math.round(rgb.r*.22),
-    Math.round(rgb.g*.22),
-    Math.round(rgb.b*.22)
-  );
-
-  const luminance=(0.299*rgb.r + 0.587*rgb.g + 0.114*rgb.b)/255;
-  const contrast=luminance>0.62 ? '#07110e' : '#ffffff';
-
-  root.style.setProperty('--coral',safe);
-  root.style.setProperty('--coral2',lighter);
-  root.style.setProperty('--accent-contrast',contrast);
-
-  // A cor principal agora também controla bordas e indicadores.
-  root.style.setProperty(
-    '--line',
-    'color-mix(in srgb, '+safe+' 42%, var(--bg3))'
-  );
-
-  root.style.setProperty('--mint',safe);
-
-  root.style.setProperty(
-    '--mintbg',
-    'color-mix(in srgb, '+safe+' 18%, var(--bg2))'
-  );
-
-  root.style.setProperty('--accent-border',dark);
-  root.style.setProperty('--accent-soft',soft);
-
-  // Mantém indicadores e detalhes visuais coerentes com a cor escolhida.
-  root.style.setProperty(
-    '--low',
-    'color-mix(in srgb, '+safe+' 28%, #7f8f89)'
-  );
-  root.style.setProperty(
-    '--muted',
-    'color-mix(in srgb, '+safe+' 20%, #b6c2bd)'
-  );
+  const lighter=rgbToHex(Math.min(255,rgb.r+24),Math.min(255,rgb.g+24),Math.min(255,rgb.b+24));
+  document.documentElement.style.setProperty('--coral',safe);
+  document.documentElement.style.setProperty('--coral2',lighter);
 }
 function updateCustomColorUI(hex){
   const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
@@ -7178,26 +4994,6 @@ function decodeInviteServer(value){
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function currentServer(){
   return state.servers.find(s=>s.id===state.serverId) || null;
 }
@@ -7293,7 +5089,7 @@ function returnToActiveCall(){
   if(state.privateCallId){
     setView('voice');
     $('#voiceTitle').textContent = 'Chamada com ' + (state.privatePeerName || 'Amigo');
-    $('#topTitle').textContent = 'Chamada privada';
+    $('#topTitle').textContent = '☎ Chamada privada';
     $('#topSub').textContent = state.privatePeerName || '';
     updateCallDock();
     return;
@@ -7366,7 +5162,7 @@ function setView(name){
   }
 
   if(name==='friends'){
-    $('#topTitle').textContent = 'Amigos';
+    $('#topTitle').textContent = '👥 Amigos';
     $('#topSub').textContent = 'seus amigos e chamadas';
     renderFriends();
   }
@@ -7530,21 +5326,9 @@ function renderServers(){
 
     if(s.icon){
       b.textContent = '';
-      b.style.backgroundImage = '';
-
-      const image = document.createElement('img');
-      image.className = 'serverIconImage';
-      image.src = String(s.icon);
-      image.alt = '';
-      image.draggable = false;
-
-      image.addEventListener('error',()=>{
-        image.remove();
-        b.textContent = initials(s.name);
-        if(s.accent) b.style.backgroundColor = s.accent;
-      });
-
-      b.appendChild(image);
+      b.style.backgroundImage = 'url("' + String(s.icon).replace(/"/g,'') + '")';
+      b.style.backgroundSize = 'cover';
+      b.style.backgroundPosition = 'center';
     }else{
       b.textContent = initials(s.name);
       b.style.backgroundImage = '';
@@ -7668,50 +5452,12 @@ function renderSidebar(){
       label.textContent = channel.name;
       label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
       b.append(grip,icon,label);
-
-      if(type==='text'){
-        const key=channelKey(state.serverId,channel.id);
-
-        if(state.favoriteChannels.has(key)){
-          const fav=document.createElement('span');
-          fav.className='channelFavoriteMark';
-          fav.textContent='★';
-          b.appendChild(fav);
-        }
-
-        const unread=state.unreadChannels.get(key)||0;
-
-        if(unread>0){
-          const badge=document.createElement('span');
-          badge.className='channelUnreadBadge';
-          badge.textContent=unread>99?'99+':String(unread);
-          b.appendChild(badge);
-        }
-      }
     }
 
     b.addEventListener('click',()=>{
       if(type==='text') selectText(channel.id);
       else selectVoice(channel.id);
     });
-
-    if(type==='text'){
-      b.addEventListener('contextmenu',event=>{
-        event.preventDefault();
-        const key=channelKey(state.serverId,channel.id);
-
-        if(state.favoriteChannels.has(key)){
-          state.favoriteChannels.delete(key);
-          toast('Canal removido dos favoritos');
-        }else{
-          state.favoriteChannels.add(key);
-          toast('Canal favoritado');
-        }
-
-        persistPowerState();
-        renderSidebar();
-      });
-    }
 
     b.addEventListener('dragstart',event=>{
       b.classList.add('dragging');
@@ -7774,22 +5520,7 @@ function renderSidebar(){
     if(!isUncategorized){
       header.draggable = true;
 
-      
-  const save = document.createElement('button');
-  save.textContent = 'Salvar mensagem';
-  save.addEventListener('click',()=>{
-    saveMessageToggle(message);
-    closeMessageContextMenu();
-  });
-
-  const pin = document.createElement('button');
-  pin.textContent = 'Fixar / desafixar';
-  pin.addEventListener('click',()=>{
-    pinMessageToggle(message);
-    closeMessageContextMenu();
-  });
-
-const del = document.createElement('button');
+      const del = document.createElement('button');
       del.className = 'categoryDelete';
       del.type = 'button';
       del.textContent = '×';
@@ -8015,8 +5746,6 @@ function renderServerPresence(){
       meta.append(name,status);
       row.append(avatarWrap,meta);
       row.addEventListener('click',()=>openServerMemberProfile(profile.id));
-      row.classList.toggle('blockedUser',state.blockedUsers.has(profile.id));
-      row.addEventListener('contextmenu',event=>openUserContextMenu(event,profile,true));
       wrap.appendChild(row);
     });
 
@@ -8389,15 +6118,12 @@ function selectText(channelId){
     localStorage.setItem('ecord-server-' + state.serverId + '-text',channelId);
   }
 
-  state.unreadChannels.delete(channelKey(state.serverId,channelId));
-  persistPowerState();
   renderSidebar();
   const c = currentText();
   $('#chatTitle').textContent = c?.name || 'chat';
   $('#messageInput').placeholder = 'Mensagem em #' + (c?.name || 'chat');
   socket.emit('join-text',{serverId:state.serverId,channelId});
   setView('chat');
-  restoreDraft();
   $('#messageInput').focus();
 }
 
@@ -8450,7 +6176,6 @@ function appendMessage(m){
   const row=document.createElement('div');
   row.className='message'+(m.userId===state.userId || m.senderId===socket.id?' mine':'');
   row.dataset.messageId=m.id||'';
-  row._messageData=m;
 
   if(m.replyTo){
     const reply=document.createElement('div');reply.className='messageReply';
@@ -8511,9 +6236,7 @@ function appendMessage(m){
     openMessageContextMenu(event,m);
   });
 
-  $('#messages').appendChild(row);
-  filterVisibleMessages();
-  $('#messages').scrollTop=$('#messages').scrollHeight;
+  $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
 function sendMessage(){
@@ -8672,49 +6395,6 @@ function removeFriend(friend){
   });
 }
 
-
-function currentPrivateGroup(){
-  if(!state.activePrivateGroupId) return null;
-  return (state.privateGroups||[]).find(group=>group.id===state.activePrivateGroupId)||null;
-}
-
-function openGroupAddMember(){
-  const group=currentPrivateGroup();
-  if(!group){toast('Abra um grupo primeiro');return;}
-
-  const friends=getFriends().filter(friend=>
-    !(group.members||[]).includes(friend.id)
-  );
-
-  if(!friends.length){toast('Todos os seus amigos já estão no grupo');return;}
-
-  const username=prompt(
-    'Digite o nome do amigo que deseja adicionar:\\n'+
-    friends.map(friend=>friend.username).join(', ')
-  );
-
-  if(!username) return;
-
-  const friend=friends.find(
-    item=>String(item.username||'').toLowerCase()===String(username).trim().toLowerCase()
-  );
-
-  if(!friend){toast('Amigo não encontrado');return;}
-
-  socket.emit('private-group-add-member',{
-    groupId:group.id,
-    targetUserId:friend.id,
-    targetUsername:friend.username
-  });
-}
-
-function startPrivateGroupCall(){
-  const group=currentPrivateGroup();
-  if(!group){toast('Abra um grupo primeiro');return;}
-
-  socket.emit('private-group-call-start',{groupId:group.id});
-}
-
 function callFriend(friend){
   const online = state.onlineUsers.find(user =>
     (friend.id && user.id === friend.id) ||
@@ -8790,7 +6470,7 @@ function renderActiveFriends(){
     const call = document.createElement('button');
     call.className = 'btn primary small';
     call.style.cssText = 'width:100%;margin-top:10px;';
-    call.textContent = 'Ligar';
+    call.textContent = '☎ Ligar';
     call.addEventListener('click',()=>callFriend(friend));
 
     card.append(top,call);
@@ -8890,7 +6570,6 @@ function renderFriends(){
       actions.append(accept,decline);
       row.append(avatar,meta,actions);
       box.appendChild(row);
-  setTimeout(renderMessagePowerMarks,0);
     });
 
     outgoing.forEach(item=>{
@@ -8914,8 +6593,6 @@ function renderFriends(){
 
       meta.append(name,status);
       row.append(avatar,meta);
-      row.classList.toggle('blockedUser',state.blockedUsers.has(profile.id));
-      row.addEventListener('contextmenu',event=>openUserContextMenu(event,profile,false));
       box.appendChild(row);
     });
 
@@ -9011,7 +6688,7 @@ function renderFriends(){
 
     const call = document.createElement('button');
     call.className = 'btn primary small';
-    call.textContent = 'Ligar';
+    call.textContent = '☎';
     call.title = 'Ligar';
     call.disabled = !online;
     call.style.opacity = online ? '1' : '.4';
@@ -9189,7 +6866,7 @@ function renderDmContacts(){
       const icon=document.createElement('div');
       icon.className='avatar';
       icon.style.cssText='width:30px;height:30px;border-radius:10px;flex:0 0 auto;background:var(--mintbg);color:var(--mint);';
-      icon.textContent='';
+      icon.textContent='👥';
 
       const meta=document.createElement('div');
       meta.style.cssText='min-width:0;flex:1;text-align:left;';
@@ -9251,9 +6928,6 @@ function renderDmContacts(){
 }
 
 function openDm(profile){
-  state.activePrivateGroupId=null;
-  $('#groupCallActions')?.classList.add('hidden');
-
   if(!profile?.username) return;
 
   state.activeGroupId=null;
@@ -9446,14 +7120,8 @@ function openModal(type){
     assignRole:['Atribuir cargo','Digite exatamente o nome da pessoa que receberá o cargo.','Ex.: Davi']
   }[type];
 
-  const targetCategory = state.pendingChannelCategoryId
-    ? currentServer()?.categories?.find(category=>category.id===state.pendingChannelCategoryId)
-    : null;
-
   $('#modalTitle').textContent = cfg[0];
-  $('#modalText').textContent = targetCategory && ['text','voice','stage'].includes(type)
-    ? cfg[1] + ' Categoria: ' + targetCategory.name + '.'
-    : cfg[1];
+  $('#modalText').textContent = cfg[1];
   $('#modalInput').placeholder = cfg[2];
   $('#modalInput').value = '';
 
@@ -9554,190 +7222,19 @@ function confirmModal(){
   closeModal();
 }
 
-
-function deleteServerFromAnywhere(server){
-  if(!server?.id) return;
-
-  const isOwner=server.ownerId===state.userId;
-
-  if(!isOwner){
-    toast('Só o dono pode apagar este servidor');
-    return;
-  }
-
-  if(!confirm('Apagar o servidor "'+server.name+'"? Esta ação não pode ser desfeita.')){
-    return;
-  }
-
-  // Remove na hora da interface e do cache.
-  state.servers=state.servers.filter(item=>item.id!==server.id);
-
-  if(state.serverId===server.id){
-    state.serverId=state.servers[0]?.id||null;
-    state.textChannelId=null;
-    state.voiceChannelId=null;
-  }
-
-  cacheServers(state.servers);
-  renderServers();
-  renderSidebar();
-  renderServerManager();
-
-  socket.emit('delete-server',{
-    serverId:server.id,
-    serverSnapshot:safeServerSnapshot(server),
-    legacyUserId:state.legacyUserId
-  });
-
-  toast('Servidor apagado');
-}
-
-function renderServerManager(){
-  const list=$('#serverManagerList');
-  const deleteAll=$('#deleteAllOwnedServersBtn');
-  if(!list || !deleteAll) return;
-
-  list.innerHTML='';
-
-  if(!state.servers.length){
-    const empty=document.createElement('div');
-    empty.className='serverManagerEmpty';
-    empty.textContent='Você não possui servidores.';
-    list.appendChild(empty);
-    deleteAll.disabled=true;
-    return;
-  }
-
-  const owned=state.servers.filter(server=>server.ownerId===state.userId);
-  deleteAll.disabled=!owned.length;
-
-  state.servers.forEach(server=>{
-    const row=document.createElement('div');
-    row.className='serverManagerRow';
-
-    const icon=document.createElement('div');
-    icon.className='serverManagerIcon';
-
-    if(server.icon){
-      const image=document.createElement('img');
-      image.src=server.icon;
-      image.alt='';
-      image.addEventListener('error',()=>{
-        image.remove();
-        icon.textContent=initials(server.name);
-      });
-      icon.appendChild(image);
-    }else{
-      icon.textContent=initials(server.name);
-    }
-
-    const meta=document.createElement('div');
-    meta.className='serverManagerMeta';
-
-    const name=document.createElement('strong');
-    name.textContent=server.name||'Servidor';
-
-    const role=document.createElement('span');
-    role.textContent=server.ownerId===state.userId
-      ? 'Você é o dono'
-      : 'Você é membro';
-
-    meta.append(name,role);
-
-    const actions=document.createElement('div');
-    actions.className='serverManagerActions';
-
-    const open=document.createElement('button');
-    open.className='btn secondary small';
-    open.type='button';
-    open.textContent='Abrir';
-    open.addEventListener('click',()=>{
-      $('#serverManagerWrap').classList.add('hidden');
-      selectServer(server.id);
-    });
-
-    actions.appendChild(open);
-
-    if(server.ownerId===state.userId){
-      const remove=document.createElement('button');
-      remove.className='btn dangerBtn small';
-      remove.type='button';
-      remove.textContent='Apagar';
-      remove.addEventListener('click',()=>deleteServerFromAnywhere(server));
-      actions.appendChild(remove);
-    }
-
-    row.append(icon,meta,actions);
-    list.appendChild(row);
-  });
-}
-
-function openServerManager(){
-  renderServerManager();
-  $('#serverManagerWrap').classList.remove('hidden');
-}
-
-function closeServerManager(){
-  $('#serverManagerWrap').classList.add('hidden');
-}
-
-function deleteAllOwnedServers(){
-  const visibleServers=[...state.servers];
-
-  if(!visibleServers.length){
-    toast('Você não possui servidores para remover');
-    return;
-  }
-
-  if(!confirm(
-    'Remover TODOS os '+visibleServers.length+' servidor(es) da sua conta?'
-  )){
-    return;
-  }
-
-  if(!confirm('Tem certeza? Os servidores que são seus serão apagados e você sairá dos demais.')){
-    return;
-  }
-
-  // Limpa imediatamente o navegador, evitando que o cache recupere um servidor antigo.
-  state.servers=[];
-  state.serverId=null;
-  state.textChannelId=null;
-  state.voiceChannelId=null;
-  state.restoreAttempted=true;
-
-  try{
-    localStorage.setItem('ecord-server-cache','[]');
-    localStorage.setItem('ecord-servers-cache','[]');
-    localStorage.removeItem('ecord-last-server-id');
-    localStorage.removeItem('ecord-last-text-channel-id');
-    localStorage.removeItem('ecord-last-voice-channel-id');
-  }catch{}
-
-  renderServers();
-  renderSidebar();
-  renderServerManager();
-
-  if(isServerView(state.currentView)){
-    setView('friends');
-  }
-
-  socket.emit('delete-all-user-servers',{
-    legacyUserId:state.legacyUserId
-  });
-
-  toast('Todos os servidores foram removidos da sua conta');
-}
-
 function deleteCurrentServer(){
-  const server=currentServer();
+  const server = currentServer();
 
   if(!server){
     toast('Nenhum servidor selecionado');
     return;
   }
 
-  deleteServerFromAnywhere(server);
+  if(!confirm('Apagar o servidor "' + server.name + '"? Esta ação não pode ser desfeita.')){
+    return;
+  }
+
+  socket.emit('delete-server',{serverId:server.id});
 }
 
 async function copyInvite(){
@@ -9748,9 +7245,7 @@ async function copyInvite(){
     return;
   }
 
-  const url=new URL(location.origin + location.pathname);
-  url.search='';
-  url.hash='';
+  const url = new URL(location.origin + location.pathname);
   url.searchParams.set('invite',server.inviteToken);
 
   try{
@@ -10154,12 +7649,10 @@ function createPeer(peerId, username, asOfferer = false){
     const name = state.peerNames.get(peerId) || 'Usuário';
 
     if(event.track.kind === 'audio'){
-      ensureRemoteAudio(peerId,event.track,event.streams?.[0]||null);
+      ensureRemoteAudio(peerId, event.track, event.streams?.[0] || null);
 
-      const visualStream=getRemoteStream(peerId);
-      ensureCard(peerId,name,visualStream,false);
-
-      startSpeakingMonitor(peerId,event.streams?.[0] || new MediaStream([event.track]));
+      const visualStream = getRemoteStream(peerId);
+      ensureCard(peerId, name, visualStream, false);
       return;
     }
 
@@ -10179,72 +7672,19 @@ function createPeer(peerId, username, asOfferer = false){
     }
   };
 
-  let disconnectRepairTimer=null;
+  const updateConnectionStatus = ()=>{
+    const connection = pc.connectionState;
+    const ice = pc.iceConnectionState;
 
-  const updateConnectionStatus=()=>{
-    const connection=pc.connectionState;
-    const ice=pc.iceConnectionState;
-
-    if(connection==='connected'){
-      if(disconnectRepairTimer){
-        clearTimeout(disconnectRepairTimer);
-        disconnectRepairTimer=null;
-      }
-
-      state.voiceReconnectAttempts=0;
-      state.voiceReconnectPending=false;
-
-      if(!state.screenTrack){
-        $('#voiceStatus').textContent=state.privateCallId
-          ? 'Call privada · Somente convidados'
-          : 'Conectado';
-      }
-
+    if(connection === 'connected'){
+      if(!state.screenTrack) $('#voiceStatus').textContent = 'Conectado';
       unlockAllRemoteAudio();
-      return;
-    }
-
-    if(connection==='connecting' || ice==='checking'){
-      $('#voiceStatus').textContent='Conectando mídia...';
-      return;
-    }
-
-    if(connection==='disconnected'){
-      $('#voiceStatus').textContent='Conexão instável · tentando recuperar...';
-
-      if(!disconnectRepairTimer){
-        disconnectRepairTimer=setTimeout(()=>{
-          disconnectRepairTimer=null;
-
-          if(
-            pc.connectionState==='disconnected' ||
-            pc.iceConnectionState==='disconnected'
-          ){
-            repairPeerConnection(peerId);
-          }
-        },2500);
-      }
-      return;
-    }
-
-    if(connection==='failed' || ice==='failed'){
-      $('#voiceStatus').textContent='Recuperando conexão de mídia...';
-      repairPeerConnection(peerId);
-
-      setTimeout(()=>{
-        if(
-          state.joinedVoiceId &&
-          (
-            pc.connectionState==='failed' ||
-            pc.iceConnectionState==='failed'
-          )
-        ){
-          try{pc.close()}catch{}
-          state.peers.delete(peerId);
-          state.pendingCandidates.delete(peerId);
-          scheduleVoiceReconnect(400);
-        }
-      },3500);
+    }else if(connection === 'connecting' || ice === 'checking'){
+      $('#voiceStatus').textContent = 'Conectando mídia...';
+    }else if(connection === 'failed' || ice === 'failed'){
+      $('#voiceStatus').textContent = 'Falha na conexão de mídia';
+      toast('A conexão de voz/vídeo falhou nesta rede.');
+      try{ pc.restartIce(); }catch{}
     }
   };
 
@@ -10305,14 +7745,13 @@ async function enterPrivateCall(callId,peerName){
     setView('voice');
 
     $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
-    $('#topTitle').textContent = 'Chamada privada';
+    $('#topTitle').textContent = '☎ Chamada privada';
     $('#topSub').textContent = state.privatePeerName;
     $('#voiceStatus').textContent = state.privateCallId ? 'Call privada · Conectando...' : 'Conectando...';
 
     syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
-    startSpeakingMonitor('local',state.localStream);
 
     socket.emit('join-private-call',{
       callId,
@@ -10376,12 +7815,8 @@ function toggleDeafen(){
 }
 
 async function joinVoice(){
-  const channel=currentVoice();
+  const channel = currentVoice();
   if(!channel) return;
-
-  state.voiceReconnectPending=false;
-  state.voiceReconnectAttempts=0;
-  clearVoiceReconnectTimer();
 
   const changingCall =
     !!state.joinedVoiceId &&
@@ -10417,7 +7852,6 @@ async function joinVoice(){
     syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
-    startSpeakingMonitor('local',state.localStream);
 
     unlockAllRemoteAudio();
 
@@ -10434,66 +7868,6 @@ async function joinVoice(){
   }finally{
     $('#joinVoiceBtn').disabled = false;
     $('#joinVoiceBtn').textContent = 'Entrar na voz';
-  }
-}
-
-
-function clearVoiceReconnectTimer(){
-  if(state.voiceReconnectTimer){
-    clearTimeout(state.voiceReconnectTimer);
-    state.voiceReconnectTimer=null;
-  }
-}
-
-function scheduleVoiceReconnect(delay=500){
-  clearVoiceReconnectTimer();
-  if(!state.joinedVoiceId) return;
-
-  state.voiceReconnectPending=true;
-
-  state.voiceReconnectTimer=setTimeout(()=>{
-    state.voiceReconnectTimer=null;
-
-    if(!state.joinedVoiceId || !socket.connected || !state.profileReady) return;
-
-    state.voiceReconnectAttempts+=1;
-
-    if(state.privateCallId){
-      socket.emit('join-private-call',{
-        callId:state.privateCallId,
-        username:state.username,
-        userId:state.userId
-      });
-    }else if(state.activeVoiceServerId && state.activeVoiceChannelId){
-      socket.emit('join-voice',{
-        serverId:state.activeVoiceServerId,
-        channelId:state.activeVoiceChannelId,
-        username:state.username
-      });
-    }
-
-    $('#voiceStatus').textContent='Reconectando call...';
-  },delay);
-}
-
-async function repairPeerConnection(peerId){
-  const pc=state.peers.get(peerId);
-  if(!pc || pc.signalingState==='closed') return;
-
-  try{
-    if(typeof pc.restartIce==='function') pc.restartIce();
-
-    if(pc.signalingState==='stable'){
-      const offer=await pc.createOffer({iceRestart:true});
-      await pc.setLocalDescription(offer);
-
-      socket.emit('offer',{
-        target:peerId,
-        sdp:pc.localDescription
-      });
-    }
-  }catch(error){
-    console.warn('Falha ao reparar conexão WebRTC:',error);
   }
 }
 
@@ -10516,11 +7890,7 @@ function closePeers(){
 }
 
 function leaveVoice(){
-  const wasPrivate=!!state.privateCallId;
-
-  state.voiceReconnectPending=false;
-  state.voiceReconnectAttempts=0;
-  clearVoiceReconnectTimer();
+  const wasPrivate = !!state.privateCallId;
 
   socket.emit('leave-voice');
   closePeers();
@@ -10627,10 +7997,9 @@ async function toggleCamera(){
       }
     }
 
-    $('#cameraBtn').textContent = 'Câmera';
+    $('#cameraBtn').textContent = state.cameraTrack.enabled ? '📷 Câmera' : 'Câmera';
     $('#cameraBtn').classList.toggle('off',!state.cameraTrack.enabled);
     ensureCard('local',state.username+' (você)',state.localStream,true);
-    startSpeakingMonitor('local',state.localStream);
     return;
   }
 
@@ -10673,8 +8042,7 @@ async function toggleCamera(){
     await applyCameraSenderQuality();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
-    startSpeakingMonitor('local',state.localStream);
-    $('#cameraBtn').textContent = 'Câmera';
+    $('#cameraBtn').textContent = '📷 Câmera';
     $('#cameraBtn').classList.remove('off');
   }catch(err){
     console.error(err);
@@ -11041,12 +8409,6 @@ $('#authPassword').addEventListener('keydown',event=>{
 });
 $('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
-renderNotifications();
-if($('#addFriendBtn')){
-  $('#addFriendBtn').textContent='Adicionar amigo';
-}
-
-
 
 $('#showAuthPasswordBtn').addEventListener('click',()=>{
   togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
@@ -11064,7 +8426,6 @@ $('#createTextQuickBtn').addEventListener('click',()=>openModal('text'));
 $('#createVoiceQuickBtn').addEventListener('click',()=>openModal('voice'));
 $('#createStageQuickBtn').addEventListener('click',()=>openModal('stage'));
 
-
 $('#homeCreateText').addEventListener('click',()=>openModal('text'));
 $('#homeCreateVoice').addEventListener('click',()=>openModal('voice'));
 $('#modalCancel').addEventListener('click',closeModal);
@@ -11072,60 +8433,8 @@ $('#modalOk').addEventListener('click',confirmModal);
 $('#modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')confirmModal();if(e.key==='Escape')closeModal()});
 $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))closeModal()});
 
-
-$('#chatPinsBtn').addEventListener('click',()=>openMessageUtility('pins'));
-$('#chatSavedBtn').addEventListener('click',()=>openMessageUtility('saved'));
-$('#chatPollBtn').addEventListener('click',()=>$('#pollWrap').classList.remove('hidden'));
-$('#markChannelReadBtn').addEventListener('click',markCurrentChannelRead);
-
-$('#messageUtilityCloseBtn').addEventListener('click',closeMessageUtility);
-$('#messageUtilityWrap').addEventListener('click',event=>{
-  if(event.target===$('#messageUtilityWrap')) closeMessageUtility();
-});
-
-$('#quickSwitcherCloseBtn').addEventListener('click',closeQuickSwitcher);
-$('#quickSwitcherInput').addEventListener('input',renderQuickSwitcher);
-$('#quickSwitcherWrap').addEventListener('click',event=>{
-  if(event.target===$('#quickSwitcherWrap')) closeQuickSwitcher();
-});
-
-$('#pollCancelBtn').addEventListener('click',()=>$('#pollWrap').classList.add('hidden'));
-$('#pollCreateBtn').addEventListener('click',sendPoll);
-$('#pollWrap').addEventListener('click',event=>{
-  if(event.target===$('#pollWrap')) $('#pollWrap').classList.add('hidden');
-});
-
-document.addEventListener('keydown',event=>{
-  if((event.ctrlKey||event.metaKey) && String(event.key).toLowerCase()==='k'){
-    event.preventDefault();
-    openQuickSwitcher();
-    return;
-  }
-
-  if((event.ctrlKey||event.metaKey) && String(event.key).toLowerCase()==='f'){
-    if(state.currentView==='chat'){
-      event.preventDefault();
-      $('#chatSearchInput').focus();
-    }
-  }
-
-  if(event.key==='Escape'){
-    closeQuickSwitcher();
-    closeMessageUtility();
-    $('#pollWrap').classList.add('hidden');
-  }
-});
-
 $('#profileBtn').addEventListener('click',openProfileModal);
-$('#groupCallBtn')?.addEventListener('click',startPrivateGroupCall);
-$('#groupAddMemberBtn')?.addEventListener('click',openGroupAddMember);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
-$('#friendsServersBtn').addEventListener('click',openServerManager);
-$('#serverManagerCloseBtn').addEventListener('click',closeServerManager);
-$('#deleteAllOwnedServersBtn').addEventListener('click',deleteAllOwnedServers);
-$('#serverManagerWrap').addEventListener('click',event=>{
-  if(event.target===$('#serverManagerWrap')) closeServerManager();
-});
 $('#friendsAccountBar').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
@@ -11319,7 +8628,7 @@ $('#homeHubBtn').addEventListener('click',()=>{
   setView('friends');
   renderFriends();
 
-  $('#topTitle').textContent = 'Amigos';
+  $('#topTitle').textContent = '👥 Amigos';
   $('#topSub').textContent = 'seus amigos e chamadas';
 
   const url = new URL(location.href);
@@ -11368,94 +8677,6 @@ $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$(
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
 $('#sendBtn').addEventListener('click',sendMessage);
-
-$('#chatSearchInput').addEventListener('input',event=>{
-  state.chatSearch=event.target.value||'';
-  filterVisibleMessages();
-});
-
-$('#messageInput').addEventListener('input',saveDraft);
-$('#messageInput').addEventListener('input',()=>{
-  if(!state.serverId||!state.textChannelId) return;
-  socket.emit('chat-typing',{serverId:state.serverId,channelId:state.textChannelId});
-});
-
-$('#notificationBtn').addEventListener('click',event=>{
-  event.stopPropagation();
-  $('#notificationPanel').classList.toggle('hidden');
-});
-
-$('#clearNotificationsBtn').addEventListener('click',()=>{
-  state.notifications=[];
-  renderNotifications();
-});
-
-$('#userContextProfileBtn').addEventListener('click',()=>{
-  const profile=state.userContextProfile;
-  closeUserContextMenu();
-  if(!profile) return;
-
-  const member=serverMemberProfiles().find(item=>item.id===profile.id);
-  if(member) openServerMemberProfile(profile.id);
-  else toast((profile.displayName||profile.username||'Usuário')+' · '+(profile.bio||'Sem bio'));
-});
-
-$('#userContextMessageBtn').addEventListener('click',()=>{
-  const profile=state.userContextProfile;
-  closeUserContextMenu();
-  if(!profile) return;
-
-  const friend=getFriends().find(item=>item.id===profile.id);
-  if(!friend){
-    toast('Adicione essa pessoa como amigo primeiro');
-    return;
-  }
-
-  state.dmTarget=profile.id;
-  setView('dm');
-  openDm(profile);
-});
-
-$('#userContextCallBtn').addEventListener('click',()=>{
-  const profile=state.userContextProfile;
-  closeUserContextMenu();
-  if(!profile) return;
-  socket.emit('private-call-request',{toUserId:profile.id});
-});
-
-$('#userContextBlockBtn').addEventListener('click',()=>{
-  const profile=state.userContextProfile;
-  if(!profile) return;
-
-  if(state.blockedUsers.has(profile.id)){
-    state.blockedUsers.delete(profile.id);
-    toast('Usuário desbloqueado');
-  }else{
-    state.blockedUsers.add(profile.id);
-    toast('Usuário bloqueado');
-  }
-
-  persistBlockedUsers();
-  closeUserContextMenu();
-  renderFriends();
-  if(currentServer() && state.currentView!=='voice') renderServerPresence();
-});
-
-$('#userContextKickBtn').addEventListener('click',()=>{
-  const profile=state.userContextProfile;
-  closeUserContextMenu();
-  if(!profile||!state.serverId) return;
-  if(!confirm('Expulsar '+(profile.username||'este membro')+' do servidor?')) return;
-
-  socket.emit('server-kick-member',{serverId:state.serverId,userId:profile.id});
-});
-
-document.addEventListener('click',event=>{
-  if(!event.target.closest('#notificationPanel')&&!event.target.closest('#notificationBtn')){
-    $('#notificationPanel').classList.add('hidden');
-  }
-  if(!event.target.closest('#userContextMenu')) closeUserContextMenu();
-});
 $('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
 $('#contextReplyBtn').addEventListener('click',()=>{
   const message=messageContextTarget;
@@ -11586,7 +8807,6 @@ $('#localMusicSeek').addEventListener('input',event=>{
 $('#localMusicAudio').addEventListener('loadedmetadata',()=>{
   const audio = $('#localMusicAudio');
   $('#localMusicDuration').textContent = formatMusicTime(audio.duration);
-  $('#localMusicSeek').value = 0;
 });
 
 $('#localMusicAudio').addEventListener('timeupdate',()=>{
@@ -11620,14 +8840,8 @@ $('#musicFavoriteBtn').addEventListener('click',()=>{
 });
 $('#localMusicAudio').addEventListener('ended',nextLocalMusic);
 $('#localMusicAudio').addEventListener('error',()=>{
-  const audio=$('#localMusicAudio');
   updateLocalMusicPlayButton();
-
-  if(audio.error?.code===4){
-    $('#localMusicDuration').textContent='Formato inválido';
-  }else{
-    $('#localMusicDuration').textContent='Erro';
-  }
+  toast('Não foi possível reproduzir essa música');
 });
 
 const savedLocalMusicVolume = Math.max(
@@ -11716,85 +8930,18 @@ socket.on('auth-success',payload=>{
   $('#loginBtn').disabled=false;
   $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
   $('#authError').textContent='';
-
-  const hadActiveCall=!!state.joinedVoiceId;
-
-  state.authRestoreAttempts=0;
-  if(state.authRestoreTimer){
-    clearTimeout(state.authRestoreTimer);
-    state.authRestoreTimer=null;
-  }
-
   applyAuthProfile(payload?.profile,payload?.token);
   requestNotifications();
-
-  if(hadActiveCall){
-    closePeers();
-    scheduleVoiceReconnect(250);
-  }
 });
 socket.on('auth-error',payload=>{
   $('#loginBtn').disabled=false;
   $('#loginBtn').textContent=state.authMode==='register'?'Criar conta':'Entrar';
   $('#authError').textContent=payload?.error||'Não foi possível entrar.';
 });
-socket.on('auth-required',()=>{
-  state.authRestoreAttempts=(state.authRestoreAttempts||0)+1;
-
-  // Não derruba a conta por uma falha momentânea do servidor.
-  if(
-    state.authToken &&
-    state.authRestoreAttempts<=3
-  ){
-    if(state.authRestoreTimer){
-      clearTimeout(state.authRestoreTimer);
-    }
-
-    state.authRestoreTimer=setTimeout(()=>{
-      let recoveryProfile=null;
-
-      try{
-        recoveryProfile=JSON.parse(
-          localStorage.getItem('acord-login-profile')||'null'
-        );
-      }catch{}
-
-      socket.emit('auth-restore',{
-        token:state.authToken,
-        legacyUserId:state.legacyUserId,
-        legacyUsername:state.legacyUsername,
-        legacyProfile:recoveryProfile
-      });
-    },900*state.authRestoreAttempts);
-
-    return;
-  }
-
-  state.authToken='';
-  localStorage.removeItem('acord-auth-token');
-  $('#login').classList.remove('hidden');
-  $('#appShell').classList.add('hidden');
-});
+socket.on('auth-required',()=>{state.authToken='';localStorage.removeItem('acord-auth-token');$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')});
 socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
 socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
-socket.on('chat-typing',data=>{
-  if(
-    data?.serverId!==state.serverId ||
-    data?.channelId!==state.textChannelId ||
-    data?.userId===state.userId ||
-    state.blockedUsers.has(data?.userId)
-  ) return;
-
-  state.typingUsers.set(data.userId,{
-    username:data.username||'Usuário',
-    at:Date.now()
-  });
-
-  updateTypingIndicator();
-  setTimeout(updateTypingIndicator,2800);
-});
-
 socket.on('chat-message-updated',message=>{
   if(message?.serverId!==state.serverId||message?.channelId!==state.textChannelId)return;
   document.querySelector('.message[data-message-id="' + message.id + '"]')?.remove();
@@ -11803,7 +8950,7 @@ socket.on('chat-message-updated',message=>{
 socket.on('chat-message-deleted',({messageId})=>document.querySelector('.message[data-message-id="' + messageId + '"]')?.remove());
 socket.on('stage-hand-raised',data=>{
   toast('✋ '+(data?.username||'Alguém')+' pediu para falar');
-  addNotification('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
+  maybeNotify('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
 });
 socket.on('removed-from-server',({serverId})=>{
   toast('Você foi removido de um servidor');socket.emit('get-servers');
@@ -11888,25 +9035,13 @@ socket.on('friend-state',payload=>{
   state.outgoingFriendRequests = Array.isArray(payload?.outgoing) ? payload.outgoing : [];
   state.friendStateLoaded = true;
 
-  if(incomingFriends.length){
-    state.serverFriends = incomingFriends;
-    saveFriends(incomingFriends);
-    state.friendsRestoreAttempted = false;
-  }else if(cachedFriends.length){
-    // Uma resposta vazia não apaga os amigos.
-    // Mantém o backup local e tenta reconstruir a relação no servidor.
-    state.serverFriends = cachedFriends;
+  state.serverFriends = incomingFriends;
+  saveFriends(incomingFriends);
+  state.friendsRestoreAttempted = false;
 
-    if(!state.friendsRestoreAttempted){
-      state.friendsRestoreAttempted = true;
-
-      socket.emit('restore-friends',{
-        friends:cachedFriends
-      });
-    }
-  }else{
-    state.serverFriends = [];
+  if(!incomingFriends.length){
     localStorage.setItem('ecord-friends','[]');
+    localStorage.setItem('ecord-friends-backup','[]');
   }
 
   renderFriends();
@@ -11923,7 +9058,7 @@ socket.on('friend-lookup-result',result=>{
 
 socket.on('incoming-private-call',data=>{
   showIncomingCall(data);
-  addNotification('Ligação no Acord',(data?.username||'Alguém')+' está ligando para você');
+  maybeNotify('Ligação no Acord',(data?.username||'Alguém')+' está ligando para você');
 });
 
 socket.on('private-call-accepted',data=>{
@@ -11978,9 +9113,7 @@ socket.on('dm-history',history=>{
 
 socket.on('dm-message',message=>{
   if(!message) return;
-  if(message.fromUserId!==state.userId && !state.blockedUsers.has(message.fromUserId)){
-    addNotification('Nova mensagem privada',message.fromUsername||'Acord');
-  }
+  if(message.fromUserId!==state.userId) maybeNotify('Nova mensagem privada',message.fromUsername||'Acord');
 
   const targetId = state.dmTarget?.id;
   const involvesCurrent =
@@ -12029,53 +9162,12 @@ socket.on('server-list',list=>{
 
   const incoming = Array.isArray(list) ? list : [];
 
-  if(!incoming.length && !state.restoreAttempted){
-    const cached = getCachedServers();
-
-    state.restoreAttempted = true;
-
-    if(cached.length){
-      socket.emit('restore-servers',{
-        servers:cached,
-        legacyUserId:state.legacyUserId
-      });
-      return;
-    }
-  }
-
-  if(incoming.length){
-    state.restoreAttempted = true;
-  }
+  state.restoreAttempted = true;
 
   const previousServerId = state.serverId;
   const previousView = state.currentView || 'friends';
 
-  const localBeforeUpdate=state.servers;
-
-  state.servers=incoming.map(server=>{
-    const local=localBeforeUpdate.find(item=>item.id===server.id);
-    if(!local) return server;
-
-    const merged={...server};
-
-    const mergeById=(remoteList,localList)=>{
-      const result=Array.isArray(remoteList)?[...remoteList]:[];
-
-      for(const item of (Array.isArray(localList)?localList:[])){
-        if(!result.some(remote=>remote.id===item.id)){
-          result.push(item);
-        }
-      }
-
-      return result;
-    };
-
-    merged.categories=mergeById(server.categories,local.categories);
-    merged.textChannels=mergeById(server.textChannels,local.textChannels);
-    merged.voiceChannels=mergeById(server.voiceChannels,local.voiceChannels);
-
-    return merged;
-  });
+  state.servers = incoming;
 
   if(incoming.length){
     cacheServers(state.servers);
@@ -12088,7 +9180,7 @@ socket.on('server-list',list=>{
 
   // Nenhum servidor recebido nesta atualização.
   if(!state.servers.length){
-    const cached = state.restoreAttempted ? [] : getCachedServers();
+    const cached = getCachedServers();
 
     // Uma atualização vazia não pode apagar/resetar servidores já conhecidos.
     if(cached.length){
@@ -12129,20 +9221,9 @@ socket.on('server-list',list=>{
       renderSidebar();
       renderRoles();
 
-      state.currentView=previousView;
-      state.appInitialized=true;
+      state.currentView = previousView;
+      state.appInitialized = true;
       restoreCurrentView();
-
-      // Garante que o servidor visível no cache também volte a existir no backend.
-      setTimeout(()=>{
-        if(socket.connected && state.profileReady){
-          socket.emit('restore-servers',{
-            servers:getCachedServers(),
-            legacyUserId:state.legacyUserId
-          });
-        }
-      },250);
-
       return;
     }
 
@@ -12209,27 +9290,18 @@ socket.on('server-list',list=>{
   restoreCurrentView();
 });
 
-socket.on('invite-joined',payload=>{
-  const serverId=payload?.serverId;
-  if(!serverId) return;
+socket.on('invite-joined',({serverId,serverName})=>{
+  toast('Você entrou em ' + (serverName || 'um servidor'));
+
+  const url = new URL(location.href);
+  url.searchParams.delete('invite');
+  history.replaceState(null,'',url);
 
   socket.emit('get-servers');
 
   setTimeout(()=>{
-    const server=state.servers.find(item=>item.id===serverId);
-
-    if(server){
-      selectServer(serverId);
-      toast('Você entrou no servidor '+(payload?.serverName||''));
-    }else{
-      localStorage.setItem('ecord-last-server-id',serverId);
-      socket.emit('get-servers');
-    }
-
-    const url=new URL(location.href);
-    url.searchParams.delete('invite');
-    history.replaceState(null,'',url);
-  },180);
+    if(serverId) selectServer(serverId);
+  },120);
 });
 
 socket.on('permission-error',data=>{
@@ -12255,48 +9327,14 @@ socket.on('server-settings-updated',({serverId,message})=>{
   toast(message || 'Servidor atualizado');
 });
 
-
-socket.on('all-user-servers-deleted',()=>{
-  state.servers=[];
-  state.serverId=null;
-  state.textChannelId=null;
-  state.voiceChannelId=null;
-  state.restoreAttempted=true;
-
-  try{
-    localStorage.setItem('ecord-server-cache','[]');
-    localStorage.setItem('ecord-servers-cache','[]');
-    localStorage.removeItem('ecord-last-server-id');
-    localStorage.removeItem('ecord-last-text-channel-id');
-    localStorage.removeItem('ecord-last-voice-channel-id');
-  }catch{}
-
-  renderServers();
-  renderSidebar();
-  renderServerManager();
-
-  if(isServerView(state.currentView)){
-    setView('friends');
-  }
-});
-
 socket.on('server-deleted',({serverId})=>{
-  state.servers=state.servers.filter(server=>server.id!==serverId);
-
   if(state.serverId===serverId){
-    state.serverId=state.servers[0]?.id||null;
-    state.textChannelId=null;
-    state.voiceChannelId=null;
+    state.serverId = null;
+    state.textChannelId = null;
+    state.voiceChannelId = null;
   }
 
-  cacheServers(state.servers);
-  renderServers();
-  renderSidebar();
-  renderServerManager();
-
-  if(!state.serverId && isServerView(state.currentView)){
-    setView('friends');
-  }
+  toast('Servidor apagado');
 });
 
 socket.on('server-created',({serverId})=>{
@@ -12318,204 +9356,25 @@ socket.on('category-updated',({message})=>{
   toast(message || 'Canais atualizados');
 });
 
-
-socket.on('category-created',payload=>{
-  if(!payload?.serverId || !payload?.category) return;
-
-  let server=state.servers.find(item=>item.id===payload.serverId);
-
-  if(!server){
-    const cached=getCachedServers().find(item=>item.id===payload.serverId);
-
-    if(cached){
-      state.servers.push(cached);
-      server=state.servers.find(item=>item.id===payload.serverId);
-    }
-  }
-
-  if(server){
-    server.categories=Array.isArray(server.categories)
-      ? server.categories
-      : [];
-
-    const existingIndex=server.categories.findIndex(
-      category=>category.id===payload.category.id
-    );
-
-    if(existingIndex>=0){
-      server.categories[existingIndex]=payload.category;
-    }else{
-      server.categories.push(payload.category);
-    }
-
-    server.categories.sort(
-      (a,b)=>(Number(a.order)||0)-(Number(b.order)||0)
-    );
-
-    cacheServers(state.servers);
-  }
-
-  if(payload.serverId===state.serverId){
-    // Garante que a nova categoria esteja aberta e apareça imediatamente.
-    state.collapsedCategories.delete(payload.category.id);
-
-    localStorage.setItem(
-      'acord-collapsed-categories',
-      JSON.stringify([...state.collapsedCategories])
-    );
-
-    renderSidebar();
-  }
-
-  toast('Categoria criada');
-  socket.emit('get-servers');
-});
-
-socket.on('channel-created',payload=>{
-  const {
-    serverId,
-    type,
-    channelId,
-    categoryId,
-    channel
-  }=payload||{};
-
-  if(!serverId || !channelId) return;
-
-  const server=state.servers.find(item=>item.id===serverId);
-
-  if(server && channel){
-    if(type==='text'){
-      server.textChannels=Array.isArray(server.textChannels)
-        ? server.textChannels
-        : [];
-
-      const index=server.textChannels.findIndex(item=>item.id===channel.id);
-
-      if(index>=0) server.textChannels[index]=channel;
-      else server.textChannels.push(channel);
-    }else{
-      server.voiceChannels=Array.isArray(server.voiceChannels)
-        ? server.voiceChannels
-        : [];
-
-      const index=server.voiceChannels.findIndex(item=>item.id===channel.id);
-
-      if(index>=0) server.voiceChannels[index]=channel;
-      else server.voiceChannels.push(channel);
-    }
-
-    cacheServers(state.servers);
-  }
-
-  if(serverId!==state.serverId){
-    socket.emit('get-servers');
-    return;
-  }
-
-  if(categoryId){
-    state.collapsedCategories.delete(categoryId);
-
-    localStorage.setItem(
-      'acord-collapsed-categories',
-      JSON.stringify([...state.collapsedCategories])
-    );
-  }
-
-  renderSidebar();
-
+socket.on('channel-created',({serverId,type,channelId})=>{
+  if(serverId!==state.serverId) return;
   if(type==='text'){
     state.textChannelId=channelId;
-
-    setTimeout(()=>{
-      const exists=currentServer()?.textChannels?.some(
-        item=>item.id===channelId
-      );
-
-      if(exists) selectText(channelId);
-      else socket.emit('get-servers');
-    },80);
-
+    setTimeout(()=>selectText(channelId),50);
+    toast('Chat criado');
   }else{
     state.voiceChannelId=channelId;
-
-    setTimeout(()=>{
-      const exists=currentServer()?.voiceChannels?.some(
-        item=>item.id===channelId
-      );
-
-      if(exists) selectVoice(channelId);
-      else socket.emit('get-servers');
-    },80);
-
+    setTimeout(()=>selectVoice(channelId),50);
+    toast('Canal de voz criado');
   }
-
-  socket.emit('get-servers');
 });
-
 
 socket.on('text-history',history=>showMessages(history));
 socket.on('chat-message',m=>{
-  addUnread(m.serverId,m.channelId);
-
-  if(m.serverId===state.serverId && m.channelId===state.textChannelId){
-    appendMessage(m);
-  }
-});
-
-
-socket.on('group-updated',payload=>{
-  socket.emit('get-group-state');
-  toast(payload?.message||'Grupo atualizado');
-});
-
-socket.on('private-group-call-created',payload=>{
-  state.activeGroupCallId=payload?.callId||null;
-  state.activePrivateGroupId=payload?.groupId||null;
-  state.privateCallId=payload?.callId||null;
-  state.privatePeerName=payload?.groupName||'Grupo';
-
-  setView('voice');
-  $('#voiceTitle').textContent='Chamada do grupo · '+(payload?.groupName||'Grupo');
-  $('#topTitle').textContent='Chamada em grupo';
-
-  socket.emit('join-private-voice',{callId:payload?.callId});
-});
-
-socket.on('private-group-call-invite',payload=>{
-  addNotification(
-    'Chamada de grupo',
-    (payload?.fromUsername||'Alguém')+' está chamando no grupo '+(payload?.groupName||'')
-  );
-
-  if(!confirm(
-    (payload?.fromUsername||'Alguém')+' iniciou uma chamada no grupo "'+
-    (payload?.groupName||'Grupo')+'". Entrar?'
-  )) return;
-
-  state.activeGroupCallId=payload?.callId||null;
-  state.activePrivateGroupId=payload?.groupId||null;
-  state.privateCallId=payload?.callId||null;
-  state.privatePeerName=payload?.groupName||'Grupo';
-
-  setView('voice');
-  $('#voiceTitle').textContent='Chamada do grupo · '+(payload?.groupName||'Grupo');
-  $('#topTitle').textContent='Chamada em grupo';
-
-  socket.emit('join-private-voice',{callId:payload?.callId});
+  if(m.serverId===state.serverId && m.channelId===state.textChannelId) appendMessage(m);
 });
 
 socket.on('voice-participants',async participants=>{
-  state.voiceReconnectPending=false;
-  state.voiceReconnectAttempts=0;
-  clearVoiceReconnectTimer();
-
-  if(state.joinedVoiceId){
-    $('#voiceStatus').textContent=state.privateCallId
-      ? 'Call privada · Somente convidados'
-      : 'Conectado';
-  }
-
   renderMembers([{id:socket.id,username:state.username},...participants]);
   for(const p of participants){
     state.peerNames.set(p.id,p.username);
@@ -12593,48 +9452,27 @@ socket.on('user-left',({id})=>{
   state.peerNames.delete(id);
   state.remoteStreams.delete(id);
   removeRemoteAudio(id);
-  stopSpeakingMonitor(id);
   document.getElementById('v-'+id)?.remove();
 });
 
-socket.on('disconnect',reason=>{
-  if(!state.joinedVoiceId) return;
-
-  state.voiceReconnectPending=true;
-  clearVoiceReconnectTimer();
-
-  $('#voiceStatus').textContent='Conexão interrompida · reconectando...';
-
-  // Preserva microfone, câmera e identificação da call.
-  closePeers();
+socket.on('disconnect',()=>{
+  if(state.joinedVoiceId) $('#voiceStatus').textContent='Reconectando servidor...';
 });
 
 socket.on('connect',()=>{
-  if(state.authToken){
-    // Mantém o login após F5 e também recupera a sessão caso o processo
-    // do servidor tenha reiniciado e perdido apenas a sessão em memória.
-    let recoveryProfile=null;
+  if(state.authToken) socket.emit('auth-restore',{token:state.authToken});
+  else{$('#login').classList.remove('hidden');$('#appShell').classList.add('hidden')}
 
-    try{
-      recoveryProfile=JSON.parse(localStorage.getItem('acord-login-profile')||'null');
-    }catch{}
-
-    socket.emit('auth-restore',{
-      token:state.authToken,
-      legacyUserId:state.legacyUserId,
-      legacyUsername:state.legacyUsername,
-      legacyProfile:recoveryProfile
-    });
-  }else{
-    $('#login').classList.remove('hidden');
-    $('#appShell').classList.add('hidden');
+  if(state.joinedVoiceId && state.profileReady){
+    closePeers();
+    if(state.privateCallId){
+      socket.emit('join-private-call',{callId:state.privateCallId,username:state.username,userId:state.userId});
+    }else if(state.activeVoiceServerId&&state.activeVoiceChannelId){
+      socket.emit('join-voice',{serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,username:state.username});
+    }
   }
 
-  setTimeout(()=>{
-    if(state.appInitialized&&state.profileReady){
-      restoreCurrentView();
-    }
-  },150);
+  setTimeout(()=>{if(state.appInitialized&&state.profileReady)restoreCurrentView()},150);
 });
 </script>
 </body>
@@ -12739,204 +9577,37 @@ io.on('connection', socket => {
     sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-login',({username,password,legacyUserId,legacyProfile})=>{
+  socket.on('auth-login',({username,password})=>{
     if(!allowLoginAttempt()){
-      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
-      return;
+      socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});return;
     }
-
-    const safeUsername=normalizeAccountUsername(username);
-    const safePassword=String(password||'');
-    const key=usernameKey(safeUsername);
-
-    let account=[...accounts.values()].find(item=>item.usernameKey===key);
-
-    // Recupera a conta após redeploy em hospedagem sem disco persistente.
-    if(!account){
-      const recoveredId=String(legacyUserId||'').trim().slice(0,100);
-
-      if(
-        recoveredId &&
-        safeUsername.length>=3 &&
-        safePassword.length>=6 &&
-        safePassword.length<=128
-      ){
-        const salt=crypto.randomBytes(16).toString('hex');
-
-        account={
-          userId:recoveredId,
-          username:safeUsername,
-          usernameKey:key,
-          salt,
-          passwordHash:passwordDigest(safePassword,salt),
-          createdAt:Date.now()
-        };
-
-        accounts.set(recoveredId,account);
-
-        if(!profiles.has(recoveredId)){
-          const incoming=legacyProfile && typeof legacyProfile==='object'
-            ? legacyProfile
-            : {};
-
-          profiles.set(recoveredId,{
-            id:recoveredId,
-            username:safeUsername,
-            displayName:String(incoming.displayName||safeUsername).trim().slice(0,40)||safeUsername,
-            bio:String(incoming.bio||'').trim().slice(0,300),
-            avatar:String(incoming.avatar||'').slice(0,350000),
-            banner:String(incoming.banner||'').slice(0,350000),
-            status:['online','away','busy','invisible'].includes(incoming.status)
-              ? incoming.status
-              : 'online',
-            createdAt:Date.now()
-          });
-        }
-
-        saveServersToDisk();
-      }
+    const key=usernameKey(username);
+    const account=[...accounts.values()].find(item=>item.usernameKey===key);
+    if(!account || !verifyAccountPassword(String(password||''),account)){
+      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});return;
     }
-
-    if(!account || !verifyAccountPassword(safePassword,account)){
-      socket.emit('auth-error',{error:'Nome ou senha incorretos.'});
-      return;
-    }
-
-    let profile=profiles.get(account.userId);
-
-    if(!profile){
-      profile={
-        id:account.userId,
-        username:account.username,
-        displayName:account.username,
-        bio:'',
-        avatar:'',
-        banner:'',
-        status:'online',
-        createdAt:Date.now()
-      };
-      profiles.set(account.userId,profile);
-    }
-
+    const profile=profiles.get(account.userId);
+    if(!profile){socket.emit('auth-error',{error:'Conta inválida.'});return}
     socket.data.userId=account.userId;
     socket.data.username=account.username;
-
     const token=newSession(account.userId);
     saveServersToDisk();
-
     socket.emit('auth-success',{token,profile:publicProfile(profile)});
-    sendServerList(socket);
-    emitFriendState(account.userId);
-    emitGroupState(account.userId);
-    broadcastOnlineUsers();
+    sendServerList(socket);emitFriendState(account.userId);emitGroupState(account.userId);broadcastOnlineUsers();
   });
 
-  socket.on('auth-restore',({token,legacyUserId,legacyUsername,legacyProfile})=>{
-    let userId=sessionUserId(token);
-    let restoredToken=String(token||'');
-
-    // Fallback de "lembrar login":
-    // se a sessão temporária sumiu após reinício do Render, tenta recuperar
-    // a mesma conta que este navegador já tinha salvo.
-    if(!userId){
-      const safeLegacyId=String(legacyUserId||'').slice(0,100);
-      const safeLegacyUsername=normalizeAccountUsername(legacyUsername);
-
-      let account=safeLegacyId ? accounts.get(safeLegacyId) : null;
-
-      if(
-        account &&
-        safeLegacyUsername &&
-        usernameKey(account.username)!==usernameKey(safeLegacyUsername)
-      ){
-        account=null;
-      }
-
-      if(!account && safeLegacyUsername){
-        account=[...accounts.values()].find(
-          item=>usernameKey(item.username)===usernameKey(safeLegacyUsername)
-        ) || null;
-      }
-
-      if(account){
-        userId=account.userId;
-        restoredToken=newSession(userId);
-        saveServersToDisk();
-      }else if(
-        safeLegacyId &&
-        safeLegacyUsername.length>=3 &&
-        legacyProfile &&
-        typeof legacyProfile==='object'
-      ){
-        // Recuperação de sessão no mesmo navegador após reinício completo
-        // do ambiente sem disco persistente.
-        const salt=crypto.randomBytes(16).toString('hex');
-        const temporaryPassword=crypto.randomBytes(32).toString('hex');
-
-        account={
-          userId:safeLegacyId,
-          username:safeLegacyUsername,
-          usernameKey:usernameKey(safeLegacyUsername),
-          salt,
-          passwordHash:passwordDigest(temporaryPassword,salt),
-          createdAt:Number(legacyProfile.createdAt||Date.now())
-        };
-
-        accounts.set(safeLegacyId,account);
-
-        profiles.set(safeLegacyId,{
-          id:safeLegacyId,
-          username:safeLegacyUsername,
-          displayName:String(
-            legacyProfile.displayName||safeLegacyUsername
-          ).trim().slice(0,40)||safeLegacyUsername,
-          bio:String(legacyProfile.bio||'').trim().slice(0,300),
-          avatar:String(legacyProfile.avatar||'').slice(0,350000),
-          banner:String(legacyProfile.banner||'').slice(0,350000),
-          status:['online','away','busy','invisible'].includes(legacyProfile.status)
-            ? legacyProfile.status
-            : 'online',
-          createdAt:Number(legacyProfile.createdAt||Date.now())
-        });
-
-        userId=safeLegacyId;
-        restoredToken=newSession(userId);
-        saveServersToDisk();
-      }
-    }
-
-    let profile=userId?profiles.get(userId):null;
-
-    if(!userId || !profile){
-      socket.emit('auth-required');
-      return;
-    }
-
-    // Renova a sessão para mais 365 dias quando o usuário volta.
-    if(restoredToken){
-      const currentSession=sessions.get(tokenHash(restoredToken));
-
-      if(currentSession){
-        currentSession.expiresAt=Date.now()+1000*60*60*24*365;
-        saveServersToDisk();
-      }
-    }
-
+  socket.on('auth-restore',({token})=>{
+    const userId=sessionUserId(token);
+    const profile=userId?profiles.get(userId):null;
+    if(!userId || !profile){socket.emit('auth-required');return}
     socket.data.userId=userId;
     socket.data.username=profile.username;
-
-    socket.emit('auth-success',{
-      token:restoredToken,
-      profile:publicProfile(profile)
-    });
-
-    sendServerList(socket);
-    emitFriendState(userId);
-    emitGroupState(userId);
-    broadcastOnlineUsers();
+    socket.emit('auth-success',{token,profile:publicProfile(profile)});
+    sendServerList(socket);emitFriendState(userId);emitGroupState(userId);broadcastOnlineUsers();
   });
 
   socket.on('auth-logout',({token})=>{
+    leaveVoiceRoom();
     const hash=tokenHash(token);
     const session=sessions.get(hash);
     if(session?.userId===socket.data.userId) sessions.delete(hash);
@@ -13040,26 +9711,6 @@ io.on('connection', socket => {
     socket.data.userId = safeId;
     socket.data.username = profile.username;
 
-    const knownIds = new Set(
-      Array.isArray(knownServerIds)
-        ? knownServerIds.map(value=>String(value || '').slice(0,80))
-        : []
-    );
-
-    for (const serverData of servers.values()) {
-      const legacyServer =
-        !serverData.ownerId &&
-        (!Array.isArray(serverData.members) || !serverData.members.length);
-
-      if (legacyServer && knownIds.has(serverData.id)) {
-        serverData.ownerId = safeId;
-        serverData.members = [safeId];
-
-        if (!serverData.inviteToken) {
-          serverData.inviteToken = crypto.randomBytes(18).toString('hex');
-        }
-      }
-    }
 
     saveServersToDisk();
     socket.emit('profile-saved', publicProfile(profile));
@@ -13070,51 +9721,6 @@ io.on('connection', socket => {
     broadcastOnlineUsers();
   });
 
-  socket.on('restore-friends', ({ friends }) => {
-    if (!socket.data.userId || !Array.isArray(friends)) return;
-
-    const ownerId = socket.data.userId;
-    let changed = false;
-
-    for (const rawFriend of friends.slice(0,500)) {
-      const friendId = String(rawFriend?.id || '').trim().slice(0,100);
-      const username = cleanName(rawFriend?.username,'Usuário');
-
-      if (!friendId || friendId === ownerId) continue;
-
-      // Se o perfil do amigo sumiu após reinício do servidor,
-      // restaura os dados públicos guardados no navegador.
-      if (!profiles.has(friendId)) {
-        profiles.set(friendId,{
-          id:friendId,
-          username,
-          bio:String(rawFriend?.bio || '').trim().slice(0,160),
-          avatar:String(rawFriend?.avatar || '').slice(0,350000)
-        });
-        changed = true;
-      }
-
-      if (!areFriends(ownerId,friendId)) {
-        friendships.push({
-          a:ownerId,
-          b:friendId,
-          at:Date.now()
-        });
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      saveServersToDisk();
-    }
-
-    emitFriendState(ownerId);
-
-    for (const friend of friends.slice(0,500)) {
-      const friendId = String(friend?.id || '').trim().slice(0,100);
-      if (friendId) emitFriendState(friendId);
-    }
-  });
 
   socket.on('friend-request-send', ({ username }) => {
     if (!socket.data.userId) return;
@@ -13390,48 +9996,6 @@ io.on('connection', socket => {
     sendServerList(socket);
   });
 
-  socket.on('restore-servers', ({ servers: restored, legacyUserId }) => {
-    if (!Array.isArray(restored) || !socket.data.userId) return;
-
-    const safeLegacyId=String(legacyUserId||'').slice(0,100);
-
-    for (const rawItem of restored.slice(0, 100)) {
-      if (!rawItem?.id) continue;
-
-      const item = { ...rawItem };
-      const cachedOwnerId = String(item.ownerId || '');
-
-      if(
-        cachedOwnerId &&
-        cachedOwnerId!==String(socket.data.userId) &&
-        cachedOwnerId!==safeLegacyId
-      ){
-        continue;
-      }
-
-      if(
-        !cachedOwnerId ||
-        cachedOwnerId===safeLegacyId
-      ){
-        item.ownerId=socket.data.userId;
-        item.members=[
-          ...new Set([
-            socket.data.userId,
-            ...(Array.isArray(item.members) ? item.members : [])
-          ])
-        ];
-      }
-
-      if (!item.inviteToken) {
-        item.inviteToken = crypto.randomBytes(18).toString('hex');
-      }
-
-      mergeRestoredServer(item);
-    }
-
-    saveServersToDisk();
-    broadcastServerLists();
-  });
 
   socket.on('create-server', ({ name }) => {
     if (!socket.data.userId) return;
@@ -13453,10 +10017,6 @@ io.on('connection', socket => {
     if (!socket.data.userId) return;
 
     const safeToken = String(token || '').trim().slice(0,100);
-    if(!safeToken || safeToken.length<10){
-      socket.emit('permission-error',{error:'Convite inválido'});
-      return;
-    }
 
     const serverData = [...servers.values()].find(item =>
       item.inviteToken === safeToken
@@ -13479,8 +10039,7 @@ io.on('connection', socket => {
 
     socket.emit('invite-joined',{
       serverId:serverData.id,
-      serverName:serverData.name,
-      inviteOnly:true
+      serverName:serverData.name
     });
   });
 
@@ -13514,68 +10073,12 @@ io.on('connection', socket => {
     });
   });
 
+  socket.on('delete-server', ({ serverId }) => {
+    const safeId = String(serverId || '').slice(0, 80);
+    const serverData = servers.get(safeId);
+    if (!serverData) return;
 
-  socket.on('delete-all-user-servers', () => {
-    const userId=socket.data.userId;
-    if(!userId) return;
-
-    const username=String(socket.data.username||'').toLowerCase();
-    const affectedIds=[];
-
-    for(const [serverId,serverData] of [...servers.entries()]){
-      const owns=serverData.ownerId===userId;
-      const member=(serverData.members||[]).includes(userId);
-
-      if(!owns && !member) continue;
-
-      affectedIds.push(serverId);
-
-      if(owns){
-        servers.delete(serverId);
-        continue;
-      }
-
-      serverData.members=(serverData.members||[]).filter(id=>id!==userId);
-
-      for(const role of serverData.roles||[]){
-        role.members=(role.members||[]).filter(
-          memberName=>String(memberName||'').toLowerCase()!==username
-        );
-      }
-    }
-
-    saveServersToDisk();
-
-    socket.emit('all-user-servers-deleted',{
-      serverIds:affectedIds
-    });
-
-    broadcastServerLists();
-  });
-
-  socket.on('delete-server', ({ serverId, serverSnapshot, legacyUserId }) => {
-    const safeId=String(serverId||'').slice(0,80);
-
-    let serverData=servers.get(safeId);
-
-    if(!serverData && typeof recoverServerForWrite==='function'){
-      serverData=recoverServerForWrite(
-        socket,
-        safeId,
-        serverSnapshot,
-        legacyUserId
-      );
-    }
-
-    if(!serverData){
-      // Se já não existe no backend, para o usuário o resultado desejado
-      // já foi alcançado.
-      socket.emit('server-deleted',{serverId:safeId});
-      sendServerList(socket);
-      return;
-    }
-
-    if(serverData.ownerId!==socket.data.userId){
+    if (serverData.ownerId !== socket.data.userId) {
       permissionDenied(socket);
       return;
     }
@@ -13583,7 +10086,7 @@ io.on('connection', socket => {
     servers.delete(safeId);
     saveServersToDisk();
 
-    socket.emit('server-deleted',{serverId:safeId});
+    socket.emit('server-deleted', { serverId: safeId });
     broadcastServerLists();
   });
 
@@ -13790,7 +10293,7 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!canManageChannelsCompat(s,socket)) {
+    if (!hasServerPermission(s,socket,'manageChannels')) {
       permissionDenied(socket);
       return;
     }
@@ -13816,7 +10319,7 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!canManageChannelsCompat(s,socket)) {
+    if (!hasServerPermission(s,socket,'manageChannels')) {
       permissionDenied(socket);
       return;
     }
@@ -13841,7 +10344,7 @@ io.on('connection', socket => {
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket)) return;
 
-    if (!canManageChannelsCompat(s,socket)) {
+    if (!hasServerPermission(s,socket,'manageChannels')) {
       permissionDenied(socket);
       return;
     }
@@ -13932,95 +10435,6 @@ io.on('connection', socket => {
     }
   });
 
-
-  socket.on('private-group-add-member',({groupId,targetUserId,targetUsername})=>{
-    if(!socket.data.userId) return;
-
-    const group=privateGroups.get(String(groupId||''));
-    if(!group){socket.emit('permission-error',{error:'Grupo não encontrado'});return;}
-
-    if(!(group.members||[]).includes(socket.data.userId) && group.ownerId!==socket.data.userId){
-      socket.emit('permission-error',{error:'Você não faz parte deste grupo'});
-      return;
-    }
-
-    let targetProfile=targetUserId?profiles.get(String(targetUserId)):null;
-    if(!targetProfile && targetUsername) targetProfile=findProfileByUsername(targetUsername);
-
-    if(!targetProfile){socket.emit('permission-error',{error:'Usuário não encontrado'});return;}
-
-    const isFriend=friendships.some(link=>
-      (link.a===socket.data.userId && link.b===targetProfile.id) ||
-      (link.b===socket.data.userId && link.a===targetProfile.id)
-    );
-
-    if(!isFriend){socket.emit('permission-error',{error:'Só é possível adicionar amigos ao grupo'});return;}
-
-    group.members=Array.isArray(group.members)?group.members:[];
-
-    if(group.members.includes(targetProfile.id)){
-      socket.emit('group-updated',{message:'Essa pessoa já está no grupo'});
-      return;
-    }
-
-    if(group.members.length>=10){
-      socket.emit('permission-error',{error:'O grupo atingiu o limite de 10 pessoas'});
-      return;
-    }
-
-    group.members.push(targetProfile.id);
-    group.members=[...new Set(group.members)];
-    saveServersToDisk();
-
-    for(const memberId of group.members){
-      emitGroupState(memberId);
-      for(const client of io.sockets.sockets.values()){
-        if(client.data.userId===memberId){
-          client.emit('group-updated',{
-            groupId:group.id,
-            message:targetProfile.username+' entrou no grupo'
-          });
-        }
-      }
-    }
-  });
-
-  socket.on('private-group-call-start',({groupId})=>{
-    if(!socket.data.userId) return;
-
-    const group=privateGroups.get(String(groupId||''));
-    if(!group){socket.emit('permission-error',{error:'Grupo não encontrado'});return;}
-
-    if(!(group.members||[]).includes(socket.data.userId) && group.ownerId!==socket.data.userId){
-      socket.emit('permission-error',{error:'Você não faz parte deste grupo'});
-      return;
-    }
-
-    const callId='group-'+group.id+'-'+Date.now().toString(36);
-
-    socket.emit('private-group-call-created',{
-      callId,
-      groupId:group.id,
-      groupName:group.name||'Grupo'
-    });
-
-    for(const memberId of group.members||[]){
-      if(memberId===socket.data.userId) continue;
-
-      for(const client of io.sockets.sockets.values()){
-        if(client.data.userId===memberId){
-          client.emit('private-group-call-invite',{
-            callId,
-            groupId:group.id,
-            groupName:group.name||'Grupo',
-            fromUserId:socket.data.userId,
-            fromUsername:socket.data.username
-          });
-        }
-      }
-    }
-  });
-
   socket.on('dm-history', ({ targetUserId, targetUsername }) => {
     if (!socket.data.userId) return;
 
@@ -14106,19 +10520,6 @@ io.on('connection', socket => {
     socket.join(room);
 
     socket.emit('text-history', s.messages.get(channelId) || []);
-  });
-
-  socket.on('chat-typing',({serverId,channelId})=>{
-    const s=servers.get(serverId);
-    if(!s || !requireServerAccess(s,socket)) return;
-    if(!s.textChannels.some(channel=>channel.id===channelId)) return;
-
-    socket.to(`text:${serverId}:${channelId}`).emit('chat-typing',{
-      serverId,
-      channelId,
-      userId:socket.data.userId,
-      username:socket.data.username||'Usuário'
-    });
   });
 
   socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment }) => {
@@ -14219,121 +10620,87 @@ io.on('connection', socket => {
   }
 
   socket.on('private-call-invite', ({ targetUserId, targetUsername }) => {
-    const target = [...io.sockets.sockets.values()].find(candidate => {
-      if (candidate.id === socket.id) return false;
-
-      if (targetUserId && candidate.data.userId) {
-        return String(candidate.data.userId) === String(targetUserId);
-      }
-
-      return String(candidate.data.username || '').toLowerCase() ===
-        String(targetUsername || '').toLowerCase();
-    });
-
-    if (!target) {
-      socket.emit('private-call-error', {
-        error: 'Esse amigo está offline'
-      });
-      return;
+    if(!socket.data.userId || !accounts.has(socket.data.userId)){
+      socket.emit('private-call-error',{error:'Você precisa estar autenticado'}); return;
     }
-
-    const callId = id();
-
-    target.emit('incoming-private-call', {
-      callId,
-      callerSocketId: socket.id,
-      fromUserId: socket.data.userId || null,
-      fromUsername: socket.data.username || 'Usuário'
+    const target=[...io.sockets.sockets.values()].find(candidate=>{
+      if(candidate.id===socket.id || !candidate.data.userId) return false;
+      if(targetUserId) return String(candidate.data.userId)===String(targetUserId);
+      return String(candidate.data.username||'').toLowerCase()===String(targetUsername||'').toLowerCase();
+    });
+    if(!target){ socket.emit('private-call-error',{error:'Esse amigo está offline'}); return; }
+    if(!areFriends(socket.data.userId,target.data.userId)){
+      socket.emit('private-call-error',{error:'Calls privadas só podem ser iniciadas com amigos'}); return;
+    }
+    const callId=crypto.randomBytes(18).toString('hex');
+    privateCalls.set(callId,{
+      callId,callerUserId:socket.data.userId,calleeUserId:target.data.userId,
+      callerSocketId:socket.id,calleeSocketId:target.id,accepted:false,
+      createdAt:Date.now(),expiresAt:Date.now()+1000*60*60*4
+    });
+    target.emit('incoming-private-call',{
+      callId,callerSocketId:socket.id,fromUserId:socket.data.userId,
+      fromUsername:socket.data.username||'Usuário'
     });
   });
 
   socket.on('private-call-response', ({ callId, callerSocketId, accept }) => {
-    if (!callerSocketId || !callId || !socket.data.userId) return;
-
-    const caller = io.sockets.sockets.get(String(callerSocketId));
-    if(!caller?.data?.userId || !areFriends(socket.data.userId,caller.data.userId)) return;
-
-    if (accept) {
-      io.to(callerSocketId).emit('private-call-accepted', {
-        callId,
-        username: socket.data.username || 'Usuário',
-        userId: socket.data.userId || null
-      });
-    } else {
-      io.to(callerSocketId).emit('private-call-declined', {
-        callId,
-        username: socket.data.username || 'Usuário'
-      });
+    if(!callId || !socket.data.userId) return;
+    const safeCallId=String(callId).slice(0,100);
+    const call=privateCalls.get(safeCallId);
+    if(!call || call.calleeUserId!==socket.data.userId || call.calleeSocketId!==socket.id || call.callerSocketId!==String(callerSocketId||'')){
+      socket.emit('private-call-error',{error:'Convite de call inválido ou expirado'}); return;
+    }
+    const caller=io.sockets.sockets.get(call.callerSocketId);
+    if(!caller?.data?.userId || caller.data.userId!==call.callerUserId || !areFriends(call.callerUserId,call.calleeUserId)){
+      privateCalls.delete(safeCallId); socket.emit('private-call-error',{error:'A call não está mais disponível'}); return;
+    }
+    if(accept){
+      call.accepted=true; call.expiresAt=Date.now()+1000*60*60*4;
+      caller.emit('private-call-accepted',{callId:safeCallId,username:socket.data.username||'Usuário',userId:socket.data.userId});
+    }else{
+      privateCalls.delete(safeCallId);
+      caller.emit('private-call-declined',{callId:safeCallId,username:socket.data.username||'Usuário'});
     }
   });
 
-  socket.on('join-private-call', ({ callId, username, userId }) => {
-    if (!callId) return;
-
-    const room = 'private:' + String(callId).slice(0,100);
-
-    if(socket.data.voiceRoom && socket.data.voiceRoom !== room){
-      leaveVoiceRoom();
+  socket.on('join-private-call', ({ callId }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+    const safeCallId=String(callId||'').slice(0,100);
+    const call=privateCalls.get(safeCallId);
+    if(!call || !call.accepted || Number(call.expiresAt||0)<=Date.now()){
+      socket.emit('private-call-error',{error:'Call privada inválida ou expirada'}); return;
     }
-
-    const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
-      .map(socketId => {
-        const participant = io.sockets.sockets.get(socketId);
-
-        return participant
-          ? {
-              id: socketId,
-              username: participant.data.username || 'Usuário'
-            }
-          : null;
-      })
-      .filter(Boolean);
-
-    socket.data.username = socket.data.username || cleanName(username);
-    if(!socket.data.userId) return;
-
-    const alreadyInRoom=socket.rooms.has(room);
-
-    socket.data.voiceRoom=room;
-    socket.data.voiceServerId=null;
-    socket.data.voiceChannelId=null;
-
+    const allowed=socket.data.userId===call.callerUserId || socket.data.userId===call.calleeUserId;
+    if(!allowed){ socket.emit('private-call-error',{error:'Você não tem acesso a esta call privada'}); return; }
+    leaveVoiceRoom();
+    const room='private:'+safeCallId;
+    const participants=[...(io.sockets.adapter.rooms.get(room)||[])].map(socketId=>{
+      const participant=io.sockets.sockets.get(socketId);
+      if(!participant?.data?.userId) return null;
+      const ok=participant.data.userId===call.callerUserId || participant.data.userId===call.calleeUserId;
+      return ok?{id:socketId,username:participant.data.username||'Usuário'}:null;
+    }).filter(Boolean);
+    if(participants.length>=2){ socket.emit('private-call-error',{error:'Esta call privada já está completa'}); return; }
+    socket.data.voiceRoom=room; socket.data.voiceServerId=null; socket.data.voiceChannelId=null;
     socket.join(room);
-
     socket.emit('voice-participants',participants);
-
-    if(!alreadyInRoom){
-      socket.to(room).emit('user-joined',{
-        id:socket.id,
-        username:socket.data.username
-      });
-    }
-
-    const members = [...(io.sockets.adapter.rooms.get(room) || [])]
-      .map(socketId => {
-        const participant = io.sockets.sockets.get(socketId);
-
-        return participant
-          ? {
-              id: socketId,
-              username: participant.data.username || 'Usuário'
-            }
-          : null;
-      })
-      .filter(Boolean);
-
-    io.to(room).emit('voice-members', members);
+    socket.to(room).emit('user-joined',{id:socket.id,username:socket.data.username||'Usuário'});
+    const members=[...(io.sockets.adapter.rooms.get(room)||[])].map(socketId=>{
+      const participant=io.sockets.sockets.get(socketId);
+      return participant?{id:socketId,username:participant.data.username||'Usuário'}:null;
+    }).filter(Boolean);
+    io.to(room).emit('voice-members',members);
   });
 
-  socket.on('join-voice', ({ serverId, channelId, username }) => {
+  socket.on('join-voice', ({ serverId, channelId }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
     const s = servers.get(serverId);
     if (!s || !requireServerAccess(s,socket) || !s.voiceChannels.some(c => c.id === channelId)) return;
 
-    const room = `voice:${serverId}:${channelId}`;
+    leaveVoiceRoom();
 
-    if(socket.data.voiceRoom && socket.data.voiceRoom !== room){
-      leaveVoiceRoom();
-    }
+    const room = `voice:${serverId}:${channelId}`;
 
     const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
@@ -14342,23 +10709,16 @@ io.on('connection', socket => {
       })
       .filter(Boolean);
 
-    socket.data.username = cleanName(username);
-    const alreadyInRoom=socket.rooms.has(room);
-
-    socket.data.voiceRoom=room;
-    socket.data.voiceServerId=serverId;
-    socket.data.voiceChannelId=channelId;
+    const ownProfile=profiles.get(socket.data.userId);
+    socket.data.username=ownProfile?.username || socket.data.username || 'Usuário';
+    socket.data.voiceRoom = room;
+    socket.data.voiceServerId = serverId;
+    socket.data.voiceChannelId = channelId;
 
     socket.join(room);
 
-    socket.emit('voice-participants',participants);
-
-    if(!alreadyInRoom){
-      socket.to(room).emit('user-joined',{
-        id:socket.id,
-        username:socket.data.username
-      });
-    }
+    socket.emit('voice-participants', participants);
+    socket.to(room).emit('user-joined', { id: socket.id, username: socket.data.username });
 
     const members = [...(io.sockets.adapter.rooms.get(room) || [])]
       .map(socketId => {
@@ -14419,6 +10779,9 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
+    for(const [callId,call] of privateCalls){
+      if(call.callerSocketId===socket.id || call.calleeSocketId===socket.id) privateCalls.delete(callId);
+    }
     const room = socket.data.voiceRoom;
     setTimeout(broadcastOnlineUsers, 0);
     if (room) {
