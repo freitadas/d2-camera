@@ -4075,6 +4075,7 @@ const state = {
   lastVoiceMembers: [],
   inviteApplied: false,
   restoreAttempted: false,
+  legacyServerMigrationDone: false,
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
@@ -5052,6 +5053,24 @@ function cacheServers(list){
       localStorage.setItem('ecord-server-backup',payload);
     }
   }catch{}
+}
+
+function migrateLegacyOwnedServers(){
+  if(state.legacyServerMigrationDone || !state.profileReady || !state.userId) return;
+
+  state.legacyServerMigrationDone=true;
+
+  const cached=getCachedServers();
+
+  const owned=cached
+    .filter(server=>String(server?.ownerId || '')===String(state.userId))
+    .slice(0,100);
+
+  if(!owned.length) return;
+
+  socket.emit('migrate-owned-servers',{
+    servers:owned.map(safeServerSnapshot).filter(Boolean)
+  });
 }
 
 
@@ -9222,6 +9241,7 @@ socket.on('profile-saved',profile=>{
 
   // Garantia extra para F5: agora que o usuário está identificado,
   // solicita novamente apenas os servidores aos quais ele tem acesso.
+  migrateLegacyOwnedServers();
   socket.emit('get-servers');
   socket.emit('get-friend-state');
 
@@ -9380,99 +9400,55 @@ socket.on('server-updated',updatedServer=>{
 });
 
 socket.on('server-list',list=>{
-  // Ignora listas recebidas antes da identificação do usuário.
-  // Isso impede o F5 de limpar os servidores por uma atualização concorrente.
   if(!state.profileReady) return;
 
-  const incoming = Array.isArray(list) ? list : [];
+  const incoming=Array.isArray(list) ? list : [];
+  const previousServerId=state.serverId;
+  const previousView=state.currentView || 'friends';
 
-  if(!incoming.length && !state.restoreAttempted){
-    const cached = getCachedServers();
+  // O servidor é a fonte principal, mas durante a migração de versões antigas
+  // preservamos no cliente os servidores próprios que ainda estão no cache.
+  const byId=new Map();
 
-    state.restoreAttempted = true;
+  for(const server of incoming){
+    if(server?.id) byId.set(server.id,server);
+  }
 
-    if(cached.length){
-      // Cache local é somente visual. Nunca recria servidores no backend.
-      state.servers=cached;
+  const cachedOwned=getCachedServers().filter(server=>
+    String(server?.ownerId || '')===String(state.userId)
+  );
+
+  for(const cached of cachedOwned){
+    if(cached?.id && !byId.has(cached.id)){
+      byId.set(cached.id,cached);
     }
   }
 
-  if(incoming.length){
-    state.restoreAttempted = true;
-  }
+  state.servers=[...byId.values()];
+  state.restoreAttempted=true;
 
-  const previousServerId = state.serverId;
-  const previousView = state.currentView || 'friends';
-
-  state.servers = incoming;
-
-  if(incoming.length){
+  if(state.servers.length){
     cacheServers(state.servers);
   }
 
-  const params = new URLSearchParams(location.search);
-  const requested =
+  // Se existem itens antigos só no cache, tenta migrá-los com segurança.
+  migrateLegacyOwnedServers();
+
+  const params=new URLSearchParams(location.search);
+  const requested=
     params.get('server') ||
     localStorage.getItem('ecord-last-server-id');
 
-  // Nenhum servidor recebido nesta atualização.
   if(!state.servers.length){
-    const cached = getCachedServers();
-
-    // Uma atualização vazia não pode apagar/resetar servidores já conhecidos.
-    if(cached.length){
-      state.servers = cached;
-
-      state.serverId =
-        cached.some(server=>server.id===previousServerId)
-          ? previousServerId
-          : (
-              cached.some(server=>server.id===requested)
-                ? requested
-                : cached[0].id
-            );
-
-      const selected = state.servers.find(server=>server.id===state.serverId);
-
-      if(selected){
-        const lastText = localStorage.getItem(
-          'ecord-server-' + state.serverId + '-text'
-        );
-
-        const lastVoice = localStorage.getItem(
-          'ecord-server-' + state.serverId + '-voice'
-        );
-
-        state.textChannelId =
-          selected.textChannels?.some(channel=>channel.id===lastText)
-            ? lastText
-            : (selected.textChannels?.[0]?.id || null);
-
-        state.voiceChannelId =
-          selected.voiceChannels?.some(channel=>channel.id===lastVoice)
-            ? lastVoice
-            : (selected.voiceChannels?.[0]?.id || null);
-      }
-
-      renderServers();
-      renderSidebar();
-      renderRoles();
-
-      state.currentView = previousView;
-      state.appInitialized = true;
-      restoreCurrentView();
-      return;
-    }
-
-    state.serverId = null;
-    state.textChannelId = null;
-    state.voiceChannelId = null;
+    state.serverId=null;
+    state.textChannelId=null;
+    state.voiceChannelId=null;
 
     renderServers();
     renderSidebar();
     renderRoles();
 
-    state.appInitialized = true;
+    state.appInitialized=true;
 
     if(isServerView(previousView)){
       setView('friends');
@@ -9483,34 +9459,40 @@ socket.on('server-list',list=>{
     return;
   }
 
-  // Mantém o mesmo servidor sempre que ele ainda existe.
-  let selected =
+  const selected=
     state.servers.find(server=>server.id===previousServerId) ||
     state.servers.find(server=>server.id===requested) ||
     state.servers[0];
 
-  state.serverId = selected.id;
+  state.serverId=selected.id;
   localStorage.setItem('ecord-last-server-id',state.serverId);
 
-  // Mantém o mesmo canal se ele ainda existir.
-  const textStillExists = selected.textChannels?.some(
+  const textStillExists=selected.textChannels?.some(
     channel=>channel.id===state.textChannelId
   );
 
   if(!textStillExists){
-    state.textChannelId = selected.textChannels?.[0]?.id || null;
+    const savedText=localStorage.getItem('ecord-server-' + selected.id + '-text');
+    state.textChannelId=
+      selected.textChannels?.some(channel=>channel.id===savedText)
+        ? savedText
+        : (selected.textChannels?.[0]?.id || null);
   }
 
   if(state.textChannelId){
     localStorage.setItem('ecord-last-text-channel-id',state.textChannelId);
   }
 
-  const voiceStillExists = selected.voiceChannels?.some(
+  const voiceStillExists=selected.voiceChannels?.some(
     channel=>channel.id===state.voiceChannelId
   );
 
   if(!voiceStillExists){
-    state.voiceChannelId = selected.voiceChannels?.[0]?.id || null;
+    const savedVoice=localStorage.getItem('ecord-server-' + selected.id + '-voice');
+    state.voiceChannelId=
+      selected.voiceChannels?.some(channel=>channel.id===savedVoice)
+        ? savedVoice
+        : (selected.voiceChannels?.[0]?.id || null);
   }
 
   if(state.voiceChannelId){
@@ -9521,10 +9503,13 @@ socket.on('server-list',list=>{
   renderSidebar();
   renderRoles();
 
-  // Atualizações de dados não mudam a navegação escolhida.
-  state.currentView = previousView;
-  state.appInitialized = true;
+  state.currentView=previousView;
+  state.appInitialized=true;
   restoreCurrentView();
+});
+
+socket.on('owned-servers-migrated',()=>{
+  socket.emit('get-servers');
 });
 
 socket.on('invite-joined',({serverId,serverName,alreadyMember})=>{
@@ -9582,7 +9567,18 @@ socket.on('server-deleted',({serverId})=>{
 });
 
 socket.on('server-created',({serverId})=>{
-  selectServer(serverId);
+  // Solicita a lista completa antes de abrir o novo servidor.
+  // Assim, criar um servidor nunca substitui a lista anterior no cliente.
+  socket.emit('get-servers');
+
+  setTimeout(()=>{
+    const exists=state.servers.some(server=>server.id===serverId);
+
+    if(exists){
+      selectServer(serverId);
+    }
+  },180);
+
   toast('Servidor criado');
 });
 
@@ -10586,20 +10582,112 @@ io.on('connection', socket => {
   });
 
 
-  socket.on('create-server', ({ name }) => {
-    if (!socket.data.userId) return;
+  socket.on('migrate-owned-servers', ({ servers:legacyServers }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+    if(!Array.isArray(legacyServers)) return;
 
-    const created = makeServer(
-      cleanName(name, 'Novo servidor'),
+    let changed=false;
+
+    for(const raw of legacyServers.slice(0,100)){
+      const serverId=String(raw?.id || '').slice(0,80);
+      const ownerId=String(raw?.ownerId || '').slice(0,100);
+
+      // Segurança: só é permitido importar servidor explicitamente pertencente
+      // à própria conta autenticada. Nunca assume servidor de outra pessoa.
+      if(!serverId || ownerId!==String(socket.data.userId)) continue;
+
+      const existing=servers.get(serverId);
+
+      if(existing){
+        // Se já existe no backend, apenas garante a associação do dono.
+        if(existing.ownerId===socket.data.userId &&
+           !(existing.members || []).includes(socket.data.userId)){
+          existing.members=[
+            ...new Set([socket.data.userId,...(existing.members || [])])
+          ];
+          changed=true;
+        }
+        continue;
+      }
+
+      const created=makeServer(
+        cleanName(raw?.name,'Servidor'),
+        {
+          id:serverId,
+          ownerId:socket.data.userId,
+          members:[socket.data.userId],
+          inviteToken:String(raw?.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
+          icon:String(raw?.icon || '').slice(0,350000),
+          accent:raw?.accent,
+          description:raw?.description,
+          tags:raw?.tags,
+          textChannels:raw?.textChannels,
+          voiceChannels:raw?.voiceChannels,
+          categories:raw?.categories,
+          roles:raw?.roles
+        }
+      );
+
+      if(created){
+        changed=true;
+        recordAudit(
+          created.id,
+          'migrate-owned-server',
+          socket.data.username || 'Usuário',
+          created.id
+        );
+      }
+    }
+
+    if(changed){
+      saveServersToDisk();
+      broadcastServerLists();
+    }else{
+      sendServerList(socket);
+    }
+
+    socket.emit('owned-servers-migrated');
+  });
+
+  socket.on('create-server', ({ name }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+
+    const beforeIds=new Set(servers.keys());
+
+    const created=makeServer(
+      cleanName(name,'Novo servidor'),
       {
         ownerId:socket.data.userId,
         members:[socket.data.userId]
       }
     );
 
+    // Garantia: a criação é estritamente aditiva.
+    // Nenhum servidor já existente pode ser removido neste fluxo.
+    const missingAfterCreate=[...beforeIds].filter(serverId=>!servers.has(serverId));
+
+    if(missingAfterCreate.length){
+      console.error('Falha de integridade: criação removeu servidores',missingAfterCreate);
+      socket.emit('permission-error',{
+        error:'Não foi possível criar o servidor com segurança'
+      });
+      return;
+    }
+
+    recordAudit(
+      created.id,
+      'create-server',
+      socket.data.username || 'Usuário',
+      created.id
+    );
+
     saveServersToDisk();
     broadcastServerLists();
-    socket.emit('server-created', { serverId: created.id });
+
+    socket.emit('server-created',{
+      serverId:created.id,
+      totalServers:servers.size
+    });
   });
 
   socket.on('join-server-invite', ({ token }) => {
