@@ -3503,9 +3503,13 @@ html,body{
           </aside>
 
           <div style="display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;">
-            <div style="padding:14px 18px;border-bottom:1px solid var(--line);">
-              <strong id="dmTitle">Selecione um amigo</strong>
-              <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
+            <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;">
+              <div style="min-width:0;flex:1;">
+                <strong id="dmTitle">Selecione um amigo</strong>
+                <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
+              </div>
+              <button id="groupCallBtn" class="btn primary small hidden" type="button">☎ Ligar grupo</button>
+              <button id="groupDeleteBtn" class="btn secondary small hidden" type="button">🗑 Excluir grupo</button>
             </div>
 
             <div id="dmMessages" class="messages"></div>
@@ -5520,16 +5524,21 @@ function setView(name){
   }
 
   if(name==='voice'){
-    const c = currentVoice();
-    const isStage = c?.mode === 'stage';
+    if(state.privateCallId){
+      $('#topTitle').textContent='☎ Chamada privada';
+      $('#topSub').textContent=state.privatePeerName || '';
+    }else{
+      const c=currentVoice();
+      const isStage=c?.mode==='stage';
 
-    $('#topTitle').textContent = c
-      ? (isStage ? '◉ ' : ')) ') + c.name
-      : ')) voz';
+      $('#topTitle').textContent=c
+        ? (isStage ? '◉ ' : ')) ') + c.name
+        : ')) voz';
 
-    $('#topSub').textContent = isStage
-      ? 'Palco · ' + (currentServer()?.name || '')
-      : (currentServer()?.name || '');
+      $('#topSub').textContent=isStage
+        ? 'Palco · ' + (currentServer()?.name || '')
+        : (currentServer()?.name || '');
+    }
   }else if(isServerView(name)){
     renderServerPresence();
   }
@@ -7302,6 +7311,9 @@ function openGroupChat(group){
   $('#dmSubtitle').textContent=
     'Grupo privado · ' + String(group.memberCount || group.members?.length || 1) + '/10 pessoas';
 
+  $('#groupCallBtn').classList.remove('hidden');
+  $('#groupDeleteBtn').classList.toggle('hidden',group.ownerId!==state.userId);
+
   $('#dmInput').disabled=false;
   $('#dmSendBtn').disabled=false;
   $('#dmInput').placeholder='Mensagem em ' + (group.name || 'grupo');
@@ -7309,6 +7321,70 @@ function openGroupChat(group){
 
   socket.emit('group-history',{groupId:group.id});
   $('#dmInput').focus();
+}
+
+function currentPrivateGroup(){
+  return (state.privateGroups || []).find(group=>group.id===state.activeGroupId) || null;
+}
+
+function deleteCurrentPrivateGroup(){
+  const group=currentPrivateGroup();
+  if(!group) return;
+
+  if(group.ownerId!==state.userId){
+    toast('Apenas o criador pode excluir o grupo');
+    return;
+  }
+
+  if(!confirm('Excluir o grupo privado "' + (group.name || 'Grupo') + '"?')){
+    return;
+  }
+
+  socket.emit('group-delete',{groupId:group.id});
+}
+
+function callCurrentPrivateGroup(){
+  const group=currentPrivateGroup();
+  if(!group) return;
+
+  socket.emit('private-group-call-start',{groupId:group.id});
+  toast('Iniciando chamada do grupo...');
+}
+
+async function enterPrivateGroupCall(callId,groupName){
+  try{
+    await ensureMic();
+
+    if(state.joinedVoiceId){
+      socket.emit('leave-voice');
+      closePeers();
+    }
+
+    state.privateCallId=callId;
+    state.privatePeerName=groupName || 'Grupo privado';
+    state.joinedVoiceId='private:'+callId;
+    state.activeVoiceServerId=null;
+    state.activeVoiceChannelId=null;
+    state.activeVoiceName='Chamada em grupo · ' + state.privatePeerName;
+
+    setView('voice');
+    setAppMode('private-call');
+
+    $('#voiceTitle').textContent='Chamada em grupo · ' + state.privatePeerName;
+    $('#topTitle').textContent='☎ Chamada privada em grupo';
+    $('#topSub').textContent=state.privatePeerName;
+    $('#voiceStatus').textContent='Call privada em grupo · Conectando...';
+    $('#quickInviteBtn')?.classList.add('hidden');
+
+    syncVoiceControlsUI();
+    ensureCard('local',state.username+' (você)',state.localStream,true);
+
+    socket.emit('join-private-call',{callId});
+    updateCallDock();
+  }catch(error){
+    console.error(error);
+    toast('Permita o microfone para entrar na chamada');
+  }
 }
 
 function appendGroupMessage(message){
@@ -7421,6 +7497,9 @@ function renderDmContacts(){
 }
 
 function openDm(profile){
+  $('#groupCallBtn')?.classList.add('hidden');
+  $('#groupDeleteBtn')?.classList.add('hidden');
+  state.activeGroupId=null;
   if(!profile?.username) return;
 
   state.activeGroupId=null;
@@ -9099,32 +9178,49 @@ $('#settingsCopyInviteBtn').addEventListener('click',copyInvite);
 $('#settingsDeleteServerBtn').addEventListener('click',deleteCurrentServer);
 
 $('#acceptCallBtn').addEventListener('click',()=>{
-  const call = state.incomingCall;
+  const call=state.incomingCall;
   if(!call) return;
 
   closeIncomingCall();
 
-  socket.emit('private-call-response',{
-    callId:call.callId,
-    callerSocketId:call.callerSocketId,
-    accept:true
-  });
+  if(call.isGroup){
+    socket.emit('private-group-call-response',{
+      callId:call.callId,
+      accept:true
+    });
 
-  enterPrivateCall(call.callId,call.fromUsername);
-  state.incomingCall = null;
+    enterPrivateGroupCall(call.callId,call.groupName || 'Grupo privado');
+  }else{
+    socket.emit('private-call-response',{
+      callId:call.callId,
+      callerSocketId:call.callerSocketId,
+      accept:true
+    });
+
+    enterPrivateCall(call.callId,call.fromUsername);
+  }
+
+  state.incomingCall=null;
 });
 
 $('#declineCallBtn').addEventListener('click',()=>{
-  const call = state.incomingCall;
+  const call=state.incomingCall;
   if(!call) return;
 
-  socket.emit('private-call-response',{
-    callId:call.callId,
-    callerSocketId:call.callerSocketId,
-    accept:false
-  });
+  if(call.isGroup){
+    socket.emit('private-group-call-response',{
+      callId:call.callId,
+      accept:false
+    });
+  }else{
+    socket.emit('private-call-response',{
+      callId:call.callId,
+      callerSocketId:call.callerSocketId,
+      accept:false
+    });
+  }
 
-  state.incomingCall = null;
+  state.incomingCall=null;
   closeIncomingCall();
 });
 
@@ -9170,6 +9266,8 @@ $('#friendsPendingTab').addEventListener('click',()=>{
 $('#friendsSearch').addEventListener('input',renderFriends);
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#createPrivateGroupBtn').addEventListener('click',openPrivateGroupModal);
+$('#groupDeleteBtn').addEventListener('click',deleteCurrentPrivateGroup);
+$('#groupCallBtn').addEventListener('click',callCurrentPrivateGroup);
 $('#privateGroupCancelBtn').addEventListener('click',closePrivateGroupModal);
 $('#privateGroupCreateBtn').addEventListener('click',createPrivateGroup);
 $('#privateGroupModalWrap').addEventListener('click',event=>{
@@ -9657,6 +9755,45 @@ socket.on('group-created',({group})=>{
     setView('dm');
     setTimeout(()=>openGroupChat(group),40);
   }
+});
+
+socket.on('group-deleted',({groupId,groupName})=>{
+  state.privateGroups=(state.privateGroups || []).filter(group=>group.id!==groupId);
+
+  if(state.activeGroupId===groupId){
+    state.activeGroupId=null;
+    $('#dmTitle').textContent='Selecione um amigo';
+    $('#dmSubtitle').textContent='Conversa privada';
+    $('#dmMessages').innerHTML='';
+    $('#dmInput').disabled=true;
+    $('#dmSendBtn').disabled=true;
+    $('#groupCallBtn').classList.add('hidden');
+    $('#groupDeleteBtn').classList.add('hidden');
+  }
+
+  renderDmContacts();
+  toast('Grupo "' + (groupName || 'privado') + '" excluído');
+});
+
+socket.on('private-group-call-started',data=>{
+  enterPrivateGroupCall(data.callId,data.groupName || 'Grupo privado');
+});
+
+socket.on('incoming-private-group-call',data=>{
+  state.incomingCall={
+    ...data,
+    isGroup:true
+  };
+
+  $('#incomingCallerName').textContent=
+    (data?.fromUsername || 'Alguém') + ' · ' + (data?.groupName || 'Grupo privado');
+
+  $('#incomingCallWrap').classList.remove('hidden');
+
+  maybeNotify(
+    'Chamada de grupo no Acord',
+    (data?.fromUsername || 'Alguém') + ' iniciou uma chamada em ' + (data?.groupName || 'um grupo')
+  );
 });
 
 socket.on('group-error',data=>{
@@ -11032,6 +11169,42 @@ io.on('connection', socket => {
     socket.emit('group-created',{group:publicPrivateGroup(group)});
   });
 
+  socket.on('group-delete', ({ groupId }) => {
+    if(!socket.data.userId) return;
+
+    const safeGroupId=String(groupId || '').slice(0,80);
+    const group=privateGroups.get(safeGroupId);
+
+    if(!group){
+      socket.emit('group-error',{error:'Grupo não encontrado'});
+      return;
+    }
+
+    if(group.ownerId!==socket.data.userId){
+      socket.emit('group-error',{error:'Apenas o criador pode excluir o grupo'});
+      return;
+    }
+
+    const members=[...(group.members || [])];
+    const groupName=group.name || 'Grupo privado';
+
+    privateGroups.delete(safeGroupId);
+    saveServersToDisk();
+
+    for(const userId of members){
+      emitGroupState(userId);
+
+      for(const client of io.sockets.sockets.values()){
+        if(client.data.userId===userId){
+          client.emit('group-deleted',{
+            groupId:safeGroupId,
+            groupName
+          });
+        }
+      }
+    }
+  });
+
   socket.on('group-history', ({ groupId }) => {
     if (!socket.data.userId) return;
 
@@ -11981,6 +12154,79 @@ io.on('connection', socket => {
     socket.data.voiceChannelId = null;
   }
 
+  socket.on('private-group-call-start', ({ groupId }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+
+    const safeGroupId=String(groupId || '').slice(0,80);
+    const group=privateGroups.get(safeGroupId);
+
+    if(!group || !(group.members || []).includes(socket.data.userId)){
+      socket.emit('private-call-error',{error:'Você não faz parte deste grupo'});
+      return;
+    }
+
+    const callId=crypto.randomBytes(18).toString('hex');
+    const allowedUserIds=[...new Set(group.members || [])].slice(0,10);
+
+    privateCalls.set(callId,{
+      type:'group',
+      groupId:safeGroupId,
+      groupName:group.name || 'Grupo privado',
+      callerUserId:socket.data.userId,
+      callerSocketId:socket.id,
+      allowedUserIds,
+      acceptedUserIds:[socket.data.userId],
+      createdAt:Date.now(),
+      expiresAt:Date.now()+1000*60*60*4
+    });
+
+    socket.emit('private-group-call-started',{
+      callId,
+      groupId:safeGroupId,
+      groupName:group.name || 'Grupo privado'
+    });
+
+    for(const client of io.sockets.sockets.values()){
+      if(
+        client.id!==socket.id &&
+        client.data.userId &&
+        allowedUserIds.includes(client.data.userId)
+      ){
+        client.emit('incoming-private-group-call',{
+          callId,
+          groupId:safeGroupId,
+          groupName:group.name || 'Grupo privado',
+          fromUserId:socket.data.userId,
+          fromUsername:socket.data.username || 'Usuário'
+        });
+      }
+    }
+  });
+
+  socket.on('private-group-call-response', ({ callId, accept }) => {
+    if(!socket.data.userId) return;
+
+    const safeCallId=String(callId || '').slice(0,100);
+    const call=privateCalls.get(safeCallId);
+
+    if(
+      !call ||
+      call.type!=='group' ||
+      !Array.isArray(call.allowedUserIds) ||
+      !call.allowedUserIds.includes(socket.data.userId)
+    ){
+      socket.emit('private-call-error',{error:'Call de grupo inválida ou expirada'});
+      return;
+    }
+
+    if(accept){
+      call.acceptedUserIds=[
+        ...new Set([...(call.acceptedUserIds || []),socket.data.userId])
+      ];
+      call.expiresAt=Date.now()+1000*60*60*4;
+    }
+  });
+
   socket.on('private-call-invite', ({ targetUserId, targetUsername }) => {
     if(!socket.data.userId || !accounts.has(socket.data.userId)){
       socket.emit('private-call-error',{error:'Você precisa estar conectado à sua conta'});
@@ -12086,9 +12332,21 @@ io.on('connection', socket => {
       return;
     }
 
-    const allowed =
-      socket.data.userId===call.callerUserId ||
-      socket.data.userId===call.calleeUserId;
+    const isGroupCall=call.type==='group';
+
+    const allowed=isGroupCall
+      ? (
+          Array.isArray(call.allowedUserIds) &&
+          call.allowedUserIds.includes(socket.data.userId) &&
+          (
+            socket.data.userId===call.callerUserId ||
+            (call.acceptedUserIds || []).includes(socket.data.userId)
+          )
+        )
+      : (
+          socket.data.userId===call.callerUserId ||
+          socket.data.userId===call.calleeUserId
+        );
 
     if(!allowed){
       socket.emit('private-call-error',{error:'Você não tem acesso a esta call privada'});
@@ -12105,9 +12363,12 @@ io.on('connection', socket => {
         const participant=io.sockets.sockets.get(socketId);
         if(!participant?.data?.userId) return null;
 
-        const permitted =
-          participant.data.userId===call.callerUserId ||
-          participant.data.userId===call.calleeUserId;
+        const permitted=isGroupCall
+          ? (call.allowedUserIds || []).includes(participant.data.userId)
+          : (
+              participant.data.userId===call.callerUserId ||
+              participant.data.userId===call.calleeUserId
+            );
 
         return permitted
           ? {id:socketId,username:participant.data.username || 'Usuário'}
@@ -12115,7 +12376,11 @@ io.on('connection', socket => {
       })
       .filter(Boolean);
 
-    if(participants.length>=2 && !existing.includes(socket.id)){
+    const maxParticipants=isGroupCall
+      ? Math.min(10,(call.allowedUserIds || []).length)
+      : 2;
+
+    if(participants.length>=maxParticipants && !existing.includes(socket.id)){
       socket.emit('private-call-error',{error:'Esta call privada já está completa'});
       return;
     }
@@ -12230,6 +12495,14 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     for(const [callId,call] of privateCalls){
+      if(call.type==='group'){
+        // A call em grupo continua disponível para os demais membros.
+        if(call.callerSocketId===socket.id){
+          call.callerSocketId=null;
+        }
+        continue;
+      }
+
       if(call.callerSocketId===socket.id || call.calleeSocketId===socket.id){
         privateCalls.delete(callId);
       }
