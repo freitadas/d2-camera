@@ -269,6 +269,16 @@ const auditLog = [];
 const friendRequests = [];
 const friendships = [];
 const privateGroups = new Map();
+const privateCalls = new Map();
+
+setInterval(()=>{
+  const now=Date.now();
+  for(const [callId,call] of privateCalls){
+    if(Number(call?.expiresAt || 0)<=now){
+      privateCalls.delete(callId);
+    }
+  }
+},60*1000).unref?.();
 
 
 function normalizeAccountUsername(value){
@@ -3123,6 +3133,42 @@ html,body{
   font-size:12px;
 }
 
+
+/* ===== CONCORDE v0.3 — CALL PRIVADA FORA DE SERVIDOR ===== */
+.app.privateCallMode{
+  grid-template-columns:72px minmax(0,1fr)!important;
+}
+.app.privateCallMode .sidebar,
+.app.privateCallMode .rightbar{
+  display:none!important;
+}
+.app.privateCallMode .main{
+  grid-column:auto!important;
+  min-width:0!important;
+}
+.app.privateCallMode #voiceView{
+  background:
+    radial-gradient(circle at 50% 18%,color-mix(in srgb,var(--coral) 10%,transparent),transparent 34%),
+    var(--bg0);
+}
+.app.privateCallMode .voiceHead{
+  background:var(--bg1);
+}
+.app.privateCallMode .videoGrid{
+  max-width:1280px;
+  width:100%;
+  margin:0 auto;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+}
+.app.privateCallMode .videoCard{
+  min-height:280px;
+}
+@media(max-width:760px){
+  .app.privateCallMode{
+    grid-template-columns:60px minmax(0,1fr)!important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -5050,13 +5096,16 @@ function setAppMode(mode){
   if(!app) return;
 
   const hub = mode === 'hub';
+  const privateCall = mode === 'private-call';
+  const server = !hub && !privateCall;
 
-  app.classList.toggle('hubMode', hub);
-  app.classList.toggle('serverMode', !hub);
+  app.classList.toggle('hubMode',hub);
+  app.classList.toggle('serverMode',server);
+  app.classList.toggle('privateCallMode',privateCall);
 
-  $('#homeHubBtn')?.classList.toggle('active', hub);
+  $('#homeHubBtn')?.classList.toggle('active',hub || privateCall);
 
-  if(hub){
+  if(hub || privateCall){
     document.querySelectorAll('#serverRail .serverIcon').forEach(btn=>{
       btn.classList.remove('active');
     });
@@ -5127,9 +5176,11 @@ function returnToActiveCall(){
 
   if(state.privateCallId){
     setView('voice');
-    $('#voiceTitle').textContent = 'Chamada com ' + (state.privatePeerName || 'Amigo');
+    setAppMode('private-call');
+    $('#voiceTitle').textContent = 'Chamada privada com ' + (state.privatePeerName || 'Amigo');
     $('#topTitle').textContent = '☎ Chamada privada';
-    $('#topSub').textContent = state.privatePeerName || '';
+    $('#topSub').textContent = 'Somente você e ' + (state.privatePeerName || 'seu amigo');
+    $('#quickInviteBtn')?.classList.add('hidden');
     updateCallDock();
     return;
   }
@@ -5170,8 +5221,11 @@ function setView(name){
   localStorage.setItem('ecord-last-view',name);
 
   const hubView = name==='friends' || name==='dm';
+  const privateCallView = name==='voice' && !!state.privateCallId;
 
-  if(hubView){
+  if(privateCallView){
+    setAppMode('private-call');
+  }else if(hubView){
     setAppMode('hub');
   }else{
     setAppMode('server');
@@ -6205,6 +6259,7 @@ function selectServer(serverId){
 }
 
 function selectText(channelId){
+  $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
   state.textChannelId = channelId;
   localStorage.setItem('ecord-last-text-channel-id',channelId);
@@ -6223,6 +6278,7 @@ function selectText(channelId){
 }
 
 function selectVoice(channelId){
+  $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
   state.voiceChannelId = channelId;
   localStorage.setItem('ecord-last-voice-channel-id',channelId);
@@ -7833,16 +7889,20 @@ async function enterPrivateCall(callId,peerName){
     state.privateCallId = callId;
     state.privatePeerName = peerName || 'Amigo';
     state.joinedVoiceId = 'private:' + callId;
+
+    // Calls privadas não pertencem a nenhum servidor ou canal.
     state.activeVoiceServerId = null;
     state.activeVoiceChannelId = null;
-    state.activeVoiceName = 'Chamada com ' + state.privatePeerName;
+    state.activeVoiceName = 'Chamada privada com ' + state.privatePeerName;
 
     setView('voice');
+    setAppMode('private-call');
 
-    $('#voiceTitle').textContent = 'Chamada com ' + state.privatePeerName;
+    $('#voiceTitle').textContent = 'Chamada privada com ' + state.privatePeerName;
     $('#topTitle').textContent = '☎ Chamada privada';
-    $('#topSub').textContent = state.privatePeerName;
-    $('#voiceStatus').textContent = 'Conectando...';
+    $('#topSub').textContent = 'Somente você e ' + state.privatePeerName;
+    $('#voiceStatus').textContent = 'Call privada · Conectando...';
+    $('#quickInviteBtn')?.classList.add('hidden');
 
     syncVoiceControlsUI();
 
@@ -8029,6 +8089,10 @@ function leaveVoice(){
 
   if(wasPrivate){
     setView('friends');
+    setAppMode('hub');
+    $('#quickInviteBtn')?.classList.add('hidden');
+    $('#topTitle').textContent='👥 Amigos';
+    $('#topSub').textContent='seus amigos e chamadas';
   }
 }
 
@@ -9602,7 +9666,9 @@ socket.on('voice-participants',async participants=>{
     await makeOffer(p.id,p.username);
   }
   unlockAllRemoteAudio();
-  $('#voiceStatus').textContent='Conectado';
+  $('#voiceStatus').textContent=state.privateCallId
+    ? 'Call privada · Somente convidados'
+    : 'Conectado';
 });
 
 socket.on('voice-members',members=>{
@@ -11236,103 +11302,167 @@ io.on('connection', socket => {
   }
 
   socket.on('private-call-invite', ({ targetUserId, targetUsername }) => {
-    const target = [...io.sockets.sockets.values()].find(candidate => {
-      if (candidate.id === socket.id) return false;
+    if(!socket.data.userId || !accounts.has(socket.data.userId)){
+      socket.emit('private-call-error',{error:'Você precisa estar conectado à sua conta'});
+      return;
+    }
 
-      if (targetUserId && candidate.data.userId) {
-        return String(candidate.data.userId) === String(targetUserId);
+    const target = [...io.sockets.sockets.values()].find(candidate => {
+      if(candidate.id===socket.id || !candidate.data.userId) return false;
+
+      if(targetUserId){
+        return String(candidate.data.userId)===String(targetUserId);
       }
 
       return String(candidate.data.username || '').toLowerCase() ===
         String(targetUsername || '').toLowerCase();
     });
 
-    if (!target) {
-      socket.emit('private-call-error', {
-        error: 'Esse amigo está offline'
-      });
+    if(!target){
+      socket.emit('private-call-error',{error:'Esse amigo está offline'});
       return;
     }
 
-    const callId = id();
+    if(!areFriends(socket.data.userId,target.data.userId)){
+      socket.emit('private-call-error',{error:'Calls privadas só podem ser feitas entre amigos'});
+      return;
+    }
 
-    target.emit('incoming-private-call', {
+    const callId=crypto.randomBytes(18).toString('hex');
+
+    privateCalls.set(callId,{
+      callerUserId:socket.data.userId,
+      calleeUserId:target.data.userId,
+      callerSocketId:socket.id,
+      calleeSocketId:target.id,
+      accepted:false,
+      createdAt:Date.now(),
+      expiresAt:Date.now()+1000*60*60*4
+    });
+
+    target.emit('incoming-private-call',{
       callId,
-      callerSocketId: socket.id,
-      fromUserId: socket.data.userId || null,
-      fromUsername: socket.data.username || 'Usuário'
+      callerSocketId:socket.id,
+      fromUserId:socket.data.userId,
+      fromUsername:socket.data.username || 'Usuário'
     });
   });
 
   socket.on('private-call-response', ({ callId, callerSocketId, accept }) => {
-    if (!callerSocketId || !callId || !socket.data.userId) return;
+    if(!callId || !socket.data.userId) return;
 
-    const caller = io.sockets.sockets.get(String(callerSocketId));
-    if(!caller?.data?.userId || !areFriends(socket.data.userId,caller.data.userId)) return;
+    const safeCallId=String(callId).slice(0,100);
+    const call=privateCalls.get(safeCallId);
 
-    if (accept) {
-      io.to(callerSocketId).emit('private-call-accepted', {
-        callId,
-        username: socket.data.username || 'Usuário',
-        userId: socket.data.userId || null
+    if(
+      !call ||
+      call.calleeUserId!==socket.data.userId ||
+      call.calleeSocketId!==socket.id ||
+      call.callerSocketId!==String(callerSocketId || '')
+    ){
+      socket.emit('private-call-error',{error:'Convite de call inválido ou expirado'});
+      return;
+    }
+
+    const caller=io.sockets.sockets.get(call.callerSocketId);
+
+    if(
+      !caller?.data?.userId ||
+      caller.data.userId!==call.callerUserId ||
+      !areFriends(call.callerUserId,call.calleeUserId)
+    ){
+      privateCalls.delete(safeCallId);
+      socket.emit('private-call-error',{error:'A call não está mais disponível'});
+      return;
+    }
+
+    if(accept){
+      call.accepted=true;
+      call.expiresAt=Date.now()+1000*60*60*4;
+
+      caller.emit('private-call-accepted',{
+        callId:safeCallId,
+        username:socket.data.username || 'Usuário',
+        userId:socket.data.userId
       });
-    } else {
-      io.to(callerSocketId).emit('private-call-declined', {
-        callId,
-        username: socket.data.username || 'Usuário'
+    }else{
+      privateCalls.delete(safeCallId);
+
+      caller.emit('private-call-declined',{
+        callId:safeCallId,
+        username:socket.data.username || 'Usuário'
       });
     }
   });
 
-  socket.on('join-private-call', ({ callId, username, userId }) => {
-    if (!callId) return;
+  socket.on('join-private-call', ({ callId }) => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+
+    const safeCallId=String(callId || '').slice(0,100);
+    const call=privateCalls.get(safeCallId);
+
+    if(!call || !call.accepted || Number(call.expiresAt || 0)<=Date.now()){
+      socket.emit('private-call-error',{error:'Call privada inválida ou expirada'});
+      return;
+    }
+
+    const allowed =
+      socket.data.userId===call.callerUserId ||
+      socket.data.userId===call.calleeUserId;
+
+    if(!allowed){
+      socket.emit('private-call-error',{error:'Você não tem acesso a esta call privada'});
+      return;
+    }
 
     leaveVoiceRoom();
 
-    const room = 'private:' + String(callId).slice(0, 100);
+    const room='private:'+safeCallId;
+    const existing=[...(io.sockets.adapter.rooms.get(room) || [])];
 
-    const participants = [...(io.sockets.adapter.rooms.get(room) || [])]
-      .map(socketId => {
-        const participant = io.sockets.sockets.get(socketId);
+    const participants=existing
+      .map(socketId=>{
+        const participant=io.sockets.sockets.get(socketId);
+        if(!participant?.data?.userId) return null;
 
-        return participant
-          ? {
-              id: socketId,
-              username: participant.data.username || 'Usuário'
-            }
+        const permitted =
+          participant.data.userId===call.callerUserId ||
+          participant.data.userId===call.calleeUserId;
+
+        return permitted
+          ? {id:socketId,username:participant.data.username || 'Usuário'}
           : null;
       })
       .filter(Boolean);
 
-    socket.data.username = socket.data.username || cleanName(username);
-    if(!socket.data.userId) return;
-    socket.data.voiceRoom = room;
-    socket.data.voiceServerId = null;
-    socket.data.voiceChannelId = null;
+    if(participants.length>=2 && !existing.includes(socket.id)){
+      socket.emit('private-call-error',{error:'Esta call privada já está completa'});
+      return;
+    }
+
+    socket.data.voiceRoom=room;
+    socket.data.voiceServerId=null;
+    socket.data.voiceChannelId=null;
 
     socket.join(room);
 
-    socket.emit('voice-participants', participants);
+    socket.emit('voice-participants',participants);
 
-    socket.to(room).emit('user-joined', {
-      id: socket.id,
-      username: socket.data.username
+    socket.to(room).emit('user-joined',{
+      id:socket.id,
+      username:socket.data.username || 'Usuário'
     });
 
-    const members = [...(io.sockets.adapter.rooms.get(room) || [])]
-      .map(socketId => {
-        const participant = io.sockets.sockets.get(socketId);
-
+    const members=[...(io.sockets.adapter.rooms.get(room) || [])]
+      .map(socketId=>{
+        const participant=io.sockets.sockets.get(socketId);
         return participant
-          ? {
-              id: socketId,
-              username: participant.data.username || 'Usuário'
-            }
+          ? {id:socketId,username:participant.data.username || 'Usuário'}
           : null;
       })
       .filter(Boolean);
 
-    io.to(room).emit('voice-members', members);
+    io.to(room).emit('voice-members',members);
   });
 
   socket.on('join-voice', ({ serverId, channelId, username }) => {
@@ -11419,6 +11549,12 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
+    for(const [callId,call] of privateCalls){
+      if(call.callerSocketId===socket.id || call.calleeSocketId===socket.id){
+        privateCalls.delete(callId);
+      }
+    }
+
     const room = socket.data.voiceRoom;
     setTimeout(broadcastOnlineUsers, 0);
     if (room) {
