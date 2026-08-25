@@ -3044,6 +3044,42 @@ html,body{
   }
 }
 
+
+.channelDelete{
+  margin-left:auto;
+  flex:0 0 auto;
+  width:26px;
+  height:26px;
+  display:grid;
+  place-items:center;
+  border-radius:6px;
+  color:var(--low);
+  opacity:0;
+  font-size:12px;
+  cursor:pointer;
+  transition:.12s ease;
+}
+.channelBtn:hover .channelDelete,
+.channelBtn:focus-visible .channelDelete{
+  opacity:1;
+}
+.channelDelete:hover,
+.channelDelete:focus-visible,
+.categoryHeader .categoryDelete:hover,
+.categoryHeader .categoryDelete:focus-visible{
+  opacity:1;
+  color:#ff8d8d!important;
+  background:rgba(223,76,76,.12)!important;
+  outline:none;
+}
+.categoryHeader .categoryDelete{
+  min-width:26px;
+  min-height:26px;
+  display:grid;
+  place-items:center;
+  font-size:12px;
+}
+
 </style>
 </head>
 <body>
@@ -5391,6 +5427,41 @@ function renderSidebar(){
       b.append(grip,icon,label);
     }
 
+    if(canManageChannelsLocally()){
+      const del = document.createElement('span');
+      del.className = 'channelDelete';
+      del.setAttribute('role','button');
+      del.setAttribute('tabindex','0');
+      del.textContent = '🗑';
+      del.title = type==='text' ? 'Excluir chat' : (isStage ? 'Excluir palco' : 'Excluir canal de voz');
+
+      const requestDelete = event=>{
+        event.preventDefault();
+        event.stopPropagation();
+
+        const kind = type==='text' ? 'chat' : (isStage ? 'palco' : 'canal de voz');
+
+        if(!confirm('Excluir o ' + kind + ' "' + channel.name + '"?')){
+          return;
+        }
+
+        socket.emit('delete-channel',{
+          serverId:state.serverId,
+          type,
+          channelId:channel.id
+        });
+      };
+
+      del.addEventListener('click',requestDelete);
+      del.addEventListener('keydown',event=>{
+        if(event.key==='Enter' || event.key===' '){
+          requestDelete(event);
+        }
+      });
+
+      b.appendChild(del);
+    }
+
     b.addEventListener('click',()=>{
       if(type==='text') selectText(channel.id);
       else selectVoice(channel.id);
@@ -5457,24 +5528,26 @@ function renderSidebar(){
     if(!isUncategorized){
       header.draggable = true;
 
-      const del = document.createElement('button');
-      del.className = 'categoryDelete';
-      del.type = 'button';
-      del.textContent = '×';
-      del.title = 'Excluir categoria';
+      if(canManageChannelsLocally()){
+        const del = document.createElement('button');
+        del.className = 'categoryDelete';
+        del.type = 'button';
+        del.textContent = '🗑';
+        del.title = 'Excluir categoria';
 
-      del.addEventListener('click',event=>{
-        event.stopPropagation();
+        del.addEventListener('click',event=>{
+          event.stopPropagation();
 
-        if(confirm('Excluir a categoria "' + category.name + '"? Os canais não serão apagados.')){
-          socket.emit('delete-category',{
-            serverId:state.serverId,
-            categoryId:category.id
-          });
-        }
-      });
+          if(confirm('Excluir a categoria "' + category.name + '"? Os chats e canais dentro dela serão movidos para “Sem categoria”.')){
+            socket.emit('delete-category',{
+              serverId:state.serverId,
+              categoryId:category.id
+            });
+          }
+        });
 
-      header.appendChild(del);
+        header.appendChild(del);
+      }
 
       header.addEventListener('dragstart',event=>{
         header.classList.add('dragging');
@@ -5617,6 +5690,25 @@ function canManageRolesLocally(server = currentServer()){
     return hasRole && (
       role.permissions?.administrator ||
       role.permissions?.manageRoles
+    );
+  });
+}
+
+function canManageChannelsLocally(server = currentServer()){
+  if(!server) return false;
+  if(server.ownerId === state.userId) return true;
+
+  const username = String(state.username || '').toLowerCase();
+
+  return (server.roles || []).some(role=>{
+    const hasRole = (role.members || []).some(
+      member=>String(member || '').toLowerCase() === username
+    );
+
+    return hasRole && (
+      role.permissions?.administrator ||
+      role.permissions?.manageServer ||
+      role.permissions?.manageChannels
     );
   });
 }
@@ -8867,6 +8959,11 @@ socket.on('auth-success',payload=>{
   resetAuthSubmitButton();
   $('#authError').textContent='';
   applyAuthProfile(payload?.profile,payload?.token);
+
+  if(payload?.accountRecovered){
+    setTimeout(()=>toast('Conta reativada e login concluído'),250);
+  }
+
   requestNotifications();
 });
 socket.on('auth-error',payload=>{
@@ -9336,6 +9433,60 @@ socket.on('channel-created',({serverId,type,channelId})=>{
   }
 });
 
+socket.on('channel-deleted',({serverId,type,channelId,message})=>{
+  if(serverId!==state.serverId) return;
+
+  const server=currentServer();
+
+  if(type==='text' && state.textChannelId===channelId){
+    state.textChannelId=server?.textChannels?.[0]?.id || null;
+
+    if(state.textChannelId){
+      setTimeout(()=>selectText(state.textChannelId),60);
+    }else{
+      setView('home');
+      renderSidebar();
+    }
+  }
+
+  if(type==='voice' && state.voiceChannelId===channelId){
+    state.voiceChannelId=server?.voiceChannels?.[0]?.id || null;
+
+    if(!state.joinedVoiceId){
+      if(state.voiceChannelId){
+        setTimeout(()=>selectVoice(state.voiceChannelId),60);
+      }else{
+        setView('home');
+        renderSidebar();
+      }
+    }
+  }
+
+  toast(message || 'Canal excluído');
+});
+
+socket.on('voice-channel-removed',({serverId,channelId,message})=>{
+  if(state.activeVoiceServerId===serverId && state.activeVoiceChannelId===channelId){
+    closePeers();
+
+    if(state.localStream){
+      state.localStream.getTracks().forEach(track=>track.stop());
+      state.localStream=null;
+    }
+
+    state.joinedVoiceId=null;
+    state.activeVoiceServerId=null;
+    state.activeVoiceChannelId=null;
+    state.activeVoiceName='';
+
+    $('#voiceStatus').textContent='Canal excluído';
+    syncVoiceControlsUI();
+    updateCallDock();
+  }
+
+  toast(message || 'O canal de voz foi excluído');
+});
+
 socket.on('text-history',history=>showMessages(history));
 socket.on('chat-message',m=>{
   if(m.serverId===state.serverId && m.channelId===state.textChannelId) appendMessage(m);
@@ -9620,30 +9771,97 @@ io.on('connection', socket => {
         return;
       }
 
-      const key=usernameKey(username);
-      const account=[...accounts.values()].find(item=>item.usernameKey===key);
+      const safeUsername=normalizeAccountUsername(username);
+      const safePassword=String(password||'');
 
-      if(!account){
-        const legacy=legacyProfileForUsername(username);
-
-        socket.emit('auth-error',{
-          error:legacy
-            ? 'Seu perfil antigo ainda não tem senha. Abra “Criar conta” e use este mesmo nome para ativá-lo.'
-            : 'Conta não encontrada. Confira o nome ou crie uma conta.'
-        });
+      if(safeUsername.length<3){
+        socket.emit('auth-error',{error:'O nome precisa ter pelo menos 3 caracteres.'});
         return;
       }
 
-      if(!verifyAccountPassword(String(password||''),account)){
+      if(safePassword.length<6 || safePassword.length>128){
+        socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'});
+        return;
+      }
+
+      const key=usernameKey(safeUsername);
+      let account=[...accounts.values()].find(item=>item.usernameKey===key);
+
+      // Em hospedagens sem disco persistente (como um deploy novo no Render),
+      // o arquivo local de contas pode ser recriado. Nesse caso, o botão
+      // Entrar também reativa/cria a conta com o nome e a senha informados,
+      // evitando que o usuário fique preso fora do Acord após uma atualização.
+      if(!account){
+        const legacy=legacyProfileForUsername(safeUsername);
+        const userId=legacy?.id || crypto.randomUUID();
+        const salt=crypto.randomBytes(16).toString('hex');
+
+        account={
+          userId,
+          username:safeUsername,
+          usernameKey:key,
+          salt,
+          passwordHash:passwordDigest(safePassword,salt),
+          createdAt:Number(legacy?.createdAt || Date.now())
+        };
+
+        accounts.set(userId,account);
+
+        const restoredProfile=legacy || {
+          id:userId,
+          username:safeUsername,
+          displayName:safeUsername,
+          bio:'',
+          avatar:'',
+          banner:'',
+          status:'online',
+          createdAt:Date.now()
+        };
+
+        restoredProfile.username=safeUsername;
+        restoredProfile.displayName=restoredProfile.displayName || safeUsername;
+        restoredProfile.status=restoredProfile.status || 'online';
+        profiles.set(userId,restoredProfile);
+
+        socket.data.userId=userId;
+        socket.data.username=safeUsername;
+
+        const token=newSession(userId);
+        saveServersToDisk();
+
+        socket.emit('auth-success',{
+          token,
+          profile:publicProfile(restoredProfile),
+          accountRecovered:true
+        });
+
+        sendServerList(socket);
+        emitFriendState(userId);
+        emitGroupState(userId);
+        broadcastOnlineUsers();
+        return;
+      }
+
+      if(!verifyAccountPassword(safePassword,account)){
         socket.emit('auth-error',{error:'Senha incorreta.'});
         return;
       }
 
-      const profile=profiles.get(account.userId);
+      let profile=profiles.get(account.userId);
 
+      // Se a conta existe mas o perfil se perdeu, recria apenas o perfil público.
       if(!profile){
-        socket.emit('auth-error',{error:'O perfil desta conta não foi encontrado.'});
-        return;
+        profile={
+          id:account.userId,
+          username:account.username,
+          displayName:account.username,
+          bio:'',
+          avatar:'',
+          banner:'',
+          status:'online',
+          createdAt:Number(account.createdAt || Date.now())
+        };
+        profiles.set(account.userId,profile);
       }
 
       socket.data.userId=account.userId;
@@ -10599,6 +10817,86 @@ io.on('connection', socket => {
         channelId: channel.id
       });
     }
+  });
+
+
+  socket.on('delete-channel', ({ serverId, type, channelId }) => {
+    const s = servers.get(serverId);
+    if (!s || !requireServerAccess(s,socket)) return;
+
+    if (!hasServerPermission(s,socket,'manageChannels')) {
+      permissionDenied(socket);
+      return;
+    }
+
+    const safeChannelId = String(channelId || '').slice(0,80);
+    const safeType = type === 'voice' ? 'voice' : 'text';
+
+    if(safeType === 'text'){
+      const index = s.textChannels.findIndex(channel=>channel.id===safeChannelId);
+      if(index < 0) return;
+
+      const [removed] = s.textChannels.splice(index,1);
+      s.messages.delete(safeChannelId);
+      s.textChannels.forEach((channel,idx)=>channel.order=idx);
+
+      for(const client of io.sockets.sockets.values()){
+        if(client.data.textServerId===serverId && client.data.textChannelId===safeChannelId){
+          if(client.data.textRoom) client.leave(client.data.textRoom);
+          client.data.textRoom=null;
+          client.data.textServerId=null;
+          client.data.textChannelId=null;
+        }
+      }
+
+      recordAudit(serverId,'delete-channel',socket.data.username || 'Usuário',removed?.name || safeChannelId);
+      saveServersToDisk();
+      broadcastServerLists();
+
+      io.to(socket.id).emit('channel-deleted',{
+        serverId,
+        type:'text',
+        channelId:safeChannelId,
+        message:'Chat excluído'
+      });
+      return;
+    }
+
+    const index = s.voiceChannels.findIndex(channel=>channel.id===safeChannelId);
+    if(index < 0) return;
+
+    const [removed] = s.voiceChannels.splice(index,1);
+    s.voiceChannels.forEach((channel,idx)=>channel.order=idx);
+
+    const room = `voice:${serverId}:${safeChannelId}`;
+    const participantIds = [...(io.sockets.adapter.rooms.get(room) || [])];
+
+    for(const participantId of participantIds){
+      const participant = io.sockets.sockets.get(participantId);
+      if(!participant) continue;
+
+      participant.leave(room);
+      participant.data.voiceRoom=null;
+      participant.data.voiceServerId=null;
+      participant.data.voiceChannelId=null;
+
+      participant.emit('voice-channel-removed',{
+        serverId,
+        channelId:safeChannelId,
+        message:'O canal de voz foi excluído'
+      });
+    }
+
+    recordAudit(serverId,'delete-channel',socket.data.username || 'Usuário',removed?.name || safeChannelId);
+    saveServersToDisk();
+    broadcastServerLists();
+
+    io.to(socket.id).emit('channel-deleted',{
+      serverId,
+      type:'voice',
+      channelId:safeChannelId,
+      message:removed?.mode==='stage' ? 'Palco excluído' : 'Canal de voz excluído'
+    });
   });
 
   socket.on('dm-history', ({ targetUserId, targetUsername }) => {
