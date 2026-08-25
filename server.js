@@ -3463,6 +3463,7 @@ html,body{
             <strong style="margin-right:8px;">Acord</strong>
             <button id="hubFriendsBtn" class="friendTab active" type="button">👥 Amigos</button>
             <button id="hubMessagesBtn" class="friendTab" type="button">✉ Mensagens privadas</button>
+            <button id="hubGroupsBtn" class="friendTab" type="button">👥 Grupos privados</button>
             <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
             <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
             <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
@@ -3508,6 +3509,7 @@ html,body{
                 <strong id="dmTitle">Selecione um amigo</strong>
                 <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
               </div>
+              <button id="dmCallBtn" class="btn primary small hidden" type="button">☎ Ligar</button>
               <button id="groupCallBtn" class="btn primary small hidden" type="button">☎ Ligar grupo</button>
               <button id="groupDeleteBtn" class="btn secondary small hidden" type="button">🗑 Excluir grupo</button>
             </div>
@@ -4224,6 +4226,7 @@ const state = {
   privateGroups: [],
   activeGroupId: null,
   dmTarget: null,
+  dmContactsMode:'all',
   privateInviteHandled: false,
   currentView: PAGE_WAS_RELOADED
     ? (localStorage.getItem('ecord-last-view') || 'friends')
@@ -5500,8 +5503,16 @@ function setView(name){
   }
 
   if(name==='dm'){
-    $('#topTitle').textContent = '✉ Mensagens privadas';
-    $('#topSub').textContent = 'conversas entre amigos';
+    const groupsOnly=state.dmContactsMode==='groups';
+
+    $('#topTitle').textContent=groupsOnly
+      ? '👥 Grupos privados'
+      : '✉ Mensagens privadas';
+
+    $('#topSub').textContent=groupsOnly
+      ? 'seus grupos e chamadas privadas'
+      : 'conversas entre amigos';
+
     renderDmContacts();
   }
 
@@ -6897,6 +6908,15 @@ function removeFriend(friend){
   });
 }
 
+function callCurrentDmFriend(){
+  if(!state.dmTarget){
+    toast('Selecione um amigo');
+    return;
+  }
+
+  callFriend(state.dmTarget);
+}
+
 function callFriend(friend){
   const online = state.onlineUsers.find(user =>
     (friend.id && user.id === friend.id) ||
@@ -7311,6 +7331,7 @@ function openGroupChat(group){
   $('#dmSubtitle').textContent=
     'Grupo privado · ' + String(group.memberCount || group.members?.length || 1) + '/10 pessoas';
 
+  $('#dmCallBtn').classList.add('hidden');
   $('#groupCallBtn').classList.remove('hidden');
   $('#groupDeleteBtn').classList.toggle('hidden',group.ownerId!==state.userId);
 
@@ -7409,16 +7430,28 @@ function renderDmContacts(){
   const box = $('#dmContacts');
   if(!box) return;
 
-  const search = String($('#dmSearch')?.value || '').trim().toLowerCase();
-  const friends = getFriends().filter(friend =>
-    !search || String(friend.username || '').toLowerCase().includes(search)
-  );
+  const search=String($('#dmSearch')?.value || '').trim().toLowerCase();
 
-  const groups = (state.privateGroups || []).filter(group =>
+  const showGroupsOnly=state.dmContactsMode==='groups';
+
+  const friends=showGroupsOnly
+    ? []
+    : getFriends().filter(friend =>
+        !search || String(friend.username || '').toLowerCase().includes(search)
+      );
+
+  const groups=(state.privateGroups || []).filter(group =>
     !search || String(group.name || '').toLowerCase().includes(search)
   );
 
-  box.innerHTML = '';
+  box.innerHTML='';
+
+  if(showGroupsOnly){
+    const heading=document.createElement('div');
+    heading.style.cssText='color:var(--text);font-size:13px;font-weight:900;margin:4px 5px 12px;';
+    heading.textContent='Seus grupos privados';
+    box.appendChild(heading);
+  }
 
   if(groups.length){
     const title=document.createElement('div');
@@ -7489,9 +7522,11 @@ function renderDmContacts(){
   }
 
   if(!groups.length && !friends.length){
-    const empty = document.createElement('div');
+    const empty=document.createElement('div');
     empty.style.cssText='color:var(--low);font-size:12px;padding:12px 5px;';
-    empty.textContent='Adicione amigos ou crie um grupo privado.';
+    empty.textContent=showGroupsOnly
+      ? 'Você ainda não participa de nenhum grupo privado.'
+      : 'Adicione amigos ou crie um grupo privado.';
     box.appendChild(empty);
   }
 }
@@ -7499,6 +7534,7 @@ function renderDmContacts(){
 function openDm(profile){
   $('#groupCallBtn')?.classList.add('hidden');
   $('#groupDeleteBtn')?.classList.add('hidden');
+  $('#dmCallBtn')?.classList.remove('hidden');
   state.activeGroupId=null;
   if(!profile?.username) return;
 
@@ -9247,8 +9283,20 @@ $('#hubFriendsBtn').addEventListener('click',()=>{
 });
 
 $('#hubMessagesBtn').addEventListener('click',()=>{
+  state.dmContactsMode='all';
+  $('#dmSearch').placeholder='Buscar amigo ou grupo';
   setView('dm');
   renderDmContacts();
+});
+
+$('#hubGroupsBtn').addEventListener('click',()=>{
+  state.dmContactsMode='groups';
+  $('#dmSearch').placeholder='Buscar grupo';
+  setView('dm');
+  renderDmContacts();
+
+  $('#topTitle').textContent='👥 Grupos privados';
+  $('#topSub').textContent='seus grupos e chamadas privadas';
 });
 
 $('#friendsOnlineTab').addEventListener('click',()=>{
@@ -9266,6 +9314,7 @@ $('#friendsPendingTab').addEventListener('click',()=>{
 $('#friendsSearch').addEventListener('input',renderFriends);
 $('#addFriendBtn').addEventListener('click',()=>openModal('friend'));
 $('#createPrivateGroupBtn').addEventListener('click',openPrivateGroupModal);
+$('#dmCallBtn').addEventListener('click',callCurrentDmFriend);
 $('#groupDeleteBtn').addEventListener('click',deleteCurrentPrivateGroup);
 $('#groupCallBtn').addEventListener('click',callCurrentPrivateGroup);
 $('#privateGroupCancelBtn').addEventListener('click',closePrivateGroupModal);
@@ -9767,6 +9816,7 @@ socket.on('group-deleted',({groupId,groupName})=>{
     $('#dmMessages').innerHTML='';
     $('#dmInput').disabled=true;
     $('#dmSendBtn').disabled=true;
+    $('#dmCallBtn').classList.add('hidden');
     $('#groupCallBtn').classList.add('hidden');
     $('#groupDeleteBtn').classList.add('hidden');
   }
