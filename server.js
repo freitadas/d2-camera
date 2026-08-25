@@ -4185,7 +4185,7 @@ const state = {
   lastVoiceMembers: [],
   inviteApplied: false,
   restoreAttempted: false,
-  legacyServerMigrationDone: false,
+  lastOwnedServerSyncAt:0,
   privateCallId: null,
   privatePeerName: null,
   incomingCall: null,
@@ -5180,7 +5180,8 @@ function safeServerSnapshot(serverData){
 function getCachedServers(){
   const parseCache = value => {
     try{
-      const parsed = JSON.parse(value || '[]');
+      const parsed=JSON.parse(value || '[]');
+
       return Array.isArray(parsed)
         ? parsed.map(safeServerSnapshot).filter(Boolean)
         : [];
@@ -5189,50 +5190,95 @@ function getCachedServers(){
     }
   };
 
-  const primary = parseCache(localStorage.getItem('ecord-server-cache'));
+  const primary=parseCache(localStorage.getItem('ecord-server-cache'));
+  const backup=parseCache(localStorage.getItem('ecord-server-backup'));
+  const recovery=(()=>{
+    try{
+      const snapshot=JSON.parse(localStorage.getItem('acord-recovery-v1') || 'null');
 
-  if(primary.length){
-    return primary;
+      return Array.isArray(snapshot?.servers)
+        ? snapshot.servers.map(safeServerSnapshot).filter(Boolean)
+        : [];
+    }catch{
+      return [];
+    }
+  })();
+
+  const merged=new Map();
+
+  // Recovery é o mais antigo; backup e cache atual têm prioridade.
+  for(const server of recovery){
+    if(server?.id) merged.set(server.id,server);
   }
 
-  return parseCache(localStorage.getItem('ecord-server-backup'));
+  for(const server of backup){
+    if(server?.id) merged.set(server.id,server);
+  }
+
+  for(const server of primary){
+    if(server?.id) merged.set(server.id,server);
+  }
+
+  return [...merged.values()];
 }
 
 function cacheServers(list){
   try{
-    const safe = (Array.isArray(list) ? list : [])
+    const incoming=(Array.isArray(list) ? list : [])
       .map(safeServerSnapshot)
       .filter(Boolean);
 
-    const payload = JSON.stringify(safe);
+    const previous=getCachedServers();
+    const merged=new Map();
 
-    localStorage.setItem('ecord-server-cache',payload);
+    for(const server of previous){
+      if(server?.id) merged.set(server.id,server);
+    }
 
+    for(const server of incoming){
+      if(server?.id) merged.set(server.id,server);
+    }
+
+    const safe=[...merged.values()];
+    const payload=JSON.stringify(safe);
+
+    // Nunca substitui um backup cheio por uma resposta vazia/incompleta.
     if(safe.length){
+      localStorage.setItem('ecord-server-cache',payload);
       localStorage.setItem('ecord-server-backup',payload);
     }
 
     if(state.profileReady){
       saveLocalRecoverySnapshot();
     }
-  }catch{}
+  }catch(error){
+    console.warn('Não foi possível salvar o backup local dos servidores',error);
+  }
 }
 
-function migrateLegacyOwnedServers(){
-  if(state.legacyServerMigrationDone || !state.profileReady || !state.userId) return;
+function syncOwnedServersToBackend(force=false){
+  if(!state.profileReady || !state.userId || !socket.connected) return;
 
-  state.legacyServerMigrationDone=true;
+  const now=Date.now();
+
+  if(!force && now-state.lastOwnedServerSyncAt<2500){
+    return;
+  }
 
   const cached=getCachedServers();
 
   const owned=cached
     .filter(server=>String(server?.ownerId || '')===String(state.userId))
+    .map(safeServerSnapshot)
+    .filter(Boolean)
     .slice(0,100);
+
+  state.lastOwnedServerSyncAt=now;
 
   if(!owned.length) return;
 
-  socket.emit('migrate-owned-servers',{
-    servers:owned.map(safeServerSnapshot).filter(Boolean)
+  socket.emit('sync-owned-servers',{
+    servers:owned
   });
 }
 
@@ -9392,6 +9438,7 @@ socket.on('auth-success',payload=>{
   applyAuthProfile(payload?.profile,payload?.token);
   startAuthKeepalive();
 
+  setTimeout(()=>syncOwnedServersToBackend(true),120);
   setTimeout(handlePendingServerInvite,80);
 
   if(payload?.recoveredAfterUpdate){
@@ -9520,7 +9567,7 @@ socket.on('profile-saved',profile=>{
 
   // Garantia extra para F5: agora que o usuário está identificado,
   // solicita novamente apenas os servidores aos quais ele tem acesso.
-  migrateLegacyOwnedServers();
+  syncOwnedServersToBackend(true);
   socket.emit('get-servers');
   socket.emit('get-friend-state');
 
@@ -9710,8 +9757,15 @@ socket.on('server-list',list=>{
     cacheServers(state.servers);
   }
 
-  // Se existem itens antigos só no cache, tenta migrá-los com segurança.
-  migrateLegacyOwnedServers();
+  // Garante que servidores próprios antigos/locais sejam reenviados ao backend
+  // sempre que uma atualização ou reconexão devolver uma lista incompleta.
+  const missingOwned=cachedOwned.filter(cached=>!incoming.some(server=>server?.id===cached.id));
+
+  if(missingOwned.length){
+    socket.emit('sync-owned-servers',{
+      servers:missingOwned.map(safeServerSnapshot).filter(Boolean)
+    });
+  }
 
   const params=new URLSearchParams(location.search);
   const requested=
@@ -9787,7 +9841,15 @@ socket.on('server-list',list=>{
   restoreCurrentView();
 });
 
-socket.on('owned-servers-migrated',()=>{
+socket.on('owned-servers-synced',payload=>{
+  if(Array.isArray(payload?.restoredIds) && payload.restoredIds.length){
+    toast(
+      payload.restoredIds.length===1
+        ? 'Servidor salvo foi recuperado'
+        : payload.restoredIds.length + ' servidores salvos foram recuperados'
+    );
+  }
+
   socket.emit('get-servers');
 });
 
@@ -9835,13 +9897,37 @@ socket.on('server-settings-updated',({serverId,message})=>{
   toast(message || 'Servidor atualizado');
 });
 
+function removeServerFromLocalBackups(serverId){
+  try{
+    const safeId=String(serverId || '');
+    const remaining=getCachedServers().filter(server=>server.id!==safeId);
+    const payload=JSON.stringify(remaining);
+
+    localStorage.setItem('ecord-server-cache',payload);
+    localStorage.setItem('ecord-server-backup',payload);
+
+    const recovery=readLocalRecoverySnapshot();
+
+    if(recovery){
+      recovery.servers=remaining;
+      recovery.savedAt=Date.now();
+      localStorage.setItem('acord-recovery-v1',JSON.stringify(recovery));
+    }
+  }catch{}
+}
+
 socket.on('server-deleted',({serverId})=>{
+  removeServerFromLocalBackups(serverId);
+
+  state.servers=(state.servers || []).filter(server=>server.id!==serverId);
+
   if(state.serverId===serverId){
-    state.serverId = null;
-    state.textChannelId = null;
-    state.voiceChannelId = null;
+    state.serverId=null;
+    state.textChannelId=null;
+    state.voiceChannelId=null;
   }
 
+  renderServers();
   toast('Servidor apagado');
 });
 
@@ -10043,6 +10129,8 @@ socket.on('disconnect',()=>{
 });
 
 socket.on('connect',()=>{
+  state.lastOwnedServerSyncAt=0;
+
   if($('#authError') && !state.profileReady){
     $('#authError').textContent='';
     resetAuthSubmitButton();
@@ -10090,6 +10178,7 @@ app.get('/health', (req,res) => {
     dataVersion:9,
     dataFile:DATA_FILE,
     persistentDataDir:DEFAULT_PERSIST_DIR,
+    persistentDiskDetected:DEFAULT_PERSIST_DIR==='/var/data' || !!process.env.PERSISTENT_DATA_DIR,
     uptime:Math.round(process.uptime())
   });
 });
@@ -11003,31 +11092,32 @@ io.on('connection', socket => {
   });
 
 
-  socket.on('migrate-owned-servers', ({ servers:legacyServers }) => {
+  socket.on('sync-owned-servers', ({ servers:ownedServers }) => {
     if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
-    if(!Array.isArray(legacyServers)) return;
+    if(!Array.isArray(ownedServers)) return;
 
     let changed=false;
+    const restoredIds=[];
 
-    for(const raw of legacyServers.slice(0,100)){
+    for(const raw of ownedServers.slice(0,100)){
       const serverId=String(raw?.id || '').slice(0,80);
       const ownerId=String(raw?.ownerId || '').slice(0,100);
 
-      // Segurança: só é permitido importar servidor explicitamente pertencente
-      // à própria conta autenticada. Nunca assume servidor de outra pessoa.
+      // Somente o verdadeiro dono autenticado pode restaurar o servidor.
       if(!serverId || ownerId!==String(socket.data.userId)) continue;
 
       const existing=servers.get(serverId);
 
       if(existing){
-        // Se já existe no backend, apenas garante a associação do dono.
-        if(existing.ownerId===socket.data.userId &&
-           !(existing.members || []).includes(socket.data.userId)){
+        if(existing.ownerId!==socket.data.userId) continue;
+
+        if(!(existing.members || []).includes(socket.data.userId)){
           existing.members=[
             ...new Set([socket.data.userId,...(existing.members || [])])
           ];
           changed=true;
         }
+
         continue;
       }
 
@@ -11036,7 +11126,12 @@ io.on('connection', socket => {
         {
           id:serverId,
           ownerId:socket.data.userId,
-          members:[socket.data.userId],
+          members:Array.isArray(raw?.members)
+            ? [...new Set([
+                socket.data.userId,
+                ...raw.members.map(value=>String(value || '').slice(0,100)).filter(Boolean)
+              ])]
+            : [socket.data.userId],
           inviteToken:String(raw?.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
           icon:String(raw?.icon || '').slice(0,350000),
           accent:raw?.accent,
@@ -11045,15 +11140,18 @@ io.on('connection', socket => {
           textChannels:raw?.textChannels,
           voiceChannels:raw?.voiceChannels,
           categories:raw?.categories,
-          roles:raw?.roles
+          roles:raw?.roles,
+          messages:raw?.messages
         }
       );
 
       if(created){
         changed=true;
+        restoredIds.push(created.id);
+
         recordAudit(
           created.id,
-          'migrate-owned-server',
+          'restore-owned-server',
           socket.data.username || 'Usuário',
           created.id
         );
@@ -11067,8 +11165,12 @@ io.on('connection', socket => {
       sendServerList(socket);
     }
 
-    socket.emit('owned-servers-migrated');
+    socket.emit('owned-servers-synced',{
+      restoredIds,
+      total:publicServersForUser(socket.data.userId).length
+    });
   });
+
 
   socket.on('create-server', ({ name }) => {
     if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
