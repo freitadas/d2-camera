@@ -3279,6 +3279,75 @@ html,body{
   opacity:1;
 }
 
+
+.hotkeySettingCard{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  padding:15px;
+  margin-bottom:10px;
+  border:1px solid var(--line);
+  background:var(--bg2);
+  border-radius:12px;
+}
+.hotkeySettingText{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.hotkeySettingText strong{
+  color:var(--text);
+  font-size:13px;
+}
+.hotkeySettingText span{
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.45;
+}
+.hotkeySettingControls{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.hotkeyValue{
+  min-width:92px;
+  padding:8px 10px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  color:var(--text);
+  border-radius:8px;
+  font-size:11px;
+  font-weight:800;
+  text-align:center;
+}
+.hotkeyValue.listening{
+  border-color:var(--coral);
+  color:var(--coral2);
+}
+.hotkeyCaptureHint{
+  margin-top:12px;
+  padding:11px 12px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  color:var(--muted);
+  font-size:11px;
+}
+@media(max-width:700px){
+  .hotkeySettingCard{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .hotkeySettingControls{
+    width:100%;
+    justify-content:flex-start;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -3893,11 +3962,12 @@ html,body{
 <div id="profileModalWrap" class="modalWrap hidden">
   <div class="modal">
     <h2>Meu perfil</h2>
-    <p>Edite seu perfil ou altere a aparência do site.</p>
+    <p>Edite seu perfil, aparência e configurações pessoais.</p>
 
     <div class="profileTabs">
       <button id="profileInfoTabBtn" class="profileTabBtn active" type="button">Perfil</button>
       <button id="profileAppearanceTabBtn" class="profileTabBtn" type="button">Aparência</button>
+      <button id="profileSettingsTabBtn" class="profileTabBtn" type="button">Configurações</button>
     </div>
 
     <div id="profileInfoTab" class="profileTabPanel active">
@@ -4009,6 +4079,42 @@ html,body{
       </div>
 
 
+    </div>
+
+    <div id="profileSettingsTab" class="profileTabPanel">
+      <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Atalhos da chamada</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:14px;">
+        Escolha uma tecla para controlar rapidamente o microfone e o áudio da call.
+        Clique em “Definir tecla” e depois pressione a tecla desejada.
+      </div>
+
+      <div class="hotkeySettingCard">
+        <div class="hotkeySettingText">
+          <strong>Mutar / desmutar microfone</strong>
+          <span>Ativa ou desativa seu microfone durante uma chamada.</span>
+        </div>
+        <div class="hotkeySettingControls">
+          <span id="micHotkeyValue" class="hotkeyValue">Não definido</span>
+          <button id="setMicHotkeyBtn" class="btn secondary small" type="button">Definir tecla</button>
+          <button id="clearMicHotkeyBtn" class="btn secondary small" type="button">Remover</button>
+        </div>
+      </div>
+
+      <div class="hotkeySettingCard">
+        <div class="hotkeySettingText">
+          <strong>Mutar / desmutar fone</strong>
+          <span>Silencia ou reativa todo o áudio das outras pessoas da call.</span>
+        </div>
+        <div class="hotkeySettingControls">
+          <span id="deafenHotkeyValue" class="hotkeyValue">Não definido</span>
+          <button id="setDeafenHotkeyBtn" class="btn secondary small" type="button">Definir tecla</button>
+          <button id="clearDeafenHotkeyBtn" class="btn secondary small" type="button">Remover</button>
+        </div>
+      </div>
+
+      <div id="hotkeyCaptureHint" class="hotkeyCaptureHint hidden">
+        Pressione uma tecla agora. Esc cancela.
+      </div>
     </div>
 
     <div class="accountDangerZone">
@@ -4207,6 +4313,9 @@ const state = {
   noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
   preferredMicId:localStorage.getItem('acord-mic-device')||'',
   preferredCameraId:localStorage.getItem('acord-camera-device')||'',
+  micHotkey:localStorage.getItem('acord-hotkey-mic')||'',
+  deafenHotkey:localStorage.getItem('acord-hotkey-deafen')||'',
+  capturingHotkey:null,
   musicShuffle:localStorage.getItem('acord-music-shuffle')==='1',
   musicRepeat:localStorage.getItem('acord-music-repeat')==='1',
   musicFavorites:new Set((()=>{
@@ -4984,14 +5093,218 @@ function refreshOwnProfileUI(){
 
 
 function setProfileTab(tab){
-  const appearance = tab === 'appearance';
+  const appearance=tab==='appearance';
+  const settings=tab==='settings';
+  const profile=!appearance && !settings;
 
-  $('#profileInfoTabBtn').classList.toggle('active',!appearance);
+  $('#profileInfoTabBtn').classList.toggle('active',profile);
   $('#profileAppearanceTabBtn').classList.toggle('active',appearance);
+  $('#profileSettingsTabBtn').classList.toggle('active',settings);
 
-  $('#profileInfoTab').classList.toggle('active',!appearance);
+  $('#profileInfoTab').classList.toggle('active',profile);
   $('#profileAppearanceTab').classList.toggle('active',appearance);
+  $('#profileSettingsTab').classList.toggle('active',settings);
+
+  if(settings){
+    updateHotkeySettingsUI();
+  }else{
+    cancelHotkeyCapture();
+  }
 }
+
+function hotkeyLabel(code){
+  const map={
+    Space:'Espaço',
+    Escape:'Esc',
+    Enter:'Enter',
+    Tab:'Tab',
+    Backspace:'Backspace',
+    Delete:'Delete',
+    ArrowUp:'↑',
+    ArrowDown:'↓',
+    ArrowLeft:'←',
+    ArrowRight:'→',
+    ShiftLeft:'Shift esquerdo',
+    ShiftRight:'Shift direito',
+    ControlLeft:'Ctrl esquerdo',
+    ControlRight:'Ctrl direito',
+    AltLeft:'Alt esquerdo',
+    AltRight:'Alt direito',
+    MetaLeft:'Windows',
+    MetaRight:'Windows',
+    CapsLock:'Caps Lock'
+  };
+
+  if(map[code]) return map[code];
+
+  if(/^Key[A-Z]$/.test(code)){
+    return code.slice(3);
+  }
+
+  if(/^Digit[0-9]$/.test(code)){
+    return code.slice(5);
+  }
+
+  if(/^F([1-9]|1[0-2])$/.test(code)){
+    return code;
+  }
+
+  if(/^Numpad/.test(code)){
+    return code.replace('Numpad','Num ');
+  }
+
+  return code || 'Não definido';
+}
+
+function updateHotkeySettingsUI(){
+  const mic=$('#micHotkeyValue');
+  const deafen=$('#deafenHotkeyValue');
+
+  if(mic){
+    mic.textContent=state.micHotkey
+      ? hotkeyLabel(state.micHotkey)
+      : 'Não definido';
+
+    mic.classList.toggle('listening',state.capturingHotkey==='mic');
+  }
+
+  if(deafen){
+    deafen.textContent=state.deafenHotkey
+      ? hotkeyLabel(state.deafenHotkey)
+      : 'Não definido';
+
+    deafen.classList.toggle('listening',state.capturingHotkey==='deafen');
+  }
+
+  const hint=$('#hotkeyCaptureHint');
+
+  if(hint){
+    hint.classList.toggle('hidden',!state.capturingHotkey);
+
+    if(state.capturingHotkey){
+      hint.textContent=
+        'Pressione a tecla para ' +
+        (state.capturingHotkey==='mic' ? 'mutar o microfone' : 'mutar o fone') +
+        '. Esc cancela.';
+    }
+  }
+}
+
+function beginHotkeyCapture(type){
+  state.capturingHotkey=type;
+  updateHotkeySettingsUI();
+
+  const value=type==='mic'
+    ? $('#micHotkeyValue')
+    : $('#deafenHotkeyValue');
+
+  if(value){
+    value.textContent='Pressione uma tecla...';
+  }
+}
+
+function cancelHotkeyCapture(){
+  if(!state.capturingHotkey) return;
+
+  state.capturingHotkey=null;
+  updateHotkeySettingsUI();
+}
+
+function saveHotkey(type,code){
+  if(type==='mic'){
+    state.micHotkey=code;
+    localStorage.setItem('acord-hotkey-mic',code);
+
+    if(state.deafenHotkey===code){
+      state.deafenHotkey='';
+      localStorage.removeItem('acord-hotkey-deafen');
+    }
+  }else{
+    state.deafenHotkey=code;
+    localStorage.setItem('acord-hotkey-deafen',code);
+
+    if(state.micHotkey===code){
+      state.micHotkey='';
+      localStorage.removeItem('acord-hotkey-mic');
+    }
+  }
+
+  state.capturingHotkey=null;
+  updateHotkeySettingsUI();
+  toast('Atalho salvo: ' + hotkeyLabel(code));
+}
+
+function clearHotkey(type){
+  if(type==='mic'){
+    state.micHotkey='';
+    localStorage.removeItem('acord-hotkey-mic');
+  }else{
+    state.deafenHotkey='';
+    localStorage.removeItem('acord-hotkey-deafen');
+  }
+
+  if(state.capturingHotkey===type){
+    state.capturingHotkey=null;
+  }
+
+  updateHotkeySettingsUI();
+  toast('Atalho removido');
+}
+
+function shouldIgnoreCallHotkey(event){
+  const target=event.target;
+
+  if(
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target?.isContentEditable
+  ){
+    return true;
+  }
+
+  return false;
+}
+
+function handleCallHotkey(event){
+  if(state.capturingHotkey){
+    event.preventDefault();
+    event.stopPropagation();
+
+    if(event.code==='Escape'){
+      cancelHotkeyCapture();
+      return;
+    }
+
+    // Não usa somente modificadores como atalho isolado.
+    if([
+      'ShiftLeft','ShiftRight',
+      'ControlLeft','ControlRight',
+      'AltLeft','AltRight',
+      'MetaLeft','MetaRight'
+    ].includes(event.code)){
+      return;
+    }
+
+    saveHotkey(state.capturingHotkey,event.code);
+    return;
+  }
+
+  if(event.repeat || shouldIgnoreCallHotkey(event)) return;
+  if(!state.joinedVoiceId) return;
+
+  if(state.micHotkey && event.code===state.micHotkey){
+    event.preventDefault();
+    toggleMic();
+    return;
+  }
+
+  if(state.deafenHotkey && event.code===state.deafenHotkey){
+    event.preventDefault();
+    toggleDeafen();
+  }
+}
+
 
 function openProfileModal(){
   if(!state.profileReady || !state.userId){
@@ -5020,11 +5333,13 @@ function openProfileModal(){
   updateProfileThemeButtons();
   updateProfilePaletteButtons();
   updateCustomColorUI(state.pendingCustomColor || '#ff6b4a');
+  updateHotkeySettingsUI();
   setProfileTab('profile');
   $('#profileModalWrap').classList.remove('hidden');
 }
 
 function closeProfileModal(){
+  cancelHotkeyCapture();
   $('#profileModalWrap').classList.add('hidden');
 
   if(state.pendingTheme !== null){
@@ -8581,7 +8896,7 @@ function applyDeafenState(){
   const button = $('#deafenBtn');
 
   if(button){
-    button.textContent = muted ? '🔇 Áudio mutado' : 'Áudio';
+    button.textContent = muted ? '🔇 Fone mutado' : 'Fone';
     button.classList.toggle('off',muted);
   }
 }
@@ -9242,6 +9557,26 @@ $('#profileAppearanceTabBtn').addEventListener('click',()=>{
   setProfileTab('appearance');
 });
 
+$('#profileSettingsTabBtn').addEventListener('click',()=>{
+  setProfileTab('settings');
+});
+
+$('#setMicHotkeyBtn').addEventListener('click',()=>{
+  beginHotkeyCapture('mic');
+});
+
+$('#setDeafenHotkeyBtn').addEventListener('click',()=>{
+  beginHotkeyCapture('deafen');
+});
+
+$('#clearMicHotkeyBtn').addEventListener('click',()=>{
+  clearHotkey('mic');
+});
+
+$('#clearDeafenHotkeyBtn').addEventListener('click',()=>{
+  clearHotkey('deafen');
+});
+
 document.querySelectorAll('[data-profile-theme]').forEach(button=>{
   button.addEventListener('click',()=>{
     const selectedTheme = button.dataset.profileTheme;
@@ -9584,6 +9919,8 @@ $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
 $('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
 $('#deafenBtn').addEventListener('click',toggleDeafen);
+
+document.addEventListener('keydown',handleCallHotkey,true);
 $('#audioGateBtn').addEventListener('click',async()=>{
   await unlockAllRemoteAudio();
   $('#audioGateBtn').classList.add('hidden');
