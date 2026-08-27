@@ -1049,8 +1049,31 @@ function publicServersForUser(userId) {
     .map(publicServer);
 }
 
+function syncSocketServerRooms(socket){
+  if(!socket?.data?.userId) return;
+
+  const allowedIds=new Set(
+    publicServersForUser(socket.data.userId).map(server=>String(server.id))
+  );
+
+  for(const room of socket.rooms || []){
+    if(
+      String(room).startsWith('server:') &&
+      !allowedIds.has(String(room).slice(7))
+    ){
+      socket.leave(room);
+    }
+  }
+
+  for(const serverId of allowedIds){
+    socket.join('server:'+serverId);
+  }
+}
+
 function sendServerList(socket) {
   if (!socket?.data?.userId) return;
+
+  syncSocketServerRooms(socket);
   socket.emit('server-list', publicServersForUser(socket.data.userId));
 }
 
@@ -1154,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v5';
+const CACHE='acord-app-stable-v16';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -7078,9 +7101,24 @@ function showMessages(history){
 }
 
 function appendMessage(m){
+  if(!m) return;
+
+  const safeMessageId=String(m.id || '');
+
+  if(
+    safeMessageId &&
+    document.querySelector(
+      '#messages .message[data-message-id="' +
+      safeMessageId.replace(/"/g,'') +
+      '"]'
+    )
+  ){
+    return;
+  }
+
   const row=document.createElement('div');
   row.className='message'+(m.userId===state.userId || m.senderId===socket.id?' mine':'');
-  row.dataset.messageId=m.id||'';
+  row.dataset.messageId=safeMessageId;
 
   if(m.replyTo){
     const reply=document.createElement('div');reply.className='messageReply';
@@ -7183,10 +7221,23 @@ function sendMessage(){
       }
 
       if(!error && response?.ok){
+        // O broadcast normal deve chegar pelo evento chat-message.
+        // Este fallback garante que quem enviou veja a mensagem mesmo se
+        // o evento em tempo real se perder durante reconexão/atualização.
+        if(
+          response.message &&
+          response.message.serverId===state.serverId &&
+          response.message.channelId===state.textChannelId
+        ){
+          appendMessage(response.message);
+        }
+
         input.value='';
         state.replyToMessageId=null;
         state.pendingChatAttachment=null;
         $('#replyBar').classList.add('hidden');
+
+        toast('Mensagem enviada');
         input.focus();
         return;
       }
@@ -10315,8 +10366,8 @@ socket.on('chat-message-updated',message=>{
 socket.on('chat-message-deleted',payload=>{
   if(
     !payload ||
-    payload.serverId!==state.serverId ||
-    payload.channelId!==state.textChannelId
+    String(payload.serverId)!==String(state.serverId) ||
+    String(payload.channelId)!==String(state.textChannelId)
   ){
     return;
   }
@@ -10898,7 +10949,15 @@ socket.on('text-history',payload=>{
   showMessages(Array.isArray(payload.history) ? payload.history : []);
 });
 socket.on('chat-message',m=>{
-  if(m.serverId===state.serverId && m.channelId===state.textChannelId) appendMessage(m);
+  if(
+    !m ||
+    String(m.serverId)!==String(state.serverId) ||
+    String(m.channelId)!==String(state.textChannelId)
+  ){
+    return;
+  }
+
+  appendMessage(m);
 });
 
 socket.on('voice-participants',async participants=>{
@@ -12863,26 +12922,27 @@ io.on('connection', socket => {
   });
 
   function emitChatMessageToServerMembers(serverData,message){
-    if(!serverData || !message) return;
+    if(!serverData || !message) return 0;
 
-    const memberIds=new Set(
-      Array.isArray(serverData.members)
-        ? serverData.members.map(value=>String(value || ''))
-        : []
-    );
+    const room='server:'+String(serverData.id || '');
 
-    if(serverData.ownerId){
-      memberIds.add(String(serverData.ownerId));
-    }
+    // Revalida as salas dos sockets antes de publicar. Assim usuários que
+    // entraram por convite ou voltaram após atualização recebem as mensagens.
+    let delivered=0;
 
     for(const client of io.sockets.sockets.values()){
-      if(
-        client.data.userId &&
-        memberIds.has(String(client.data.userId))
-      ){
-        client.emit('chat-message',message);
+      if(requireServerAccess(serverData,client)){
+        if(!client.rooms.has(room)){
+          client.join(room);
+        }
+        delivered+=1;
+      }else if(client.rooms.has(room)){
+        client.leave(room);
       }
     }
+
+    io.to(room).emit('chat-message',message);
+    return delivered;
   }
 
   socket.on('join-text', ({ serverId, channelId },ack) => {
@@ -13010,12 +13070,14 @@ io.on('connection', socket => {
 
     // A mensagem não depende mais de o usuário estar inscrito na sala Socket.IO
     // do canal. Todos os membros online do servidor recebem o evento.
-    emitChatMessageToServerMembers(s,message);
+    const deliveredTo=emitChatMessageToServerMembers(s,message);
 
     reply({
       ok:true,
       messageId:message.id,
-      saved:true
+      message,
+      saved:true,
+      deliveredTo
     });
   });
 
