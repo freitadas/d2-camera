@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v16';
+const CACHE='acord-app-stable-v17';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3778,11 +3778,11 @@ html,body{
           <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
         </div>
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
-        <div class="compose" style="grid-template-columns:auto 1fr auto;">
+        <form id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
-          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem...">
-          <button id="sendBtn" class="btn primary">Enviar</button>
-        </div>
+          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
+          <button id="sendBtn" class="btn primary" type="submit">Enviar</button>
+        </form>
       </section>
 
       <section id="voiceView" class="view voiceView hidden">
@@ -4335,6 +4335,7 @@ const state = {
   textJoinTimer:null,
   textJoinAttempts:0,
   textJoinKey:'',
+  chatSendPending:false,
   pushToTalk:localStorage.getItem('acord-ptt')==='1',
   noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
   preferredMicId:localStorage.getItem('acord-mic-device')||'',
@@ -7026,6 +7027,7 @@ function requestTextJoin(serverId,channelId){
 
 
 function selectText(channelId){
+  state.chatSendPending=false;
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
   state.textChannelId = channelId;
@@ -7183,6 +7185,8 @@ function appendMessage(m){
 }
 
 function sendMessage(){
+  if(state.chatSendPending) return;
+
   const input=$('#messageInput');
   const messageText=input.value.trim().slice(0,2000);
 
@@ -7193,6 +7197,13 @@ function sendMessage(){
   ){
     return;
   }
+
+  if(!socket.connected){
+    toast('Reconectando. Tente enviar novamente em alguns segundos.');
+    return;
+  }
+
+  state.chatSendPending=true;
 
   const payload={
     serverId:state.serverId,
@@ -7211,6 +7222,7 @@ function sendMessage(){
     'chat-message',
     payload,
     (error,response)=>{
+      state.chatSendPending=false;
       $('#sendBtn').disabled=false;
 
       if(
@@ -10074,7 +10086,25 @@ $('#chatImageInput').addEventListener('change',async event=>{
   }catch{toast('Não foi possível anexar a imagem')}
   event.target.value='';
 });
-$('#messageInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendMessage()});
+$('#chatComposeForm').addEventListener('submit',event=>{
+  event.preventDefault();
+  sendMessage();
+});
+
+$('#messageInput').addEventListener('keydown',event=>{
+  if(event.isComposing) return;
+
+  const isEnter=
+    event.key==='Enter' ||
+    event.code==='Enter' ||
+    event.code==='NumpadEnter';
+
+  if(!isEnter || event.shiftKey) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  sendMessage();
+});
 
 $('#dmSearch').addEventListener('input',renderDmContacts);
 $('#dmSendBtn').addEventListener('click',sendDm);
