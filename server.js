@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v19';
+const CACHE='acord-app-stable-v20';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4342,6 +4342,14 @@ const state = {
   textJoinAttempts:0,
   textJoinKey:'',
   chatSendPending:false,
+  queuedServerMessages:(()=>{
+    try{
+      const value=JSON.parse(localStorage.getItem('acord-server-message-queue')||'[]');
+      return Array.isArray(value) ? value.slice(-100) : [];
+    }catch{
+      return [];
+    }
+  })(),
   pushToTalk:localStorage.getItem('acord-ptt')==='1',
   noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
   preferredMicId:localStorage.getItem('acord-mic-device')||'',
@@ -7193,6 +7201,67 @@ function appendMessage(m){
   $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
+function saveServerMessageQueue(){
+  try{
+    localStorage.setItem(
+      'acord-server-message-queue',
+      JSON.stringify((state.queuedServerMessages || []).slice(-100))
+    );
+  }catch{}
+}
+
+function queueServerMessage(payload){
+  if(!payload?.clientNonce) return;
+
+  const exists=(state.queuedServerMessages || []).some(
+    item=>item?.clientNonce===payload.clientNonce
+  );
+
+  if(!exists){
+    state.queuedServerMessages=[
+      ...(state.queuedServerMessages || []),
+      payload
+    ].slice(-100);
+  }
+
+  saveServerMessageQueue();
+}
+
+function removeQueuedServerMessage(clientNonce){
+  state.queuedServerMessages=(state.queuedServerMessages || []).filter(
+    item=>item?.clientNonce!==clientNonce
+  );
+  saveServerMessageQueue();
+}
+
+function flushQueuedServerMessages(){
+  if(!socket.connected || !state.profileReady) return;
+
+  const queued=[...(state.queuedServerMessages || [])];
+
+  for(const payload of queued){
+    socket.timeout(3000).emit(
+      'chat-message',
+      payload,
+      (error,response)=>{
+        if(!error && response?.ok){
+          removeQueuedServerMessage(payload.clientNonce);
+
+          if(
+            response.message &&
+            String(response.message.serverId)===String(state.serverId) &&
+            String(response.message.channelId)===String(state.textChannelId)
+          ){
+            resolvePendingChatMessage(payload.clientNonce);
+            appendMessage(response.message);
+          }
+        }
+      }
+    );
+  }
+}
+
+
 function appendPendingChatMessage(text,attachment,clientNonce){
   const message={
     id:'pending-'+clientNonce,
@@ -7263,16 +7332,17 @@ function sendMessage(){
 
   const expectedServerId=state.serverId;
   const expectedChannelId=state.textChannelId;
-  const attachment=state.pendingChatAttachment;
 
-  // Mostra imediatamente para quem enviou.
+  // A mensagem é aceita localmente imediatamente e entra numa fila persistente.
+  // Isso não depende de nenhum outro membro estar online.
+  queueServerMessage(payload);
+
   appendPendingChatMessage(
     messageText,
-    attachment,
+    state.pendingChatAttachment,
     payload.clientNonce
   );
 
-  // Limpa o campo imediatamente, sem esperar ACK.
   input.value='';
   state.replyToMessageId=null;
   state.pendingChatAttachment=null;
@@ -7280,53 +7350,42 @@ function sendMessage(){
   input.focus();
 
   const attemptSend=attempt=>{
-    if(
-      state.serverId!==expectedServerId ||
-      state.textChannelId!==expectedChannelId
-    ){
-      return;
-    }
-
-    if(!socket.connected){
-      if(attempt<4){
-        setTimeout(()=>attemptSend(attempt+1),700);
-      }else{
-        resolvePendingChatMessage(payload.clientNonce);
-        toast('Não foi possível enviar: conexão indisponível');
+    // O usuário pode até navegar para outro canal; a mensagem continua na fila.
+    if(!socket.connected || !state.profileReady){
+      if(attempt<5){
+        setTimeout(()=>attemptSend(attempt+1),900);
       }
       return;
     }
 
-    socket.timeout(2800).emit(
+    socket.timeout(3000).emit(
       'chat-message',
       payload,
       (error,response)=>{
         if(!error && response?.ok){
-          resolvePendingChatMessage(payload.clientNonce);
+          removeQueuedServerMessage(payload.clientNonce);
 
-          if(response.message){
+          if(
+            response.message &&
+            String(response.message.serverId)===String(state.serverId) &&
+            String(response.message.channelId)===String(state.textChannelId)
+          ){
+            resolvePendingChatMessage(payload.clientNonce);
             appendMessage(response.message);
           }
 
           return;
         }
 
-        // Se o servidor antigo ainda não chegou ao backend, força a
-        // sincronização local e tenta novamente.
-        if(attempt<4){
+        if(attempt<5){
           syncOwnedServersToBackend(true);
           requestTextJoin(expectedServerId,expectedChannelId);
 
           setTimeout(
             ()=>attemptSend(attempt+1),
-            650 + attempt*350
+            700 + attempt*350
           );
-
-          return;
         }
-
-        resolvePendingChatMessage(payload.clientNonce);
-        toast(response?.error || 'Não foi possível enviar a mensagem');
       }
     );
   };
@@ -10366,6 +10425,7 @@ socket.on('auth-success',payload=>{
   startAuthKeepalive();
 
   setTimeout(()=>syncOwnedServersToBackend(true),120);
+  setTimeout(flushQueuedServerMessages,300);
   setTimeout(handlePendingServerInvite,80);
 
   if(payload?.recoveredAfterUpdate){
@@ -11035,8 +11095,8 @@ socket.on('text-history',payload=>{
 
   if(
     !payload ||
-    payload.serverId!==state.serverId ||
-    payload.channelId!==state.textChannelId
+    String(payload.serverId)!==String(state.serverId) ||
+    String(payload.channelId)!==String(state.textChannelId)
   ){
     return;
   }
@@ -11269,6 +11329,8 @@ socket.on('connect',()=>{
       ){
         requestTextJoin(state.serverId,state.textChannelId);
       }
+
+      flushQueuedServerMessages();
     }
   },800);
 });
@@ -13021,27 +13083,23 @@ io.on('connection', socket => {
   });
 
   function emitChatMessageToServerMembers(serverData,message){
-    if(!serverData || !message) return 0;
+    if(!serverData || !message) return;
 
     const room='server:'+String(serverData.id || '');
 
-    // Revalida as salas dos sockets antes de publicar. Assim usuários que
-    // entraram por convite ou voltaram após atualização recebem as mensagens.
-    let delivered=0;
-
+    // Persistência vem primeiro: a mensagem já foi salva no histórico.
+    // Esta etapa apenas atualiza em tempo real quem estiver conectado agora.
     for(const client of io.sockets.sockets.values()){
       if(requireServerAccess(serverData,client)){
         if(!client.rooms.has(room)){
           client.join(room);
         }
-        delivered+=1;
       }else if(client.rooms.has(room)){
         client.leave(room);
       }
     }
 
     io.to(room).emit('chat-message',message);
-    return delivered;
   }
 
   socket.on('join-text', ({ serverId, channelId },ack) => {
@@ -13170,14 +13228,13 @@ io.on('connection', socket => {
 
     // A mensagem não depende mais de o usuário estar inscrito na sala Socket.IO
     // do canal. Todos os membros online do servidor recebem o evento.
-    const deliveredTo=emitChatMessageToServerMembers(s,message);
+    emitChatMessageToServerMembers(s,message);
 
     reply({
       ok:true,
       messageId:message.id,
       message,
-      saved:true,
-      deliveredTo
+      saved:true
     });
   });
 
