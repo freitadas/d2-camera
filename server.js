@@ -10288,11 +10288,42 @@ socket.on('auth-logout-success',clearAccountState);
 socket.on('account-deleted',()=>{clearAccountState();alert('Sua conta foi excluída.')});
 socket.on('profile-error',payload=>toast(payload?.error||'Não foi possível salvar o perfil'));
 socket.on('chat-message-updated',message=>{
-  if(message?.serverId!==state.serverId||message?.channelId!==state.textChannelId)return;
-  document.querySelector('.message[data-message-id="' + message.id + '"]')?.remove();
-  appendMessage(message);
+  if(
+    !message ||
+    message.serverId!==state.serverId ||
+    message.channelId!==state.textChannelId
+  ){
+    return;
+  }
+
+  const node=document.querySelector(
+    '.message[data-message-id="' + String(message.id || '').replace(/"/g,'') + '"]'
+  );
+
+  if(!node) return;
+
+  const historyNode=[...document.querySelectorAll('#messages .message')];
+  const index=historyNode.indexOf(node);
+
+  // Forma mais segura: recarrega o histórico atual para refletir texto/reação.
+  socket.emit('join-text',{
+    serverId:state.serverId,
+    channelId:state.textChannelId
+  });
 });
-socket.on('chat-message-deleted',({messageId})=>document.querySelector('.message[data-message-id="' + messageId + '"]')?.remove());
+
+socket.on('chat-message-deleted',payload=>{
+  if(
+    !payload ||
+    payload.serverId!==state.serverId ||
+    payload.channelId!==state.textChannelId
+  ){
+    return;
+  }
+
+  requestTextJoin(state.serverId,state.textChannelId);
+});
+
 socket.on('stage-hand-raised',data=>{
   toast('✋ '+(data?.username||'Alguém')+' pediu para falar');
   maybeNotify('Acord · Palco',(data?.username||'Alguém')+' levantou a mão');
@@ -10850,7 +10881,22 @@ socket.on('voice-channel-removed',({serverId,channelId,message})=>{
   toast(message || 'O canal de voz foi excluído');
 });
 
-socket.on('text-history',history=>showMessages(history));
+socket.on('text-history',payload=>{
+  if(Array.isArray(payload)){
+    showMessages(payload);
+    return;
+  }
+
+  if(
+    !payload ||
+    payload.serverId!==state.serverId ||
+    payload.channelId!==state.textChannelId
+  ){
+    return;
+  }
+
+  showMessages(Array.isArray(payload.history) ? payload.history : []);
+});
 socket.on('chat-message',m=>{
   if(m.serverId===state.serverId && m.channelId===state.textChannelId) appendMessage(m);
 });
@@ -12816,6 +12862,29 @@ io.on('connection', socket => {
     }
   });
 
+  function emitChatMessageToServerMembers(serverData,message){
+    if(!serverData || !message) return;
+
+    const memberIds=new Set(
+      Array.isArray(serverData.members)
+        ? serverData.members.map(value=>String(value || ''))
+        : []
+    );
+
+    if(serverData.ownerId){
+      memberIds.add(String(serverData.ownerId));
+    }
+
+    for(const client of io.sockets.sockets.values()){
+      if(
+        client.data.userId &&
+        memberIds.has(String(client.data.userId))
+      ){
+        client.emit('chat-message',message);
+      }
+    }
+  }
+
   socket.on('join-text', ({ serverId, channelId },ack) => {
     const reply=typeof ack==='function' ? ack : ()=>{};
 
@@ -12857,7 +12926,11 @@ io.on('connection', socket => {
 
     const history=s.messages.get(safeChannelId) || [];
 
-    socket.emit('text-history',history);
+    socket.emit('text-history',{
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      history
+    });
 
     reply({
       ok:true,
@@ -12934,11 +13007,15 @@ io.on('connection', socket => {
     if(history.length>500) history.splice(0,history.length-500);
     s.messages.set(safeChannelId,history);
     saveServersToDisk();
-    io.to(room).emit('chat-message',message);
+
+    // A mensagem não depende mais de o usuário estar inscrito na sala Socket.IO
+    // do canal. Todos os membros online do servidor recebem o evento.
+    emitChatMessageToServerMembers(s,message);
 
     reply({
       ok:true,
-      messageId:message.id
+      messageId:message.id,
+      saved:true
     });
   });
 
@@ -12951,7 +13028,18 @@ io.on('connection', socket => {
     message.text=String(text||'').trim().slice(0,2000);
     message.edited=true;
     saveServersToDisk();
-    io.to(`text:${serverId}:${channelId}`).emit('chat-message-updated',message);
+
+    for(const client of io.sockets.sockets.values()){
+      if(
+        client.data.userId &&
+        (
+          client.data.userId===s.ownerId ||
+          (s.members || []).includes(client.data.userId)
+        )
+      ){
+        client.emit('chat-message-updated',message);
+      }
+    }
   });
 
   socket.on('chat-delete',({serverId,channelId,messageId})=>{
@@ -12965,7 +13053,22 @@ io.on('connection', socket => {
     if(!canManage) return;
     history.splice(index,1);
     saveServersToDisk();
-    io.to(`text:${serverId}:${channelId}`).emit('chat-message-deleted',{messageId});
+
+    for(const client of io.sockets.sockets.values()){
+      if(
+        client.data.userId &&
+        (
+          client.data.userId===s.ownerId ||
+          (s.members || []).includes(client.data.userId)
+        )
+      ){
+        client.emit('chat-message-deleted',{
+          serverId,
+          channelId,
+          messageId
+        });
+      }
+    }
   });
 
   socket.on('chat-react',({serverId,channelId,messageId,emoji})=>{
@@ -12982,7 +13085,18 @@ io.on('connection', socket => {
     else users.add(socket.data.userId);
     message.reactions[emoji]=[...users].slice(0,500);
     saveServersToDisk();
-    io.to(`text:${serverId}:${channelId}`).emit('chat-message-updated',message);
+
+    for(const client of io.sockets.sockets.values()){
+      if(
+        client.data.userId &&
+        (
+          client.data.userId===s.ownerId ||
+          (s.members || []).includes(client.data.userId)
+        )
+      ){
+        client.emit('chat-message-updated',message);
+      }
+    }
   });
 
   function leaveVoiceRoom() {
