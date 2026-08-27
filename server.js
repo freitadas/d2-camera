@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v20';
+const CACHE='acord-app-stable-v21';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3377,6 +3377,11 @@ html,body{
   border-style:dashed;
 }
 
+
+#sendBtn:active{
+  transform:translateY(1px) scale(.98);
+}
+
 </style>
 </head>
 <body>
@@ -3784,11 +3789,11 @@ html,body{
           <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
         </div>
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
-        <form id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
+        <div id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
           <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
-          <button id="sendBtn" class="btn primary" type="submit">Enviar</button>
-        </form>
+          <button id="sendBtn" class="btn primary" type="button" onclick="sendServerTextNow();return false;">Enviar</button>
+        </div>
       </section>
 
       <section id="voiceView" class="view voiceView hidden">
@@ -7307,40 +7312,47 @@ function resolvePendingChatMessage(clientNonce){
 }
 
 
-function sendMessage(){
+function sendServerTextNow(){
   const input=$('#messageInput');
-  const messageText=input.value.trim().slice(0,2000);
 
-  if(
-    (!messageText && !state.pendingChatAttachment) ||
-    !state.serverId ||
-    !state.textChannelId
-  ){
-    return;
+  if(!input) return false;
+
+  const messageText=String(input.value || '').trim().slice(0,2000);
+  const server=currentServer();
+  const channel=currentText();
+
+  const serverId=state.serverId || server?.id || '';
+  const channelId=state.textChannelId || channel?.id || '';
+
+  if(!messageText && !state.pendingChatAttachment){
+    input.focus();
+    return false;
   }
 
+  if(!serverId || !channelId){
+    toast('Abra um canal de texto antes de enviar');
+    input.focus();
+    return false;
+  }
+
+  const clientNonce=
+    String(Date.now()) + '-' +
+    Math.random().toString(36).slice(2,10);
+
   const payload={
-    serverId:state.serverId,
-    channelId:state.textChannelId,
+    serverId,
+    channelId,
     text:messageText,
     replyTo:state.replyToMessageId,
     attachment:state.pendingChatAttachment,
-    clientNonce:
-      String(Date.now()) + '-' +
-      Math.random().toString(36).slice(2,10)
+    clientNonce
   };
 
-  const expectedServerId=state.serverId;
-  const expectedChannelId=state.textChannelId;
-
-  // A mensagem é aceita localmente imediatamente e entra numa fila persistente.
-  // Isso não depende de nenhum outro membro estar online.
-  queueServerMessage(payload);
-
+  // Mostra na tela imediatamente. O clique nunca depende de outra pessoa online.
   appendPendingChatMessage(
     messageText,
     state.pendingChatAttachment,
-    payload.clientNonce
+    clientNonce
   );
 
   input.value='';
@@ -7349,48 +7361,51 @@ function sendMessage(){
   $('#replyBar').classList.add('hidden');
   input.focus();
 
-  const attemptSend=attempt=>{
-    // O usuário pode até navegar para outro canal; a mensagem continua na fila.
+  queueServerMessage(payload);
+
+  const sendToBackend=attempt=>{
     if(!socket.connected || !state.profileReady){
-      if(attempt<5){
-        setTimeout(()=>attemptSend(attempt+1),900);
+      if(attempt<8){
+        setTimeout(()=>sendToBackend(attempt+1),800);
       }
       return;
     }
 
-    socket.timeout(3000).emit(
+    socket.timeout(3500).emit(
       'chat-message',
       payload,
       (error,response)=>{
         if(!error && response?.ok){
-          removeQueuedServerMessage(payload.clientNonce);
+          removeQueuedServerMessage(clientNonce);
+          resolvePendingChatMessage(clientNonce);
 
-          if(
-            response.message &&
-            String(response.message.serverId)===String(state.serverId) &&
-            String(response.message.channelId)===String(state.textChannelId)
-          ){
-            resolvePendingChatMessage(payload.clientNonce);
+          if(response.message){
             appendMessage(response.message);
           }
-
           return;
         }
 
-        if(attempt<5){
+        if(attempt<8){
           syncOwnedServersToBackend(true);
-          requestTextJoin(expectedServerId,expectedChannelId);
 
           setTimeout(
-            ()=>attemptSend(attempt+1),
-            700 + attempt*350
+            ()=>sendToBackend(attempt+1),
+            700 + attempt*250
           );
+        }else{
+          toast('A mensagem ficou salva para tentar enviar novamente');
         }
       }
     );
   };
 
-  attemptSend(1);
+  sendToBackend(1);
+  return false;
+}
+
+
+function sendMessage(){
+  return sendServerTextNow();
 }
 
 function normalizeFriendList(list){
@@ -10150,7 +10165,11 @@ $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$(
 
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
-$('#sendBtn').addEventListener('click',sendMessage);
+$('#sendBtn').addEventListener('click',event=>{
+  event.preventDefault();
+  event.stopPropagation();
+  sendServerTextNow();
+});
 $('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
 $('#contextReplyBtn').addEventListener('click',()=>{
   const message=messageContextTarget;
@@ -10213,11 +10232,6 @@ $('#chatImageInput').addEventListener('change',async event=>{
   }catch{toast('Não foi possível anexar a imagem')}
   event.target.value='';
 });
-$('#chatComposeForm').addEventListener('submit',event=>{
-  event.preventDefault();
-  sendMessage();
-});
-
 $('#messageInput').addEventListener('keydown',event=>{
   if(event.isComposing) return;
 
@@ -10226,7 +10240,8 @@ $('#messageInput').addEventListener('keydown',event=>{
     !event.shiftKey
   ){
     event.preventDefault();
-    sendMessage();
+    event.stopPropagation();
+    sendServerTextNow();
   }
 });
 
