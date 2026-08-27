@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v21';
+const CACHE='acord-app-stable-v22';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3792,7 +3792,7 @@ html,body{
         <div id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
           <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
-          <button id="sendBtn" class="btn primary" type="button" onclick="sendServerTextNow();return false;">Enviar</button>
+          <button id="sendBtn" class="btn primary" type="button">Enviar</button>
         </div>
       </section>
 
@@ -7048,33 +7048,40 @@ function requestTextJoin(serverId,channelId){
 
 
 function selectText(channelId){
-  state.chatSendPending=false;
-  $('#sendBtn').disabled=false;
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
-  state.textChannelId = channelId;
+
+  state.textChannelId=channelId;
+
   localStorage.setItem('ecord-last-text-channel-id',channelId);
 
   if(state.serverId){
-    localStorage.setItem('ecord-server-' + state.serverId + '-text',channelId);
+    localStorage.setItem(
+      'ecord-server-' + state.serverId + '-text',
+      channelId
+    );
   }
 
   renderSidebar();
-  const c = currentText();
-  $('#chatTitle').textContent = c?.name || 'chat';
-  $('#messageInput').placeholder = 'Mensagem em #' + (c?.name || 'chat');
-  setView('chat');
+
+  const channel=currentText();
+
+  $('#chatTitle').textContent=channel?.name || 'chat';
+  $('#messageInput').placeholder=
+    'Mensagem em #' + (channel?.name || 'chat');
 
   $('#messageInput').disabled=false;
   $('#sendBtn').disabled=false;
+  $('#messages').innerHTML='';
 
-  requestTextJoin(state.serverId,channelId);
+  setView('chat');
 
-  setTimeout(()=>{
-    if(state.currentView==='chat'){
-      $('#messageInput').focus();
-    }
-  },80);
+  socket.emit('public-chat-history',{
+    serverId:state.serverId,
+    channelId
+  });
+
+  $('#messageInput').focus();
 }
 
 function selectVoice(channelId){
@@ -7118,10 +7125,10 @@ function selectVoice(channelId){
 }
 
 function showMessages(history){
-  const box = $('#messages');
-  box.innerHTML = '';
-  history.forEach(m=>appendMessage(m));
-  box.scrollTop = box.scrollHeight;
+  const box=$('#messages');
+  box.innerHTML='';
+  (Array.isArray(history) ? history : []).forEach(appendPublicChatMessage);
+  box.scrollTop=box.scrollHeight;
 }
 
 function appendMessage(m){
@@ -7312,100 +7319,74 @@ function resolvePendingChatMessage(clientNonce){
 }
 
 
-function sendServerTextNow(){
-  const input=$('#messageInput');
+function appendPublicChatMessage(message){
+  if(!message) return;
 
-  if(!input) return false;
+  const box=$('#messages');
+  if(!box) return;
 
-  const messageText=String(input.value || '').trim().slice(0,2000);
-  const server=currentServer();
-  const channel=currentText();
-
-  const serverId=state.serverId || server?.id || '';
-  const channelId=state.textChannelId || channel?.id || '';
-
-  if(!messageText && !state.pendingChatAttachment){
-    input.focus();
-    return false;
+  if(
+    message.id &&
+    box.querySelector(
+      '.message[data-message-id="' +
+      String(message.id).replace(/"/g,'') +
+      '"]'
+    )
+  ){
+    return;
   }
 
-  if(!serverId || !channelId){
-    toast('Abra um canal de texto antes de enviar');
-    input.focus();
-    return false;
+  const mine=String(message.userId)===String(state.userId);
+
+  const row=document.createElement('div');
+  row.className='message' + (mine ? ' mine' : '');
+  row.dataset.messageId=message.id || '';
+
+  const strong=document.createElement('strong');
+  strong.textContent=message.username || 'Usuário';
+
+  const span=document.createElement('span');
+  span.textContent=message.text || '';
+
+  row.append(strong,span);
+
+  if(message.attachment?.data){
+    const image=document.createElement('img');
+    image.className='messageAttachment';
+    image.src=message.attachment.data;
+    image.alt=message.attachment.name || 'Imagem';
+    row.appendChild(image);
   }
 
-  const clientNonce=
-    String(Date.now()) + '-' +
-    Math.random().toString(36).slice(2,10);
-
-  const payload={
-    serverId,
-    channelId,
-    text:messageText,
-    replyTo:state.replyToMessageId,
-    attachment:state.pendingChatAttachment,
-    clientNonce
-  };
-
-  // Mostra na tela imediatamente. O clique nunca depende de outra pessoa online.
-  appendPendingChatMessage(
-    messageText,
-    state.pendingChatAttachment,
-    clientNonce
-  );
-
-  input.value='';
-  state.replyToMessageId=null;
-  state.pendingChatAttachment=null;
-  $('#replyBar').classList.add('hidden');
-  input.focus();
-
-  queueServerMessage(payload);
-
-  const sendToBackend=attempt=>{
-    if(!socket.connected || !state.profileReady){
-      if(attempt<8){
-        setTimeout(()=>sendToBackend(attempt+1),800);
-      }
-      return;
-    }
-
-    socket.timeout(3500).emit(
-      'chat-message',
-      payload,
-      (error,response)=>{
-        if(!error && response?.ok){
-          removeQueuedServerMessage(clientNonce);
-          resolvePendingChatMessage(clientNonce);
-
-          if(response.message){
-            appendMessage(response.message);
-          }
-          return;
-        }
-
-        if(attempt<8){
-          syncOwnedServersToBackend(true);
-
-          setTimeout(
-            ()=>sendToBackend(attempt+1),
-            700 + attempt*250
-          );
-        }else{
-          toast('A mensagem ficou salva para tentar enviar novamente');
-        }
-      }
-    );
-  };
-
-  sendToBackend(1);
-  return false;
+  box.appendChild(row);
+  box.scrollTop=box.scrollHeight;
 }
 
+function sendPublicChat(){
+  const input=$('#messageInput');
+  if(!input) return;
+
+  const text=String(input.value || '').trim().slice(0,2000);
+
+  if(!text && !state.pendingChatAttachment) return;
+  if(!state.serverId || !state.textChannelId) return;
+
+  socket.emit('public-chat-message',{
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    text,
+    attachment:state.pendingChatAttachment
+  });
+
+  input.value='';
+  state.pendingChatAttachment=null;
+  state.replyToMessageId=null;
+  $('#replyBar').classList.add('hidden');
+  input.focus();
+}
 
 function sendMessage(){
-  return sendServerTextNow();
+  sendPublicChat();
 }
 
 function normalizeFriendList(list){
@@ -10165,11 +10146,7 @@ $('#roleColor').addEventListener('input',()=>{$('#roleColorText').textContent=$(
 
 $('#inviteBtn').addEventListener('click',copyInvite);
 $('#quickInviteBtn').addEventListener('click',copyInvite);
-$('#sendBtn').addEventListener('click',event=>{
-  event.preventDefault();
-  event.stopPropagation();
-  sendServerTextNow();
-});
+$('#sendBtn').addEventListener('click',sendPublicChat);
 $('#replyCancelBtn').addEventListener('click',()=>{state.replyToMessageId=null;$('#replyBar').classList.add('hidden')});
 $('#contextReplyBtn').addEventListener('click',()=>{
   const message=messageContextTarget;
@@ -10233,15 +10210,9 @@ $('#chatImageInput').addEventListener('change',async event=>{
   event.target.value='';
 });
 $('#messageInput').addEventListener('keydown',event=>{
-  if(event.isComposing) return;
-
-  if(
-    (event.key==='Enter' || event.code==='Enter' || event.code==='NumpadEnter') &&
-    !event.shiftKey
-  ){
+  if(event.key==='Enter' && !event.shiftKey){
     event.preventDefault();
-    event.stopPropagation();
-    sendServerTextNow();
+    sendPublicChat();
   }
 });
 
@@ -10749,6 +10720,36 @@ socket.on('group-message',message=>{
   }
 });
 
+socket.on('public-chat-history',payload=>{
+  if(!payload) return;
+
+  if(
+    String(payload.serverId)!==String(state.serverId) ||
+    String(payload.channelId)!==String(state.textChannelId)
+  ){
+    return;
+  }
+
+  $('#messages').innerHTML='';
+
+  (Array.isArray(payload.messages) ? payload.messages : [])
+    .forEach(appendPublicChatMessage);
+});
+
+socket.on('public-chat-message',message=>{
+  if(!message) return;
+
+  if(
+    String(message.serverId)!==String(state.serverId) ||
+    String(message.channelId)!==String(state.textChannelId)
+  ){
+    return;
+  }
+
+  appendPublicChatMessage(message);
+});
+
+
 socket.on('dm-history',history=>{
   $('#dmMessages').innerHTML='';
   (Array.isArray(history) ? history : []).forEach(appendDmMessage);
@@ -11102,37 +11103,9 @@ socket.on('voice-channel-removed',({serverId,channelId,message})=>{
   toast(message || 'O canal de voz foi excluído');
 });
 
-socket.on('text-history',payload=>{
-  if(Array.isArray(payload)){
-    showMessages(payload);
-    return;
-  }
+socket.on('text-history',()=>{});
 
-  if(
-    !payload ||
-    String(payload.serverId)!==String(state.serverId) ||
-    String(payload.channelId)!==String(state.textChannelId)
-  ){
-    return;
-  }
-
-  showMessages(Array.isArray(payload.history) ? payload.history : []);
-});
-socket.on('chat-message',m=>{
-  if(
-    !m ||
-    String(m.serverId)!==String(state.serverId) ||
-    String(m.channelId)!==String(state.textChannelId)
-  ){
-    return;
-  }
-
-  if(m.clientNonce){
-    resolvePendingChatMessage(m.clientNonce);
-  }
-
-  appendMessage(m);
-});
+socket.on('chat-message',()=>{});
 
 socket.on('voice-participants',async participants=>{
   const safeParticipants=Array.isArray(participants) ? participants : [];
@@ -13116,6 +13089,90 @@ io.on('connection', socket => {
 
     io.to(room).emit('chat-message',message);
   }
+
+  socket.on('public-chat-history', ({ serverId, channelId }) => {
+    if(!socket.data.userId) return;
+
+    const safeServerId=String(serverId || '').slice(0,80);
+    const safeChannelId=String(channelId || '').slice(0,80);
+    const serverData=servers.get(safeServerId);
+
+    if(
+      !serverData ||
+      !requireServerAccess(serverData,socket) ||
+      !serverData.textChannels.some(channel=>channel.id===safeChannelId)
+    ){
+      return;
+    }
+
+    socket.emit('public-chat-history',{
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      messages:serverData.messages.get(safeChannelId) || []
+    });
+  });
+
+  socket.on('public-chat-message', ({ serverId, channelId, text, attachment }) => {
+    if(!socket.data.userId) return;
+
+    const safeServerId=String(serverId || '').slice(0,80);
+    const safeChannelId=String(channelId || '').slice(0,80);
+    const serverData=servers.get(safeServerId);
+
+    if(
+      !serverData ||
+      !requireServerAccess(serverData,socket) ||
+      !serverData.textChannels.some(channel=>channel.id===safeChannelId)
+    ){
+      return;
+    }
+
+    const safeText=String(text || '').trim().slice(0,2000);
+
+    const safeAttachment=
+      attachment &&
+      String(attachment.type || '').startsWith('image/') &&
+      String(attachment.data || '').startsWith('data:image/') &&
+      String(attachment.data || '').length<=900000
+        ? {
+            name:String(attachment.name || 'imagem').slice(0,80),
+            type:String(attachment.type || '').slice(0,80),
+            data:String(attachment.data || '')
+          }
+        : null;
+
+    if(!safeText && !safeAttachment) return;
+
+    const message={
+      id:id(),
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      userId:socket.data.userId,
+      username:socket.data.username || 'Usuário',
+      text:safeText,
+      attachment:safeAttachment,
+      at:Date.now()
+    };
+
+    const history=serverData.messages.get(safeChannelId) || [];
+    history.push(message);
+
+    if(history.length>500){
+      history.splice(0,history.length-500);
+    }
+
+    serverData.messages.set(safeChannelId,history);
+    saveServersToDisk();
+
+    // Igual ao DM, mas público dentro do servidor:
+    // envia para todo socket autenticado que seja membro deste servidor.
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(serverData,client)){
+        client.emit('public-chat-message',message);
+      }
+    }
+  });
+
 
   socket.on('join-text', ({ serverId, channelId },ack) => {
     const reply=typeof ack==='function' ? ack : ()=>{};
