@@ -4309,6 +4309,9 @@ const state = {
   selectedServerMemberId:null,
   replyToMessageId:null,
   pendingChatAttachment:null,
+  textJoinTimer:null,
+  textJoinAttempts:0,
+  textJoinKey:'',
   pushToTalk:localStorage.getItem('acord-ptt')==='1',
   noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
   preferredMicId:localStorage.getItem('acord-mic-device')||'',
@@ -6934,6 +6937,71 @@ function selectServer(serverId){
   history.replaceState(null,'',url);
 }
 
+function clearTextJoinRetry(){
+  if(state.textJoinTimer){
+    clearTimeout(state.textJoinTimer);
+    state.textJoinTimer=null;
+  }
+
+  state.textJoinAttempts=0;
+  state.textJoinKey='';
+}
+
+function requestTextJoin(serverId,channelId){
+  if(!serverId || !channelId || !socket.connected) return;
+
+  const key=String(serverId)+':'+String(channelId);
+
+  if(state.textJoinKey!==key){
+    clearTextJoinRetry();
+    state.textJoinKey=key;
+  }
+
+  state.textJoinAttempts+=1;
+
+  socket.timeout(2200).emit(
+    'join-text',
+    {serverId,channelId},
+    (error,response)=>{
+      if(
+        state.serverId!==serverId ||
+        state.textChannelId!==channelId
+      ){
+        return;
+      }
+
+      if(!error && response?.ok){
+        clearTextJoinRetry();
+
+        if(Array.isArray(response.history)){
+          showMessages(response.history);
+        }
+
+        $('#messageInput').disabled=false;
+        $('#sendBtn').disabled=false;
+        return;
+      }
+
+      $('#messageInput').disabled=true;
+      $('#sendBtn').disabled=true;
+
+      if(state.textJoinAttempts<4){
+        state.textJoinTimer=setTimeout(()=>{
+          // Se o servidor ainda estiver apenas no backup local, reenviamos ao backend.
+          syncOwnedServersToBackend(true);
+          requestTextJoin(serverId,channelId);
+        },700 + state.textJoinAttempts*350);
+      }else{
+        clearTextJoinRetry();
+        $('#messageInput').disabled=false;
+        $('#sendBtn').disabled=false;
+        toast(response?.error || 'Não foi possível abrir o chat. Tente novamente.');
+      }
+    }
+  );
+}
+
+
 function selectText(channelId){
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
@@ -6948,12 +7016,22 @@ function selectText(channelId){
   const c = currentText();
   $('#chatTitle').textContent = c?.name || 'chat';
   $('#messageInput').placeholder = 'Mensagem em #' + (c?.name || 'chat');
-  socket.emit('join-text',{serverId:state.serverId,channelId});
   setView('chat');
-  $('#messageInput').focus();
+
+  $('#messageInput').disabled=true;
+  $('#sendBtn').disabled=true;
+
+  requestTextJoin(state.serverId,channelId);
+
+  setTimeout(()=>{
+    if(state.currentView==='chat'){
+      $('#messageInput').focus();
+    }
+  },80);
 }
 
 function selectVoice(channelId){
+  clearTextJoinRetry();
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
   state.voiceChannelId = channelId;
@@ -7069,13 +7147,59 @@ function appendMessage(m){
 function sendMessage(){
   const input=$('#messageInput');
   const messageText=input.value.trim().slice(0,2000);
-  if((!messageText&&!state.pendingChatAttachment)||!state.serverId||!state.textChannelId)return;
-  socket.emit('chat-message',{
-    serverId:state.serverId,channelId:state.textChannelId,text:messageText,
-    replyTo:state.replyToMessageId,attachment:state.pendingChatAttachment
-  });
-  input.value='';state.replyToMessageId=null;state.pendingChatAttachment=null;
-  $('#replyBar').classList.add('hidden');input.focus();
+
+  if(
+    (!messageText && !state.pendingChatAttachment) ||
+    !state.serverId ||
+    !state.textChannelId
+  ){
+    return;
+  }
+
+  const payload={
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    text:messageText,
+    replyTo:state.replyToMessageId,
+    attachment:state.pendingChatAttachment
+  };
+
+  const expectedServerId=state.serverId;
+  const expectedChannelId=state.textChannelId;
+
+  $('#sendBtn').disabled=true;
+
+  socket.timeout(3000).emit(
+    'chat-message',
+    payload,
+    (error,response)=>{
+      $('#sendBtn').disabled=false;
+
+      if(
+        state.serverId!==expectedServerId ||
+        state.textChannelId!==expectedChannelId
+      ){
+        return;
+      }
+
+      if(!error && response?.ok){
+        input.value='';
+        state.replyToMessageId=null;
+        state.pendingChatAttachment=null;
+        $('#replyBar').classList.add('hidden');
+        input.focus();
+        return;
+      }
+
+      // Se o chat perdeu a sala após reconexão, entra novamente e tenta uma vez.
+      if(response?.reason==='not-joined'){
+        requestTextJoin(expectedServerId,expectedChannelId);
+      }
+
+      toast(response?.error || 'Não foi possível enviar a mensagem');
+      input.focus();
+    }
+  );
 }
 
 
@@ -10930,7 +11054,19 @@ socket.on('connect',()=>{
     }
   }
 
-  setTimeout(()=>{if(state.appInitialized&&state.profileReady)restoreCurrentView()},150);
+  setTimeout(()=>{
+    if(state.appInitialized&&state.profileReady){
+      restoreCurrentView();
+
+      if(
+        state.currentView==='chat' &&
+        state.serverId &&
+        state.textChannelId
+      ){
+        requestTextJoin(state.serverId,state.textChannelId);
+      }
+    }
+  },800);
 });
 </script>
 </body>
@@ -12680,25 +12816,95 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('join-text', ({ serverId, channelId }) => {
-    const s = servers.get(serverId);
-    if (!s || !requireServerAccess(s,socket) || !s.textChannels.some(c => c.id === channelId)) return;
+  socket.on('join-text', ({ serverId, channelId },ack) => {
+    const reply=typeof ack==='function' ? ack : ()=>{};
 
-    if (socket.data.textRoom) socket.leave(socket.data.textRoom);
+    if(!socket.data.userId){
+      reply({ok:false,error:'Sessão não identificada'});
+      return;
+    }
 
-    const room = `text:${serverId}:${channelId}`;
-    socket.data.textRoom = room;
-    socket.data.textServerId = serverId;
-    socket.data.textChannelId = channelId;
+    const safeServerId=String(serverId || '').slice(0,80);
+    const safeChannelId=String(channelId || '').slice(0,80);
+    const s=servers.get(safeServerId);
+
+    if(!s){
+      reply({ok:false,error:'Servidor ainda não sincronizado'});
+      return;
+    }
+
+    if(!requireServerAccess(s,socket)){
+      reply({ok:false,error:'Você não tem acesso a este servidor'});
+      return;
+    }
+
+    if(!s.textChannels.some(c=>c.id===safeChannelId)){
+      reply({ok:false,error:'Chat não encontrado'});
+      return;
+    }
+
+    if(socket.data.textRoom){
+      socket.leave(socket.data.textRoom);
+    }
+
+    const room='text:'+safeServerId+':'+safeChannelId;
+
+    socket.data.textRoom=room;
+    socket.data.textServerId=safeServerId;
+    socket.data.textChannelId=safeChannelId;
+
     socket.join(room);
 
-    socket.emit('text-history', s.messages.get(channelId) || []);
+    const history=s.messages.get(safeChannelId) || [];
+
+    socket.emit('text-history',history);
+
+    reply({
+      ok:true,
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      history
+    });
   });
 
-  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment }) => {
-    const s=servers.get(serverId);
-    if(!s || !requireServerAccess(s,socket)) return;
-    if(!s.textChannels.some(channel=>channel.id===channelId)) return;
+  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment },ack) => {
+    const reply=typeof ack==='function' ? ack : ()=>{};
+    const safeServerId=String(serverId || '').slice(0,80);
+    const safeChannelId=String(channelId || '').slice(0,80);
+    const s=servers.get(safeServerId);
+
+    if(!socket.data.userId){
+      reply({ok:false,error:'Sessão não identificada'});
+      return;
+    }
+
+    if(!s){
+      reply({ok:false,error:'Servidor ainda não sincronizado'});
+      return;
+    }
+
+    if(!requireServerAccess(s,socket)){
+      reply({ok:false,error:'Você não tem acesso a este servidor'});
+      return;
+    }
+
+    if(!s.textChannels.some(channel=>channel.id===safeChannelId)){
+      reply({ok:false,error:'Chat não encontrado'});
+      return;
+    }
+
+    const room='text:'+safeServerId+':'+safeChannelId;
+
+    if(
+      socket.data.textRoom!==room ||
+      socket.data.textServerId!==safeServerId ||
+      socket.data.textChannelId!==safeChannelId
+    ){
+      socket.data.textRoom=room;
+      socket.data.textServerId=safeServerId;
+      socket.data.textChannelId=safeChannelId;
+      socket.join(room);
+    }
 
     const cleanText=String(text||'').trim().slice(0,2000);
     const safeAttachment=
@@ -12713,19 +12919,27 @@ io.on('connection', socket => {
           }
         : null;
 
-    if(!cleanText && !safeAttachment) return;
+    if(!cleanText && !safeAttachment){
+      reply({ok:false,error:'Mensagem vazia'});
+      return;
+    }
 
-    const history=s.messages.get(channelId)||[];
+    const history=s.messages.get(safeChannelId)||[];
     const message={
-      id:id(),serverId,channelId,senderId:socket.id,userId:socket.data.userId,
+      id:id(),serverId:safeServerId,channelId:safeChannelId,senderId:socket.id,userId:socket.data.userId,
       username:socket.data.username||'Usuário',text:cleanText,attachment:safeAttachment,
       replyTo:String(replyTo||'').slice(0,80)||null,reactions:{},at:Date.now(),edited:false
     };
     history.push(message);
     if(history.length>500) history.splice(0,history.length-500);
-    s.messages.set(channelId,history);
+    s.messages.set(safeChannelId,history);
     saveServersToDisk();
-    io.to(`text:${serverId}:${channelId}`).emit('chat-message',message);
+    io.to(room).emit('chat-message',message);
+
+    reply({
+      ok:true,
+      messageId:message.id
+    });
   });
 
   socket.on('chat-edit',({serverId,channelId,messageId,text})=>{
