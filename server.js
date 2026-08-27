@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v17';
+const CACHE='acord-app-stable-v18';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3780,7 +3780,8 @@ html,body{
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
         <form id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
-          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
+          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off"
+            onkeydown="if((event.key==='Enter'||event.code==='NumpadEnter')&&!event.shiftKey&&!event.isComposing){event.preventDefault();event.stopPropagation();sendMessageFromEnter();return false;}">
           <button id="sendBtn" class="btn primary" type="submit">Enviar</button>
         </form>
       </section>
@@ -7028,6 +7029,7 @@ function requestTextJoin(serverId,channelId){
 
 function selectText(channelId){
   state.chatSendPending=false;
+  $('#sendBtn').disabled=false;
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
   state.textChannelId = channelId;
@@ -7184,6 +7186,20 @@ function appendMessage(m){
   $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
+let lastChatEnterAt=0;
+
+function sendMessageFromEnter(){
+  const now=Date.now();
+
+  // Evita que o mesmo Enter seja processado duas vezes pelo navegador.
+  if(now-lastChatEnterAt<250) return false;
+
+  lastChatEnterAt=now;
+  sendMessage();
+  return false;
+}
+
+
 function sendMessage(){
   if(state.chatSendPending) return;
 
@@ -7204,6 +7220,19 @@ function sendMessage(){
   }
 
   state.chatSendPending=true;
+
+  const pendingStartedAt=Date.now();
+
+  // Nunca deixa o chat travado indefinidamente se o ACK se perder.
+  setTimeout(()=>{
+    if(
+      state.chatSendPending &&
+      Date.now()-pendingStartedAt>=4500
+    ){
+      state.chatSendPending=false;
+      $('#sendBtn').disabled=false;
+    }
+  },4700);
 
   const payload={
     serverId:state.serverId,
@@ -10088,7 +10117,7 @@ $('#chatImageInput').addEventListener('change',async event=>{
 });
 $('#chatComposeForm').addEventListener('submit',event=>{
   event.preventDefault();
-  sendMessage();
+  sendMessageFromEnter();
 });
 
 $('#messageInput').addEventListener('keydown',event=>{
@@ -10102,8 +10131,8 @@ $('#messageInput').addEventListener('keydown',event=>{
   if(!isEnter || event.shiftKey) return;
 
   event.preventDefault();
-  event.stopPropagation();
-  sendMessage();
+  event.stopImmediatePropagation();
+  sendMessageFromEnter();
 });
 
 $('#dmSearch').addEventListener('input',renderDmContacts);
@@ -10124,6 +10153,21 @@ $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
 $('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
 $('#deafenBtn').addEventListener('click',toggleDeafen);
+
+document.addEventListener('keydown',event=>{
+  if(event.target!==$('#messageInput')) return;
+  if(event.isComposing || event.shiftKey) return;
+
+  const isEnter=
+    event.key==='Enter' ||
+    event.code==='Enter' ||
+    event.code==='NumpadEnter';
+
+  if(!isEnter) return;
+
+  event.preventDefault();
+  sendMessageFromEnter();
+},true);
 
 document.addEventListener('keydown',handleCallHotkey,true);
 $('#audioGateBtn').addEventListener('click',async()=>{
