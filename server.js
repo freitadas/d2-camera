@@ -1177,7 +1177,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v18';
+const CACHE='acord-app-stable-v19';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3371,6 +3371,12 @@ html,body{
   }
 }
 
+
+.message.pendingMessage{
+  opacity:.62;
+  border-style:dashed;
+}
+
 </style>
 </head>
 <body>
@@ -3780,8 +3786,7 @@ html,body{
         <input id="chatImageInput" class="hidden" type="file" accept="image/*">
         <form id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
-          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off"
-            onkeydown="if((event.key==='Enter'||event.code==='NumpadEnter')&&!event.shiftKey&&!event.isComposing){event.preventDefault();event.stopPropagation();sendMessageFromEnter();return false;}">
+          <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
           <button id="sendBtn" class="btn primary" type="submit">Enviar</button>
         </form>
       </section>
@@ -7007,8 +7012,10 @@ function requestTextJoin(serverId,channelId){
         return;
       }
 
-      $('#messageInput').disabled=true;
-      $('#sendBtn').disabled=true;
+      // O usuário continua podendo escrever e enviar enquanto o backend
+      // sincroniza o servidor/canal.
+      $('#messageInput').disabled=false;
+      $('#sendBtn').disabled=false;
 
       if(state.textJoinAttempts<4){
         state.textJoinTimer=setTimeout(()=>{
@@ -7045,8 +7052,8 @@ function selectText(channelId){
   $('#messageInput').placeholder = 'Mensagem em #' + (c?.name || 'chat');
   setView('chat');
 
-  $('#messageInput').disabled=true;
-  $('#sendBtn').disabled=true;
+  $('#messageInput').disabled=false;
+  $('#sendBtn').disabled=false;
 
   requestTextJoin(state.serverId,channelId);
 
@@ -7186,23 +7193,52 @@ function appendMessage(m){
   $('#messages').appendChild(row);$('#messages').scrollTop=$('#messages').scrollHeight;
 }
 
-let lastChatEnterAt=0;
+function appendPendingChatMessage(text,attachment,clientNonce){
+  const message={
+    id:'pending-'+clientNonce,
+    clientNonce,
+    serverId:state.serverId,
+    channelId:state.textChannelId,
+    senderId:socket.id,
+    userId:state.userId,
+    username:state.username || 'Usuário',
+    text:text || '',
+    attachment:attachment || null,
+    replyTo:state.replyToMessageId || null,
+    reactions:{},
+    at:Date.now(),
+    edited:false,
+    pending:true
+  };
 
-function sendMessageFromEnter(){
-  const now=Date.now();
+  appendMessage(message);
 
-  // Evita que o mesmo Enter seja processado duas vezes pelo navegador.
-  if(now-lastChatEnterAt<250) return false;
+  const node=document.querySelector(
+    '#messages .message[data-message-id="pending-' +
+    String(clientNonce).replace(/"/g,'') +
+    '"]'
+  );
 
-  lastChatEnterAt=now;
-  sendMessage();
-  return false;
+  if(node){
+    node.dataset.clientNonce=clientNonce;
+    node.classList.add('pendingMessage');
+  }
+}
+
+function resolvePendingChatMessage(clientNonce){
+  if(!clientNonce) return;
+
+  const node=document.querySelector(
+    '#messages .message[data-client-nonce="' +
+    String(clientNonce).replace(/"/g,'') +
+    '"]'
+  );
+
+  if(node) node.remove();
 }
 
 
 function sendMessage(){
-  if(state.chatSendPending) return;
-
   const input=$('#messageInput');
   const messageText=input.value.trim().slice(0,2000);
 
@@ -7214,86 +7250,89 @@ function sendMessage(){
     return;
   }
 
-  if(!socket.connected){
-    toast('Reconectando. Tente enviar novamente em alguns segundos.');
-    return;
-  }
-
-  state.chatSendPending=true;
-
-  const pendingStartedAt=Date.now();
-
-  // Nunca deixa o chat travado indefinidamente se o ACK se perder.
-  setTimeout(()=>{
-    if(
-      state.chatSendPending &&
-      Date.now()-pendingStartedAt>=4500
-    ){
-      state.chatSendPending=false;
-      $('#sendBtn').disabled=false;
-    }
-  },4700);
-
   const payload={
     serverId:state.serverId,
     channelId:state.textChannelId,
     text:messageText,
     replyTo:state.replyToMessageId,
-    attachment:state.pendingChatAttachment
+    attachment:state.pendingChatAttachment,
+    clientNonce:
+      String(Date.now()) + '-' +
+      Math.random().toString(36).slice(2,10)
   };
 
   const expectedServerId=state.serverId;
   const expectedChannelId=state.textChannelId;
+  const attachment=state.pendingChatAttachment;
 
-  $('#sendBtn').disabled=true;
+  // Mostra imediatamente para quem enviou.
+  appendPendingChatMessage(
+    messageText,
+    attachment,
+    payload.clientNonce
+  );
 
-  socket.timeout(3000).emit(
-    'chat-message',
-    payload,
-    (error,response)=>{
-      state.chatSendPending=false;
-      $('#sendBtn').disabled=false;
+  // Limpa o campo imediatamente, sem esperar ACK.
+  input.value='';
+  state.replyToMessageId=null;
+  state.pendingChatAttachment=null;
+  $('#replyBar').classList.add('hidden');
+  input.focus();
 
-      if(
-        state.serverId!==expectedServerId ||
-        state.textChannelId!==expectedChannelId
-      ){
-        return;
+  const attemptSend=attempt=>{
+    if(
+      state.serverId!==expectedServerId ||
+      state.textChannelId!==expectedChannelId
+    ){
+      return;
+    }
+
+    if(!socket.connected){
+      if(attempt<4){
+        setTimeout(()=>attemptSend(attempt+1),700);
+      }else{
+        resolvePendingChatMessage(payload.clientNonce);
+        toast('Não foi possível enviar: conexão indisponível');
       }
+      return;
+    }
 
-      if(!error && response?.ok){
-        // O broadcast normal deve chegar pelo evento chat-message.
-        // Este fallback garante que quem enviou veja a mensagem mesmo se
-        // o evento em tempo real se perder durante reconexão/atualização.
-        if(
-          response.message &&
-          response.message.serverId===state.serverId &&
-          response.message.channelId===state.textChannelId
-        ){
-          appendMessage(response.message);
+    socket.timeout(2800).emit(
+      'chat-message',
+      payload,
+      (error,response)=>{
+        if(!error && response?.ok){
+          resolvePendingChatMessage(payload.clientNonce);
+
+          if(response.message){
+            appendMessage(response.message);
+          }
+
+          return;
         }
 
-        input.value='';
-        state.replyToMessageId=null;
-        state.pendingChatAttachment=null;
-        $('#replyBar').classList.add('hidden');
+        // Se o servidor antigo ainda não chegou ao backend, força a
+        // sincronização local e tenta novamente.
+        if(attempt<4){
+          syncOwnedServersToBackend(true);
+          requestTextJoin(expectedServerId,expectedChannelId);
 
-        toast('Mensagem enviada');
-        input.focus();
-        return;
+          setTimeout(
+            ()=>attemptSend(attempt+1),
+            650 + attempt*350
+          );
+
+          return;
+        }
+
+        resolvePendingChatMessage(payload.clientNonce);
+        toast(response?.error || 'Não foi possível enviar a mensagem');
       }
+    );
+  };
 
-      // Se o chat perdeu a sala após reconexão, entra novamente e tenta uma vez.
-      if(response?.reason==='not-joined'){
-        requestTextJoin(expectedServerId,expectedChannelId);
-      }
-
-      toast(response?.error || 'Não foi possível enviar a mensagem');
-      input.focus();
-    }
-  );
+  attemptSend(1);
 }
-
 
 function normalizeFriendList(list){
   if(!Array.isArray(list)) return [];
@@ -10117,22 +10156,19 @@ $('#chatImageInput').addEventListener('change',async event=>{
 });
 $('#chatComposeForm').addEventListener('submit',event=>{
   event.preventDefault();
-  sendMessageFromEnter();
+  sendMessage();
 });
 
 $('#messageInput').addEventListener('keydown',event=>{
   if(event.isComposing) return;
 
-  const isEnter=
-    event.key==='Enter' ||
-    event.code==='Enter' ||
-    event.code==='NumpadEnter';
-
-  if(!isEnter || event.shiftKey) return;
-
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  sendMessageFromEnter();
+  if(
+    (event.key==='Enter' || event.code==='Enter' || event.code==='NumpadEnter') &&
+    !event.shiftKey
+  ){
+    event.preventDefault();
+    sendMessage();
+  }
 });
 
 $('#dmSearch').addEventListener('input',renderDmContacts);
@@ -10153,21 +10189,6 @@ $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
 $('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
 $('#micBtn').addEventListener('click',toggleMic);
 $('#deafenBtn').addEventListener('click',toggleDeafen);
-
-document.addEventListener('keydown',event=>{
-  if(event.target!==$('#messageInput')) return;
-  if(event.isComposing || event.shiftKey) return;
-
-  const isEnter=
-    event.key==='Enter' ||
-    event.code==='Enter' ||
-    event.code==='NumpadEnter';
-
-  if(!isEnter) return;
-
-  event.preventDefault();
-  sendMessageFromEnter();
-},true);
 
 document.addEventListener('keydown',handleCallHotkey,true);
 $('#audioGateBtn').addEventListener('click',async()=>{
@@ -11029,6 +11050,10 @@ socket.on('chat-message',m=>{
     String(m.channelId)!==String(state.textChannelId)
   ){
     return;
+  }
+
+  if(m.clientNonce){
+    resolvePendingChatMessage(m.clientNonce);
   }
 
   appendMessage(m);
@@ -13074,7 +13099,7 @@ io.on('connection', socket => {
     });
   });
 
-  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment },ack) => {
+  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment, clientNonce },ack) => {
     const reply=typeof ack==='function' ? ack : ()=>{};
     const safeServerId=String(serverId || '').slice(0,80);
     const safeChannelId=String(channelId || '').slice(0,80);
@@ -13135,6 +13160,7 @@ io.on('connection', socket => {
     const message={
       id:id(),serverId:safeServerId,channelId:safeChannelId,senderId:socket.id,userId:socket.data.userId,
       username:socket.data.username||'Usuário',text:cleanText,attachment:safeAttachment,
+      clientNonce:String(clientNonce||'').slice(0,100)||null,
       replyTo:String(replyTo||'').slice(0,80)||null,reactions:{},at:Date.now(),edited:false
     };
     history.push(message);
