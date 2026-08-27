@@ -4194,6 +4194,9 @@ const state = {
   lastOwnedServerSyncAt:0,
   privateCallId: null,
   privatePeerName: null,
+  privateJoinTimer:null,
+  privateJoinCallId:null,
+  privateJoinAttempts:0,
   incomingCall: null,
   pendingAvatar:null,
   pendingBanner:null,
@@ -7400,7 +7403,8 @@ async function enterPrivateGroupCall(callId,groupName){
     syncVoiceControlsUI();
     ensureCard('local',state.username+' (você)',state.localStream,true);
 
-    socket.emit('join-private-call',{callId});
+    clearPrivateJoinRetry();
+    requestPrivateCallJoin(callId);
     updateCallDock();
   }catch(error){
     console.error(error);
@@ -8293,10 +8297,41 @@ function createPeer(peerId, username, asOfferer = false){
       unlockAllRemoteAudio();
     }else if(connection === 'connecting' || ice === 'checking'){
       $('#voiceStatus').textContent = 'Conectando mídia...';
-    }else if(connection === 'failed' || ice === 'failed'){
-      $('#voiceStatus').textContent = 'Falha na conexão de mídia';
-      toast('A conexão de voz/vídeo falhou nesta rede.');
-      try{ pc.restartIce(); }catch{}
+    }else if(connection==='failed' || ice==='failed'){
+      $('#voiceStatus').textContent='Reconectando mídia...';
+
+      try{pc.restartIce()}catch{}
+
+      if(state.privateCallId){
+        setTimeout(async()=>{
+          const current=state.peers.get(peerId);
+
+          if(
+            current!==pc ||
+            !state.privateCallId ||
+            current.connectionState==='connected'
+          ){
+            return;
+          }
+
+          try{
+            current.close();
+          }catch{}
+
+          state.peers.delete(peerId);
+
+          try{
+            await makeOffer(
+              peerId,
+              state.peerNames.get(peerId) || username || 'Usuário'
+            );
+          }catch(error){
+            console.warn('Renegociação da call privada falhou:',error);
+          }
+        },1200);
+      }else{
+        toast('A conexão de voz/vídeo falhou nesta rede.');
+      }
     }
   };
 
@@ -8324,11 +8359,21 @@ async function flushCandidates(peerId){
 }
 
 async function makeOffer(peerId, username){
-  const pc = createPeer(peerId, username, true);
+  const pc=createPeer(peerId,username,true);
+
+  if(!pc || pc.connectionState==='closed') return;
+
+  // Se o peer já tinha sido criado como recebedor, garante os transceivers
+  // antes de uma tentativa posterior de oferta.
+  ensureOfferTransceivers(pc);
+
+  if(pc.signalingState!=='stable'){
+    return;
+  }
 
   await attachLocalTracks(pc);
 
-  const offer = await pc.createOffer();
+  const offer=await pc.createOffer();
   await pc.setLocalDescription(offer);
 
   socket.emit('offer',{
@@ -8337,6 +8382,73 @@ async function makeOffer(peerId, username){
   });
 }
 
+
+function clearPrivateJoinRetry(){
+  if(state.privateJoinTimer){
+    clearTimeout(state.privateJoinTimer);
+    state.privateJoinTimer=null;
+  }
+
+  state.privateJoinAttempts=0;
+  state.privateJoinCallId=null;
+}
+
+function requestPrivateCallJoin(callId){
+  if(!callId || !socket.connected) return;
+
+  const safeCallId=String(callId);
+  state.privateJoinCallId=safeCallId;
+  state.privateJoinAttempts+=1;
+
+  socket.timeout(2500).emit(
+    'join-private-call',
+    {callId:safeCallId},
+    (error,response)=>{
+      if(state.privateCallId!==safeCallId) return;
+
+      if(!error && response?.ok){
+        clearPrivateJoinRetry();
+        playJoinCue();
+
+        $('#voiceStatus').textContent=response.isGroup
+          ? 'Call privada em grupo · Conectado'
+          : 'Call privada · Conectado';
+
+        const participants=Array.isArray(response.participants)
+          ? response.participants
+          : [];
+
+        renderMembers([
+          {id:socket.id,username:state.username},
+          ...participants
+        ]);
+
+        participants.forEach(participant=>{
+          if(participant?.id){
+            state.peerNames.set(participant.id,participant.username || 'Usuário');
+          }
+        });
+
+        return;
+      }
+
+      if(response?.error){
+        $('#voiceStatus').textContent=response.error;
+      }
+
+      if(state.privateJoinAttempts<4){
+        state.privateJoinTimer=setTimeout(
+          ()=>requestPrivateCallJoin(safeCallId),
+          900 + state.privateJoinAttempts*450
+        );
+      }else{
+        clearPrivateJoinRetry();
+        $('#voiceStatus').textContent='Não foi possível entrar na call';
+        toast('Falha ao entrar na chamada. Tente ligar novamente.');
+      }
+    }
+  );
+}
 
 async function enterPrivateCall(callId,peerName){
   try{
@@ -8369,11 +8481,8 @@ async function enterPrivateCall(callId,peerName){
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
 
-    socket.emit('join-private-call',{
-      callId,
-      username:state.username,
-      userId:state.userId
-    });
+    clearPrivateJoinRetry();
+    requestPrivateCallJoin(callId);
 
     updateCallDock();
   }catch(error){
@@ -8390,6 +8499,64 @@ function showIncomingCall(data){
 
 function closeIncomingCall(){
   $('#incomingCallWrap').classList.add('hidden');
+}
+
+
+function playCallCue(kind){
+  try{
+    const AudioCtx=window.AudioContext || window.webkitAudioContext;
+    if(!AudioCtx) return;
+
+    const ctx=new AudioCtx();
+    const now=ctx.currentTime;
+
+    const gain=ctx.createGain();
+    gain.connect(ctx.destination);
+
+    const osc1=ctx.createOscillator();
+    const osc2=ctx.createOscillator();
+
+    osc1.type='sine';
+    osc2.type='sine';
+
+    if(kind==='join'){
+      osc1.frequency.setValueAtTime(520,now);
+      osc1.frequency.exponentialRampToValueAtTime(760,now+0.16);
+      osc2.frequency.setValueAtTime(660,now+0.05);
+      osc2.frequency.exponentialRampToValueAtTime(900,now+0.19);
+    }else{
+      osc1.frequency.setValueAtTime(760,now);
+      osc1.frequency.exponentialRampToValueAtTime(420,now+0.18);
+      osc2.frequency.setValueAtTime(600,now+0.03);
+      osc2.frequency.exponentialRampToValueAtTime(320,now+0.2);
+    }
+
+    gain.gain.setValueAtTime(0.0001,now);
+    gain.gain.exponentialRampToValueAtTime(0.16,now+0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001,now+0.22);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+
+    osc1.start(now);
+    osc2.start(now+0.025);
+    osc1.stop(now+0.23);
+    osc2.stop(now+0.23);
+
+    setTimeout(()=>{
+      try{ctx.close()}catch{}
+    },350);
+  }catch(error){
+    console.warn('Não foi possível tocar o som da call:',error);
+  }
+}
+
+function playJoinCue(){
+  playCallCue('join');
+}
+
+function playLeaveCue(){
+  playCallCue('leave');
 }
 
 
@@ -8506,8 +8673,14 @@ function closePeers(){
 }
 
 function leaveVoice(){
-  const wasPrivate = !!state.privateCallId;
+  const wasPrivate=!!state.privateCallId;
+  const wasInCall=!!state.joinedVoiceId;
 
+  if(wasInCall){
+    playLeaveCue();
+  }
+
+  clearPrivateJoinRetry();
   socket.emit('leave-voice');
   closePeers();
 
@@ -10195,6 +10368,7 @@ socket.on('channel-deleted',({serverId,type,channelId,message})=>{
 
 socket.on('voice-channel-removed',({serverId,channelId,message})=>{
   if(state.activeVoiceServerId===serverId && state.activeVoiceChannelId===channelId){
+    playLeaveCue();
     closePeers();
 
     if(state.localStream){
@@ -10221,14 +10395,46 @@ socket.on('chat-message',m=>{
 });
 
 socket.on('voice-participants',async participants=>{
-  renderMembers([{id:socket.id,username:state.username},...participants]);
-  for(const p of participants){
-    state.peerNames.set(p.id,p.username);
-    await makeOffer(p.id,p.username);
+  const safeParticipants=Array.isArray(participants) ? participants : [];
+
+  if(!state.privateCallId){
+    playJoinCue();
   }
+
+  renderMembers([
+    {id:socket.id,username:state.username},
+    ...safeParticipants
+  ]);
+
+  for(const p of safeParticipants){
+    if(!p?.id || p.id===socket.id) continue;
+
+    state.peerNames.set(p.id,p.username || 'Usuário');
+
+    const existing=state.peers.get(p.id);
+
+    if(
+      existing &&
+      (
+        existing.connectionState==='connected' ||
+        existing.connectionState==='connecting' ||
+        existing.signalingState!=='stable'
+      )
+    ){
+      continue;
+    }
+
+    try{
+      await makeOffer(p.id,p.username || 'Usuário');
+    }catch(error){
+      console.warn('Falha na oferta inicial:',error);
+    }
+  }
+
   unlockAllRemoteAudio();
+
   $('#voiceStatus').textContent=state.privateCallId
-    ? 'Call privada · Somente convidados'
+    ? 'Call privada · Conectando mídia...'
     : 'Conectado';
 });
 
@@ -10239,7 +10445,36 @@ socket.on('voice-members',members=>{
 
 
 socket.on('user-joined',({id,username})=>{
-  state.peerNames.set(id,username);
+  if(!id || id===socket.id) return;
+
+  playJoinCue();
+  state.peerNames.set(id,username || 'Usuário');
+
+  // Normalmente quem acabou de entrar recebe voice-participants e cria a offer.
+  // Se essa primeira negociação não acontecer, o usuário que já estava na sala
+  // inicia uma segunda tentativa depois de um pequeno atraso.
+  setTimeout(async()=>{
+    if(!state.joinedVoiceId) return;
+
+    const existing=state.peers.get(id);
+
+    if(
+      existing &&
+      (
+        existing.connectionState==='connected' ||
+        existing.connectionState==='connecting' ||
+        existing.signalingState!=='stable'
+      )
+    ){
+      return;
+    }
+
+    try{
+      await makeOffer(id,username || 'Usuário');
+    }catch(error){
+      console.warn('Tentativa alternativa de conexão falhou:',error);
+    }
+  },900);
 });
 
 socket.on('offer',async({from,sdp,username})=>{
@@ -10295,6 +10530,7 @@ socket.on('ice-candidate',async({from,candidate})=>{
 });
 
 socket.on('user-left',({id})=>{
+  playLeaveCue();
   state.peers.get(id)?.close();
   state.peers.delete(id);
   state.peerNames.delete(id);
@@ -10335,10 +10571,25 @@ socket.on('connect',()=>{
 
   if(state.joinedVoiceId && state.profileReady){
     closePeers();
+
     if(state.privateCallId){
-      socket.emit('join-private-call',{callId:state.privateCallId,username:state.username,userId:state.userId});
+      // Aguarda o auth-restore identificar este novo socket no servidor.
+      setTimeout(()=>{
+        if(socket.connected && state.privateCallId && state.profileReady){
+          clearPrivateJoinRetry();
+          requestPrivateCallJoin(state.privateCallId);
+        }
+      },700);
     }else if(state.activeVoiceServerId&&state.activeVoiceChannelId){
-      socket.emit('join-voice',{serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,username:state.username});
+      setTimeout(()=>{
+        if(socket.connected && state.profileReady){
+          socket.emit('join-voice',{
+            serverId:state.activeVoiceServerId,
+            channelId:state.activeVoiceChannelId,
+            username:state.username
+          });
+        }
+      },700);
     }
   }
 
@@ -12371,14 +12622,23 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('join-private-call', ({ callId }) => {
-    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+  socket.on('join-private-call', ({ callId },ack) => {
+    const reply=typeof ack==='function'
+      ? ack
+      : ()=>{};
+
+    if(!socket.data.userId || !accounts.has(socket.data.userId)){
+      reply({ok:false,error:'Sessão inválida'});
+      return;
+    }
 
     const safeCallId=String(callId || '').slice(0,100);
     const call=privateCalls.get(safeCallId);
 
     if(!call || !call.accepted || Number(call.expiresAt || 0)<=Date.now()){
-      socket.emit('private-call-error',{error:'Call privada inválida ou expirada'});
+      const error='Call privada inválida ou expirada';
+      socket.emit('private-call-error',{error});
+      reply({ok:false,error});
       return;
     }
 
@@ -12399,7 +12659,9 @@ io.on('connection', socket => {
         );
 
     if(!allowed){
-      socket.emit('private-call-error',{error:'Você não tem acesso a esta call privada'});
+      const error='Você não tem acesso a esta call privada';
+      socket.emit('private-call-error',{error});
+      reply({ok:false,error});
       return;
     }
 
@@ -12431,7 +12693,9 @@ io.on('connection', socket => {
       : 2;
 
     if(participants.length>=maxParticipants && !existing.includes(socket.id)){
-      socket.emit('private-call-error',{error:'Esta call privada já está completa'});
+      const error='Esta call privada já está completa';
+      socket.emit('private-call-error',{error});
+      reply({ok:false,error});
       return;
     }
 
@@ -12458,6 +12722,13 @@ io.on('connection', socket => {
       .filter(Boolean);
 
     io.to(room).emit('voice-members',members);
+
+    reply({
+      ok:true,
+      callId:safeCallId,
+      isGroup:isGroupCall,
+      participants
+    });
   });
 
   socket.on('join-voice', ({ serverId, channelId, username }) => {
