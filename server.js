@@ -284,12 +284,18 @@ const friendRequests = [];
 const friendships = [];
 const privateGroups = new Map();
 const privateCalls = new Map();
+const phoneCameraSessions = new Map();
 
 setInterval(()=>{
   const now=Date.now();
   for(const [callId,call] of privateCalls){
     if(Number(call?.expiresAt || 0)<=now){
       privateCalls.delete(callId);
+    }
+  }
+  for(const [token,session] of phoneCameraSessions){
+    if(Number(session?.expiresAt || 0)<=now){
+      phoneCameraSessions.delete(token);
     }
   }
 },60*1000).unref?.();
@@ -1177,7 +1183,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v22';
+const CACHE='acord-app-stable-v23';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3382,6 +3388,15 @@ html,body{
   transform:translateY(1px) scale(.98);
 }
 
+
+.phoneCameraBox{grid-column:1/-1;margin-top:8px;padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.phoneCameraHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.phoneCameraHead strong{display:block;color:var(--text);font-size:13px}
+.phoneCameraHead span{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.phoneCameraLinkWrap{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:11px}
+.phoneCameraStatus{margin-top:9px;color:var(--muted);font-size:11px}
+@media(max-width:700px){.phoneCameraHead{align-items:flex-start;flex-direction:column}.phoneCameraLinkWrap{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -3878,6 +3893,22 @@ html,body{
             <label>Câmera<select id="cameraDeviceSelect"></select></label>
             <div class="callToggle"><span>Supressão de ruído</span><input id="noiseSuppressionToggle" type="checkbox" checked style="width:auto;"></div>
             <div class="callToggle"><span>Push-to-talk (segure Espaço)</span><input id="pushToTalkToggle" type="checkbox" style="width:auto;"></div>
+
+            <div class="phoneCameraBox">
+              <div class="phoneCameraHead">
+                <div>
+                  <strong>📱 Usar câmera do celular</strong>
+                  <span>Abra o link no celular e use a câmera dele na call.</span>
+                </div>
+                <button id="phoneCameraCreateBtn" class="btn primary small" type="button">Conectar celular</button>
+              </div>
+              <div id="phoneCameraLinkWrap" class="phoneCameraLinkWrap hidden">
+                <input id="phoneCameraLink" readonly>
+                <button id="phoneCameraCopyBtn" class="btn secondary small" type="button">Copiar link</button>
+                <button id="phoneCameraStopBtn" class="btn danger small" type="button">Desconectar</button>
+              </div>
+              <div id="phoneCameraStatus" class="phoneCameraStatus">Nenhum celular conectado.</div>
+            </div>
           </div>
         </div>
       </section>
@@ -4359,6 +4390,10 @@ const state = {
   noiseSuppression:localStorage.getItem('acord-noise-suppression')!=='0',
   preferredMicId:localStorage.getItem('acord-mic-device')||'',
   preferredCameraId:localStorage.getItem('acord-camera-device')||'',
+  phoneCameraToken:null,
+  phoneCameraPc:null,
+  phoneCameraTrack:null,
+  phoneCameraLink:'',
   micHotkey:localStorage.getItem('acord-hotkey-mic')||'',
   deafenHotkey:localStorage.getItem('acord-hotkey-deafen')||'',
   capturingHotkey:null,
@@ -4874,6 +4909,139 @@ async function refreshMediaDevices(){
   if(state.preferredMicId) mic.value=state.preferredMicId;
   if(state.preferredCameraId) camera.value=state.preferredCameraId;
 }
+function updatePhoneCameraUI(){
+  const wrap=$('#phoneCameraLinkWrap');
+  const link=$('#phoneCameraLink');
+  const status=$('#phoneCameraStatus');
+  if(!wrap || !link || !status) return;
+  const active=!!state.phoneCameraToken;
+  wrap.classList.toggle('hidden',!active);
+  link.value=state.phoneCameraLink || '';
+  status.textContent=
+    state.phoneCameraTrack?.readyState==='live'
+      ? 'Celular conectado · câmera ativa'
+      : active
+        ? 'Aguardando o celular abrir o link...'
+        : 'Nenhum celular conectado.';
+}
+
+function createPhoneCameraLink(){
+  if(!state.profileReady || !state.userId){
+    toast('Entre na sua conta primeiro');
+    return;
+  }
+  socket.emit('phone-camera-create');
+}
+
+async function copyPhoneCameraLink(){
+  const value=state.phoneCameraLink || '';
+  if(!value) return;
+  try{
+    await navigator.clipboard.writeText(value);
+  }catch{
+    const input=$('#phoneCameraLink');
+    input.select();
+    document.execCommand('copy');
+  }
+  toast('Link da câmera copiado');
+}
+
+function closePhoneCameraPeer(){
+  const old=state.phoneCameraPc;
+  state.phoneCameraPc=null;
+  if(old){try{old.close()}catch{}}
+  if(state.phoneCameraTrack){try{state.phoneCameraTrack.stop()}catch{}}
+  state.phoneCameraTrack=null;
+}
+
+async function activatePhoneCameraTrack(track){
+  if(!track) return;
+
+  if(state.cameraTrack && state.cameraTrack!==track){
+    try{state.cameraTrack.stop()}catch{}
+  }
+
+  state.phoneCameraTrack=track;
+  state.cameraTrack=track;
+
+  if(!state.localStream){
+    state.localStream=new MediaStream();
+  }
+
+  for(const old of state.localStream.getVideoTracks()){
+    if(old!==track){
+      state.localStream.removeTrack(old);
+      try{old.stop()}catch{}
+    }
+  }
+
+  if(!state.localStream.getVideoTracks().includes(track)){
+    state.localStream.addTrack(track);
+  }
+
+  if(state.joinedVoiceId && !state.screenTrack){
+    await replaceVideoForAll(track);
+  }
+
+  ensureCard('local',state.username+' (você)',state.localStream,true);
+  $('#cameraBtn').textContent='📱 Câmera do celular';
+  $('#cameraBtn').classList.remove('off');
+  updatePhoneCameraUI();
+  toast('Câmera do celular conectada');
+}
+
+function stopPhoneCameraConnection(notifyServer=true){
+  const oldPhoneTrack=state.phoneCameraTrack;
+  if(notifyServer && state.phoneCameraToken){
+    socket.emit('phone-camera-stop',{token:state.phoneCameraToken});
+  }
+
+  closePhoneCameraPeer();
+
+  if(state.cameraTrack===oldPhoneTrack){
+    state.cameraTrack=null;
+  }
+
+  state.phoneCameraToken=null;
+  state.phoneCameraLink='';
+  $('#cameraBtn').textContent='Câmera';
+  $('#cameraBtn').classList.add('off');
+  updatePhoneCameraUI();
+}
+
+async function receivePhoneCameraOffer(data){
+  if(!data?.token || data.token!==state.phoneCameraToken || !data.sdp) return;
+
+  closePhoneCameraPeer();
+
+  const pc=new RTCPeerConnection(rtcConfig);
+  state.phoneCameraPc=pc;
+
+  pc.onicecandidate=event=>{
+    if(event.candidate && state.phoneCameraToken){
+      socket.emit('phone-camera-ice',{
+        token:state.phoneCameraToken,
+        candidate:event.candidate
+      });
+    }
+  };
+
+  pc.ontrack=event=>{
+    if(event.track?.kind==='video'){
+      activatePhoneCameraTrack(event.track).catch(console.error);
+    }
+  };
+
+  await pc.setRemoteDescription(data.sdp);
+  const answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  socket.emit('phone-camera-answer',{
+    token:data.token,
+    sdp:pc.localDescription
+  });
+}
+
 function toggleCallSettings(){ $('#callSettingsPanel').classList.toggle('hidden'); refreshMediaDevices(); }
 function syncStageHandButton(){const c=currentVoice();$('#stageHandBtn').classList.toggle('hidden',c?.mode!=='stage')}
 
@@ -9306,6 +9474,9 @@ function leaveVoice(){
   }
 
   clearPrivateJoinRetry();
+  if(state.phoneCameraToken){
+    stopPhoneCameraConnection(true);
+  }
   socket.emit('leave-voice');
   closePeers();
 
@@ -9403,6 +9574,16 @@ async function applyCameraSenderQuality(){
 
 async function toggleCamera(){
   if(!state.joinedVoiceId) return;
+
+  if(state.phoneCameraTrack?.readyState==='live'){
+    state.phoneCameraTrack.enabled=!state.phoneCameraTrack.enabled;
+    if(!state.screenTrack){
+      await replaceVideoForAll(state.phoneCameraTrack.enabled ? state.phoneCameraTrack : null);
+    }
+    $('#cameraBtn').textContent=state.phoneCameraTrack.enabled ? '📱 Câmera do celular' : 'Câmera';
+    $('#cameraBtn').classList.toggle('off',!state.phoneCameraTrack.enabled);
+    return;
+  }
 
   if(state.cameraTrack && state.cameraTrack.readyState==='live'){
     state.cameraTrack.enabled = !state.cameraTrack.enabled;
@@ -10343,6 +10524,9 @@ $('#micDeviceSelect').addEventListener('change',event=>{
 $('#cameraDeviceSelect').addEventListener('change',event=>{
   state.preferredCameraId=event.target.value;localStorage.setItem('acord-camera-device',state.preferredCameraId);
 });
+$('#phoneCameraCreateBtn').addEventListener('click',createPhoneCameraLink);
+$('#phoneCameraCopyBtn').addEventListener('click',copyPhoneCameraLink);
+$('#phoneCameraStopBtn').addEventListener('click',()=>stopPhoneCameraConnection(true));
 $('#noiseSuppressionToggle').checked=state.noiseSuppression;
 $('#noiseSuppressionToggle').addEventListener('change',event=>{
   state.noiseSuppression=event.target.checked;localStorage.setItem('acord-noise-suppression',state.noiseSuppression?'1':'0');
@@ -11103,6 +11287,43 @@ socket.on('voice-channel-removed',({serverId,channelId,message})=>{
   toast(message || 'O canal de voz foi excluído');
 });
 
+socket.on('phone-camera-created',data=>{
+  if(!data?.token) return;
+  closePhoneCameraPeer();
+  state.phoneCameraToken=data.token;
+  state.phoneCameraLink=location.origin + '/phone-camera/' + encodeURIComponent(data.token);
+  updatePhoneCameraUI();
+  toast('Abra o link no celular');
+});
+
+socket.on('phone-camera-phone-ready',data=>{
+  if(data?.token!==state.phoneCameraToken) return;
+  $('#phoneCameraStatus').textContent='Celular conectado · autorize a câmera';
+});
+
+socket.on('phone-camera-offer',data=>{
+  receivePhoneCameraOffer(data).catch(error=>{
+    console.error(error);
+    $('#phoneCameraStatus').textContent='Falha ao receber a câmera do celular';
+  });
+});
+
+socket.on('phone-camera-ice',async data=>{
+  if(!data?.candidate || data.token!==state.phoneCameraToken || !state.phoneCameraPc) return;
+  try{
+    await state.phoneCameraPc.addIceCandidate(data.candidate);
+  }catch{}
+});
+
+socket.on('phone-camera-stopped',data=>{
+  if(data?.token && data.token!==state.phoneCameraToken) return;
+  closePhoneCameraPeer();
+  state.phoneCameraToken=null;
+  state.phoneCameraLink='';
+  updatePhoneCameraUI();
+});
+
+
 socket.on('text-history',()=>{});
 
 socket.on('chat-message',()=>{});
@@ -11325,6 +11546,140 @@ socket.on('connect',()=>{
 </script>
 </body>
 </html>`;
+
+const PHONE_CAMERA_HTML = String.raw`<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Acord · Câmera do celular</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07110e;color:#eff8f3;font-family:Arial,sans-serif;min-height:100vh;display:grid;place-items:center;padding:18px}
+.card{width:min(520px,100%);background:#0d1b17;border:1px solid #24473b;border-radius:20px;padding:18px}
+h1{font-size:22px;margin:0 0 8px}p{color:#a8beb4;line-height:1.5}
+video{width:100%;aspect-ratio:9/16;max-height:62vh;object-fit:cover;background:#020403;border-radius:16px;border:1px solid #24473b}
+.actions{display:grid;gap:9px;margin-top:12px}button{border:0;border-radius:12px;padding:13px 15px;font-weight:800;font-size:15px}
+.primary{background:#ff6b4a;color:#281009}.secondary{background:#183128;color:#eff8f3;border:1px solid #24473b}
+.status{margin-top:12px;font-size:13px;color:#a8beb4}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>📱 Câmera do celular</h1>
+<p>Use a câmera deste celular como câmera da sua chamada no Acord.</p>
+<video id="preview" autoplay muted playsinline></video>
+<div class="actions">
+<button id="startBtn" class="primary" type="button">Ativar câmera</button>
+<button id="flipBtn" class="secondary" type="button">Trocar câmera</button>
+</div>
+<div id="status" class="status">Conectando ao computador...</div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket=io();
+const token=decodeURIComponent(location.pathname.split('/').pop() || '');
+const rtcConfig={iceServers:[
+{urls:'stun:stun.l.google.com:19302'},
+{urls:'stun:stun1.l.google.com:19302'},
+{urls:'stun:stun.cloudflare.com:3478'}
+],iceCandidatePoolSize:10};
+
+let pc=null;
+let stream=null;
+let facingMode='environment';
+
+const status=document.getElementById('status');
+const preview=document.getElementById('preview');
+
+function setStatus(value){status.textContent=value;}
+
+function joinPair(){
+  socket.emit('phone-camera-join',{token},response=>{
+    if(response && response.ok){
+      setStatus('Ligado ao computador. Toque em Ativar câmera.');
+    }else{
+      setStatus((response && response.error) || 'Link inválido ou expirado.');
+    }
+  });
+}
+
+async function startCamera(){
+  try{
+    if(stream) stream.getTracks().forEach(track=>track.stop());
+
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:facingMode},
+        width:{ideal:1920},
+        height:{ideal:1080},
+        frameRate:{ideal:30,max:30}
+      },
+      audio:false
+    });
+
+    preview.srcObject=stream;
+
+    if(pc){try{pc.close()}catch{}}
+    pc=new RTCPeerConnection(rtcConfig);
+
+    stream.getVideoTracks().forEach(track=>pc.addTrack(track,stream));
+
+    pc.onicecandidate=event=>{
+      if(event.candidate){
+        socket.emit('phone-camera-ice',{token,candidate:event.candidate});
+      }
+    };
+
+    pc.onconnectionstatechange=()=>{
+      if(pc.connectionState==='connected') setStatus('Câmera conectada ao computador.');
+      if(pc.connectionState==='failed') setStatus('Falha de conexão. Tente novamente.');
+    };
+
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit('phone-camera-offer',{token,sdp:pc.localDescription});
+    setStatus('Enviando câmera para o computador...');
+  }catch(error){
+    console.error(error);
+    setStatus('Autorize o acesso à câmera no celular.');
+  }
+}
+
+socket.on('connect',joinPair);
+
+socket.on('phone-camera-answer',async data=>{
+  if(!pc || data.token!==token || !data.sdp) return;
+  try{await pc.setRemoteDescription(data.sdp)}catch(error){console.error(error)}
+});
+
+socket.on('phone-camera-ice',async data=>{
+  if(!pc || data.token!==token || !data.candidate) return;
+  try{await pc.addIceCandidate(data.candidate)}catch{}
+});
+
+socket.on('phone-camera-stopped',()=>{
+  setStatus('O computador encerrou a conexão.');
+  if(stream) stream.getTracks().forEach(track=>track.stop());
+  if(pc) pc.close();
+  pc=null;
+});
+
+document.getElementById('startBtn').addEventListener('click',startCamera);
+document.getElementById('flipBtn').addEventListener('click',async()=>{
+  facingMode=facingMode==='environment' ? 'user' : 'environment';
+  await startCamera();
+});
+window.addEventListener('beforeunload',()=>socket.emit('phone-camera-stop',{token}));
+</script>
+</body>
+</html>`;
+
+app.get('/phone-camera/:token', (req,res) => {
+  res.setHeader('Cache-Control','no-store, no-cache,must-revalidate');
+  res.type('html').send(PHONE_CAMERA_HTML);
+});
+
 
 app.get('/invite/:token', (req,res) => {
   // O conteúdo do convite é sempre resolvido pelo backend depois do login.
@@ -13411,6 +13766,100 @@ io.on('connection', socket => {
     socket.data.voiceChannelId = null;
   }
 
+  socket.on('phone-camera-create', () => {
+    if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
+
+    for(const [token,session] of phoneCameraSessions){
+      if(session.desktopSocketId===socket.id){
+        phoneCameraSessions.delete(token);
+      }
+    }
+
+    const token=crypto.randomBytes(18).toString('hex');
+
+    phoneCameraSessions.set(token,{
+      ownerUserId:socket.data.userId,
+      desktopSocketId:socket.id,
+      phoneSocketId:null,
+      expiresAt:Date.now()+1000*60*30
+    });
+
+    socket.emit('phone-camera-created',{token});
+  });
+
+  socket.on('phone-camera-join', ({token},ack) => {
+    const reply=typeof ack==='function' ? ack : ()=>{};
+    const safeToken=String(token || '').slice(0,100);
+    const session=phoneCameraSessions.get(safeToken);
+
+    if(!session || session.expiresAt<=Date.now()){
+      reply({ok:false,error:'Link inválido ou expirado'});
+      return;
+    }
+
+    const desktop=io.sockets.sockets.get(session.desktopSocketId);
+    if(!desktop || desktop.data.userId!==session.ownerUserId){
+      reply({ok:false,error:'O computador não está conectado'});
+      return;
+    }
+
+    session.phoneSocketId=socket.id;
+    session.expiresAt=Date.now()+1000*60*30;
+    socket.data.phoneCameraToken=safeToken;
+
+    desktop.emit('phone-camera-phone-ready',{token:safeToken});
+    reply({ok:true});
+  });
+
+  socket.on('phone-camera-offer', ({token,sdp}) => {
+    const safeToken=String(token || '').slice(0,100);
+    const session=phoneCameraSessions.get(safeToken);
+    if(!session || session.phoneSocketId!==socket.id || !sdp) return;
+
+    io.sockets.sockets.get(session.desktopSocketId)?.emit('phone-camera-offer',{
+      token:safeToken,sdp
+    });
+  });
+
+  socket.on('phone-camera-answer', ({token,sdp}) => {
+    const safeToken=String(token || '').slice(0,100);
+    const session=phoneCameraSessions.get(safeToken);
+    if(!session || session.desktopSocketId!==socket.id || !sdp) return;
+
+    io.sockets.sockets.get(session.phoneSocketId)?.emit('phone-camera-answer',{
+      token:safeToken,sdp
+    });
+  });
+
+  socket.on('phone-camera-ice', ({token,candidate}) => {
+    const safeToken=String(token || '').slice(0,100);
+    const session=phoneCameraSessions.get(safeToken);
+    if(!session || !candidate) return;
+
+    if(session.desktopSocketId===socket.id){
+      io.sockets.sockets.get(session.phoneSocketId)?.emit('phone-camera-ice',{
+        token:safeToken,candidate
+      });
+    }else if(session.phoneSocketId===socket.id){
+      io.sockets.sockets.get(session.desktopSocketId)?.emit('phone-camera-ice',{
+        token:safeToken,candidate
+      });
+    }
+  });
+
+  socket.on('phone-camera-stop', ({token}) => {
+    const safeToken=String(token || '').slice(0,100);
+    const session=phoneCameraSessions.get(safeToken);
+    if(!session) return;
+
+    if(session.desktopSocketId!==socket.id && session.phoneSocketId!==socket.id) return;
+
+    io.sockets.sockets.get(session.desktopSocketId)?.emit('phone-camera-stopped',{token:safeToken});
+    io.sockets.sockets.get(session.phoneSocketId)?.emit('phone-camera-stopped',{token:safeToken});
+    phoneCameraSessions.delete(safeToken);
+  });
+
+
   socket.on('private-group-call-start', ({ groupId }) => {
     if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
 
@@ -13770,7 +14219,20 @@ io.on('connection', socket => {
     io.to(target).emit('ice-candidate', { from: socket.id, candidate });
   });
 
-  socket.on('disconnect', () => {
+    socket.on('disconnecting',()=>{
+    for(const [token,session] of phoneCameraSessions){
+      if(session.phoneSocketId===socket.id){
+        session.phoneSocketId=null;
+        io.sockets.sockets.get(session.desktopSocketId)?.emit('phone-camera-stopped',{token});
+        session.expiresAt=Date.now()+1000*60*10;
+      }else if(session.desktopSocketId===socket.id){
+        io.sockets.sockets.get(session.phoneSocketId)?.emit('phone-camera-stopped',{token});
+        phoneCameraSessions.delete(token);
+      }
+    }
+  });
+
+socket.on('disconnect', () => {
     for(const [callId,call] of privateCalls){
       if(call.type==='group'){
         // A call em grupo continua disponível para os demais membros.
