@@ -1260,7 +1260,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v30-mega';
+const CACHE='acord-app-stable-v31-server-mega';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3509,6 +3509,23 @@ html,body{
 .messageMetaActions button{border:0;background:var(--bg3);color:var(--text);border-radius:7px;padding:4px 7px;font-size:10px}
 @media(max-width:760px){.megaShell{grid-template-columns:1fr}.megaNav{border-right:0;border-bottom:1px solid var(--line);display:flex;gap:5px;overflow:auto}.megaNav strong{display:none}.megaNavBtn{white-space:nowrap;width:auto}.megaBody{padding:14px}}
 
+
+.concordeServerBtn{
+  border:1px solid color-mix(in srgb,var(--coral) 42%,var(--line));
+  color:var(--text);
+  font-weight:900;
+  margin-bottom:7px;
+}
+.concordeServerBtn::after{
+  content:'Servidor';
+  margin-left:auto;
+  color:var(--coral2);
+  font-size:9px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+
 </style>
 </head>
 <body>
@@ -3636,6 +3653,7 @@ html,body{
     </div>
 
     <div class="sideScroll">
+      <button id="serverConcordeBtn" class="navBtn concordeServerBtn" type="button">✦ Concorde+</button>
       <button id="serverRolesBtn" class="navBtn" type="button">Cargos</button>
 
       <div class="groupHead">
@@ -4691,7 +4709,8 @@ const state = {
   pronouns:'',
   activity:'',
   links:{},
-  privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'}
+  privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
+  megaFromServer:false
 };
 
 const rtcConfig = {
@@ -5878,12 +5897,31 @@ function handleCallHotkey(event){
 }
 
 
-function openMegaView(page='profile'){
+function openMegaView(page='profile',fromServer=false){
+  state.megaFromServer=!!fromServer;
+
   setView('mega');
-  setAppMode('hub');
-  $('#topTitle').textContent='✦ Concorde+';
-  $('#topSub').textContent='recursos avançados';
-  selectMegaPage(page);
+  setAppMode(state.megaFromServer ? 'server' : 'hub');
+
+  $('#topTitle').textContent=state.megaFromServer
+    ? '✦ Concorde+ · ' + (currentServer()?.name || 'Servidor')
+    : '✦ Concorde+';
+
+  $('#topSub').textContent=state.megaFromServer
+    ? 'ferramentas e recursos deste servidor'
+    : 'recursos avançados';
+
+  $('#quickInviteBtn')?.classList.toggle(
+    'hidden',
+    !state.megaFromServer
+  );
+
+  selectMegaPage(
+    state.megaFromServer && page==='profile'
+      ? 'server'
+      : page
+  );
+
   loadMegaData();
 }
 
@@ -6738,7 +6776,10 @@ function setView(name){
   state.currentView = name;
   localStorage.setItem('ecord-last-view',name);
 
-  const hubView = name==='friends' || name==='dm' || name==='mega';
+  const hubView =
+    name==='friends' ||
+    name==='dm' ||
+    (name==='mega' && !state.megaFromServer);
   const privateCallView = name==='voice' && !!state.privateCallId;
 
   if(privateCallView){
@@ -6766,7 +6807,16 @@ function setView(name){
 
   $('#hubFriendsBtn')?.classList.toggle('active', name==='friends');
   $('#hubMessagesBtn')?.classList.toggle('active', name==='dm');
-  $('#concordePlusBtn')?.classList.toggle('active', name==='mega');
+  $('#concordePlusBtn')?.classList.toggle(
+    'active',
+    name==='mega' && !state.megaFromServer
+  );
+
+  $('#serverConcordeBtn')?.classList.toggle(
+    'active',
+    name==='mega' && state.megaFromServer
+  );
+
   $('#serverRolesBtn')?.classList.toggle('active', name==='roles');
 
   if(name==='home'){
@@ -6775,12 +6825,14 @@ function setView(name){
   }
 
   if(name==='friends'){
+    state.megaFromServer=false;
     $('#topTitle').textContent = '👥 Amigos';
     $('#topSub').textContent = 'seus amigos e chamadas';
     renderFriends();
   }
 
   if(name==='dm'){
+    state.megaFromServer=false;
     const groupsOnly=state.dmContactsMode==='groups';
 
     $('#topTitle').textContent=groupsOnly
@@ -6798,6 +6850,14 @@ function setView(name){
     $('#topTitle').textContent = '🛡 Cargos';
     $('#topSub').textContent = currentServer()?.name || '';
     renderRoles();
+  }
+
+  if(name==='mega' && state.megaFromServer){
+    $('#topTitle').textContent='✦ Concorde+ · ' + (currentServer()?.name || 'Servidor');
+    $('#topSub').textContent='ferramentas e recursos deste servidor';
+    $('#quickInviteBtn')?.classList.remove('hidden');
+    renderMegaServerControls();
+    renderMegaCommunity();
   }
 
   if(name==='settings'){
@@ -6946,7 +7006,10 @@ function renderServers(){
   rail.innerHTML = '';
   state.servers.forEach(s=>{
     const b = document.createElement('button');
-    const hubVisible = state.currentView==='friends' || state.currentView==='dm';
+    const hubVisible =
+      state.currentView==='friends' ||
+      state.currentView==='dm' ||
+      (state.currentView==='mega' && !state.megaFromServer);
     b.className = 'serverIcon' + (s.id===state.serverId && !hubVisible ? ' active' : '');
     b.title = s.name;
 
@@ -6980,12 +7043,14 @@ function renderSidebar(){
     $('#channelTree').innerHTML = '';
     $('#inviteBtn').disabled = true;
     $('#serverSettingsBtn').disabled = true;
+    $('#serverConcordeBtn').disabled = true;
     $('#deleteServerBtn').disabled = true;
     return;
   }
 
   $('#inviteBtn').disabled = false;
   $('#serverSettingsBtn').disabled = false;
+  $('#serverConcordeBtn').disabled = false;
   $('#deleteServerBtn').disabled = false;
   $('#serverTitle').textContent = s.name;
 
@@ -10898,7 +10963,8 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
-$('#concordePlusBtn').addEventListener('click',()=>openMegaView('profile'));
+$('#concordePlusBtn').addEventListener('click',()=>openMegaView('profile',false));
+$('#serverConcordeBtn').addEventListener('click',()=>openMegaView('server',true));
 document.querySelectorAll('.megaNavBtn').forEach(btn=>btn.addEventListener('click',()=>selectMegaPage(btn.dataset.megaPage)));
 $('#megaSaveProfile').addEventListener('click',saveMegaProfile);
 $('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
