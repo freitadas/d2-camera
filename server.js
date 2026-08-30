@@ -1184,7 +1184,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v25';
+const CACHE='acord-app-stable-v26';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3401,6 +3401,10 @@ html,body{
 .phoneCameraStatus{margin-top:9px;color:var(--muted);font-size:11px}
 @media(max-width:700px){.phoneCameraHead{align-items:flex-start;flex-direction:column}.phoneCameraQrWrap{align-items:flex-start;flex-direction:column}}
 
+
+.phoneCameraPreviewWrap{margin-top:12px;width:min(320px,100%);border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#020403}
+.phoneCameraPreview{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#020403}
+
 </style>
 </head>
 <body>
@@ -3914,6 +3918,9 @@ html,body{
                   </div>
                 </div>
                 <button id="phoneCameraStopBtn" class="btn danger small" type="button">Desconectar</button>
+              </div>
+              <div id="phoneCameraPreviewWrap" class="phoneCameraPreviewWrap hidden">
+                <video id="phoneCameraPreview" autoplay muted playsinline></video>
               </div>
               <div id="phoneCameraStatus" class="phoneCameraStatus">Nenhum celular conectado.</div>
             </div>
@@ -4949,7 +4956,7 @@ function updatePhoneCameraUI(){
 
   status.textContent=
     state.phoneCameraTrack?.readyState==='live'
-      ? 'Celular conectado · câmera ativa'
+      ? 'Celular conectado · câmera visível'
       : active
         ? 'Escaneie o QR Code com o celular'
         : 'Nenhum celular conectado.';
@@ -4968,8 +4975,18 @@ function closePhoneCameraPeer(){
   const old=state.phoneCameraPc;
   state.phoneCameraPc=null;
   if(old){try{old.close()}catch{}}
-  if(state.phoneCameraTrack){try{state.phoneCameraTrack.stop()}catch{}}
+
+  if(state.phoneCameraTrack){
+    try{state.phoneCameraTrack.stop()}catch{}
+  }
+
   state.phoneCameraTrack=null;
+
+  const preview=$('#phoneCameraPreview');
+  const previewWrap=$('#phoneCameraPreviewWrap');
+
+  if(preview) preview.srcObject=null;
+  previewWrap?.classList.add('hidden');
 }
 
 async function activatePhoneCameraTrack(track){
@@ -4987,24 +5004,69 @@ async function activatePhoneCameraTrack(track){
   }
 
   for(const old of state.localStream.getVideoTracks()){
-    if(old!==track){
+    if(old.id!==track.id){
       state.localStream.removeTrack(old);
       try{old.stop()}catch{}
     }
   }
 
-  if(!state.localStream.getVideoTracks().includes(track)){
+  if(
+    !state.localStream.getVideoTracks().some(
+      current=>current.id===track.id
+    )
+  ){
     state.localStream.addTrack(track);
   }
 
-  if(state.joinedVoiceId && !state.screenTrack){
-    await replaceVideoForAll(track);
+  const preview=$('#phoneCameraPreview');
+  const previewWrap=$('#phoneCameraPreviewWrap');
+
+  if(preview){
+    preview.srcObject=new MediaStream([track]);
+    preview.muted=true;
+    preview.playsInline=true;
+
+    try{
+      await preview.play();
+    }catch{}
   }
 
-  ensureCard('local',state.username+' (você)',state.localStream,true);
+  previewWrap?.classList.remove('hidden');
+
+  const refreshLocalPreview=()=>{
+    ensureCard(
+      'local',
+      state.username+' (você)',
+      state.localStream,
+      true
+    );
+
+    updatePhoneCameraUI();
+  };
+
+  track.addEventListener('unmute',refreshLocalPreview);
+  track.addEventListener('mute',refreshLocalPreview);
+  track.addEventListener('ended',()=>{
+    if(state.phoneCameraTrack===track){
+      state.phoneCameraTrack=null;
+      if(state.cameraTrack===track) state.cameraTrack=null;
+      previewWrap?.classList.add('hidden');
+      if(preview) preview.srcObject=null;
+      updatePhoneCameraUI();
+      ensureCard('local',state.username+' (você)',state.localStream,true);
+    }
+  });
+
+  if(state.joinedVoiceId && !state.screenTrack){
+    await replaceVideoForAll(track);
+    await applyCameraSenderQuality();
+  }
+
+  refreshLocalPreview();
+
   $('#cameraBtn').textContent='📱 Câmera do celular';
   $('#cameraBtn').classList.remove('off');
-  updatePhoneCameraUI();
+  $('#phoneCameraStatus').textContent='Celular conectado · câmera visível';
   toast('Câmera do celular conectada');
 }
 
@@ -5047,6 +5109,19 @@ async function receivePhoneCameraOffer(data){
   pc.ontrack=event=>{
     if(event.track?.kind==='video'){
       activatePhoneCameraTrack(event.track).catch(console.error);
+    }
+  };
+
+  pc.onconnectionstatechange=()=>{
+    const status=$('#phoneCameraStatus');
+    if(!status) return;
+
+    if(pc.connectionState==='connecting'){
+      status.textContent='Conectando vídeo do celular...';
+    }else if(pc.connectionState==='connected'){
+      status.textContent='Celular conectado · câmera visível';
+    }else if(pc.connectionState==='failed'){
+      status.textContent='Falha ao receber o vídeo do celular';
     }
   };
 
@@ -8685,13 +8760,36 @@ async function copyInvite(){
 
 
 async function ensureMic(){
-  if(state.localStream && state.localStream.getAudioTracks().length) return state.localStream;
-  const mic = await navigator.mediaDevices.getUserMedia({
+  if(state.localStream && state.localStream.getAudioTracks().length){
+    return state.localStream;
+  }
+
+  const mic=await navigator.mediaDevices.getUserMedia({
     audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
     video:false
   });
-  state.localStream = mic;
-  return mic;
+
+  if(!state.localStream){
+    state.localStream=new MediaStream();
+  }
+
+  for(const track of mic.getAudioTracks()){
+    state.localStream.addTrack(track);
+  }
+
+  // Não substitui o MediaStream inteiro: assim a câmera do celular,
+  // conectada antes de entrar na call, continua anexada.
+  if(
+    state.phoneCameraTrack &&
+    state.phoneCameraTrack.readyState==='live' &&
+    !state.localStream.getVideoTracks().some(
+      track=>track.id===state.phoneCameraTrack.id
+    )
+  ){
+    state.localStream.addTrack(state.phoneCameraTrack);
+  }
+
+  return state.localStream;
 }
 
 function getTransceiverByKind(pc, kind){
@@ -9437,6 +9535,21 @@ async function joinVoice(){
     $('#joinVoiceBtn').textContent = 'Entrando...';
     await ensureMic();
 
+    if(
+      state.phoneCameraTrack &&
+      state.phoneCameraTrack.readyState==='live'
+    ){
+      if(
+        !state.localStream.getVideoTracks().some(
+          track=>track.id===state.phoneCameraTrack.id
+        )
+      ){
+        state.localStream.addTrack(state.phoneCameraTrack);
+      }
+
+      state.cameraTrack=state.phoneCameraTrack;
+    }
+
     state.joinedVoiceId = channel.id;
     state.activeVoiceServerId = state.serverId;
     state.activeVoiceChannelId = channel.id;
@@ -9446,6 +9559,19 @@ async function joinVoice(){
     syncVoiceControlsUI();
 
     ensureCard('local',state.username+' (você)',state.localStream,true);
+
+    if(state.phoneCameraTrack?.readyState==='live'){
+      const preview=$('#phoneCameraPreview');
+      if(preview){
+        preview.srcObject=new MediaStream([state.phoneCameraTrack]);
+        preview.muted=true;
+        preview.playsInline=true;
+        preview.play().catch(()=>{});
+      }
+      $('#phoneCameraPreviewWrap')?.classList.remove('hidden');
+      $('#cameraBtn').textContent='📱 Câmera do celular';
+      $('#cameraBtn').classList.remove('off');
+    }
 
     unlockAllRemoteAudio();
 
@@ -11639,7 +11765,17 @@ async function startCamera(){
     if(pc){try{pc.close()}catch{}}
     pc=new RTCPeerConnection(rtcConfig);
 
-    stream.getVideoTracks().forEach(track=>pc.addTrack(track,stream));
+    const videoTrack=stream.getVideoTracks()[0];
+
+    if(!videoTrack){
+      setStatus('Nenhuma câmera disponível.');
+      return;
+    }
+
+    pc.addTransceiver(videoTrack,{
+      direction:'sendonly',
+      streams:[stream]
+    });
 
     pc.onicecandidate=event=>{
       if(event.candidate){
