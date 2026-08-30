@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -80,7 +81,7 @@ app.use((req,res,next)=>{
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: blob: https://api.qrserver.com; " +
+    "img-src 'self' data: blob:; " +
     "media-src 'self' blob: https:; " +
     "connect-src 'self' ws: wss:; " +
     "font-src 'self' data:; " +
@@ -1183,7 +1184,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v24';
+const CACHE='acord-app-stable-v25';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4926,10 +4927,23 @@ function updatePhoneCameraUI(){
   wrap.classList.toggle('hidden',!active);
 
   if(active && state.phoneCameraLink){
+    qr.onerror=()=>{
+      status.textContent='Não foi possível carregar o QR. Clique em Conectar celular novamente.';
+    };
+
+    qr.onload=()=>{
+      if(!state.phoneCameraTrack){
+        status.textContent='Escaneie o QR Code com o celular';
+      }
+    };
+
     qr.src=
-      'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' +
-      encodeURIComponent(state.phoneCameraLink);
+      '/phone-camera-qr/' +
+      encodeURIComponent(state.phoneCameraToken) +
+      '?v=' + Date.now();
   }else{
+    qr.onerror=null;
+    qr.onload=null;
     qr.removeAttribute('src');
   }
 
@@ -11677,6 +11691,54 @@ window.addEventListener('beforeunload',()=>socket.emit('phone-camera-stop',{toke
 </script>
 </body>
 </html>`;
+
+app.get('/phone-camera-qr/:token', (req,res) => {
+  const token=String(req.params.token || '').slice(0,100);
+  const session=phoneCameraSessions.get(token);
+
+  if(!session || Number(session.expiresAt || 0)<=Date.now()){
+    res.status(404).type('text').send('QR expirado');
+    return;
+  }
+
+  const target=
+    'https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=png&data=' +
+    encodeURIComponent(
+      String(req.protocol || 'https') +
+      '://' +
+      String(req.get('host') || '') +
+      '/phone-camera/' +
+      encodeURIComponent(token)
+    );
+
+  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
+  res.setHeader('Content-Type','image/png');
+
+  const request=https.get(target,remote=>{
+    if(remote.statusCode!==200){
+      res.status(502).type('text').send('Não foi possível gerar o QR Code');
+      remote.resume();
+      return;
+    }
+
+    remote.pipe(res);
+  });
+
+  request.setTimeout(7000,()=>{
+    request.destroy(new Error('QR timeout'));
+  });
+
+  request.on('error',error=>{
+    console.error('Erro ao gerar QR Code:',error.message);
+
+    if(!res.headersSent){
+      res.status(502).type('text').send('Não foi possível gerar o QR Code');
+    }else{
+      try{res.end()}catch{}
+    }
+  });
+});
+
 
 app.get('/phone-camera/:token', (req,res) => {
   res.setHeader('Cache-Control','no-store, no-cache,must-revalidate');
