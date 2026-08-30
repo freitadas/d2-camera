@@ -316,6 +316,121 @@ setInterval(()=>{
   }
 },60*1000).unref?.();
 
+setInterval(()=>{
+  const now=Date.now();
+
+  for(const s of servers.values()){
+    const jobs=Array.isArray(s.creative?.scheduledMessages)
+      ? s.creative.scheduledMessages
+      : [];
+
+    const pending=[];
+
+    for(const job of jobs){
+      if(Number(job?.sendAt||0)>now){
+        pending.push(job);
+        continue;
+      }
+
+      const channelId=String(job?.channelId||'');
+      if(!s.textChannels.some(c=>c.id===channelId)) continue;
+
+      const message={
+        id:id(),
+        serverId:s.id,
+        channelId,
+        userId:String(job?.userId||'system').slice(0,100),
+        username:String(job?.username||'Concorde').slice(0,30),
+        text:String(job?.text||'').slice(0,2000),
+        attachment:null,
+        replyTo:null,
+        mentions:[],
+        at:now,
+        edited:false,
+        scheduled:true
+      };
+
+      const history=s.messages.get(channelId)||[];
+      history.push(message);
+      if(history.length>500)history.splice(0,history.length-500);
+      s.messages.set(channelId,history);
+
+      for(const client of io.sockets.sockets.values()){
+        if(requireServerAccess(s,client))client.emit('public-chat-message',message);
+      }
+    }
+
+    if(jobs.length!==pending.length){
+      s.creative.scheduledMessages=pending;
+      saveServersToDisk();
+    }
+
+    const expiring=Array.isArray(s.creative?.expiringMessages)
+      ? s.creative.expiringMessages
+      : [];
+
+    const keepExpiring=[];
+
+    for(const item of expiring){
+      if(Number(item?.expiresAt||0)>now){
+        keepExpiring.push(item);
+        continue;
+      }
+
+      const channelId=String(item?.channelId||'');
+      const messageId=String(item?.messageId||'');
+      const history=s.messages.get(channelId)||[];
+      const index=history.findIndex(message=>message.id===messageId);
+
+      if(index>=0){
+        history.splice(index,1);
+        s.messages.set(channelId,history);
+
+        for(const client of io.sockets.sockets.values()){
+          if(requireServerAccess(s,client)){
+            client.emit('public-chat-message-deleted',{
+              serverId:s.id,
+              channelId,
+              messageId
+            });
+          }
+        }
+      }
+    }
+
+    if(expiring.length!==keepExpiring.length){
+      s.creative.expiringMessages=keepExpiring;
+      saveServersToDisk();
+    }
+
+    const tempRooms=Array.isArray(s.creative?.tempRooms)
+      ? s.creative.tempRooms
+      : [];
+
+    const keepRooms=[];
+
+    for(const roomInfo of tempRooms){
+      const channelId=String(roomInfo?.channelId||'');
+      const room='voice:'+s.id+':'+channelId;
+      const members=io.sockets.adapter.rooms.get(room);
+      const age=now-Number(roomInfo?.createdAt||now);
+
+      if((members?.size||0)>0 || age<120000){
+        keepRooms.push(roomInfo);
+        continue;
+      }
+
+      s.voiceChannels=(s.voiceChannels||[]).filter(channel=>channel.id!==channelId);
+    }
+
+    if(tempRooms.length!==keepRooms.length){
+      s.creative.tempRooms=keepRooms;
+      saveServersToDisk();
+      broadcastServerUpdate(s);
+    }
+  }
+},60*1000).unref?.();
+
 
 function normalizeAccountUsername(value){
   return String(value || '').trim().replace(/\s+/g,' ').slice(0,30);
@@ -582,7 +697,10 @@ function makeServer(name = 'Acord', options = {}) {
     watchParty:options.watchParty && typeof options.watchParty==='object'
       ? options.watchParty
       : {url:'',position:0,playing:false,updatedAt:0},
-    whiteboard:Array.isArray(options.whiteboard)?options.whiteboard.slice(-2000):[]
+    whiteboard:Array.isArray(options.whiteboard)?options.whiteboard.slice(-2000):[],
+    creative:options.creative && typeof options.creative==='object'
+      ? options.creative
+      : {}
   };
 
   servers.set(serverId, data);
@@ -684,14 +802,15 @@ function serializeServers() {
     events:serverData.events||[],
     polls:serverData.polls||[],
     watchParty:serverData.watchParty||{url:'',position:0,playing:false,updatedAt:0},
-    whiteboard:serverData.whiteboard||[]
+    whiteboard:serverData.whiteboard||[],
+    creative:serverData.creative&&typeof serverData.creative==='object'?serverData.creative:{}
   }));
 }
 
 function saveServersToDisk() {
   try {
     const payload=JSON.stringify({
-      version: 10,
+      version: 11,
       savedAt:Date.now(),
       servers: serializeServers(),
       profiles: serializeProfiles(),
@@ -929,7 +1048,8 @@ function loadServersFromDisk() {
         events:item.events,
         polls:item.polls,
         watchParty:item.watchParty,
-        whiteboard:item.whiteboard
+        whiteboard:item.whiteboard,
+        creative:item.creative
       });
     }
 
@@ -1066,6 +1186,13 @@ function mergeRestoredServer(item) {
     if (!existing.messages.has(channel.id)) existing.messages.set(channel.id, []);
   }
 
+  if(item.creative && typeof item.creative==='object'){
+    existing.creative={
+      ...(existing.creative||{}),
+      ...item.creative
+    };
+  }
+
   return existing;
 }
 
@@ -1116,7 +1243,8 @@ function publicServer(serverData) {
     pinned:serverData.pinned||[],
     events:serverData.events||[],
     polls:serverData.polls||[],
-    watchParty:serverData.watchParty||{url:'',position:0,playing:false,updatedAt:0}
+    watchParty:serverData.watchParty||{url:'',position:0,playing:false,updatedAt:0},
+    creative:serverData.creative&&typeof serverData.creative==='object'?serverData.creative:{}
   };
 }
 
@@ -1260,7 +1388,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v34-labs-fixed';
+const CACHE='acord-app-stable-v35-creative100';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3584,6 +3712,26 @@ body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-ch
 .labsActionStatus.ok{color:var(--mint)}
 .labsActionStatus.error{color:var(--danger)}
 
+
+.creativeNavBtn{border:1px solid color-mix(in srgb,var(--mint) 35%,var(--line))}
+.creativeHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+.creativeHead h2{margin:0 0 5px}.creativeHead p{margin:0;color:var(--muted);font-size:12px;max-width:700px}
+.creativeBadge{min-width:100px;text-align:center;padding:10px;border:1px solid var(--line);background:var(--bg2);border-radius:12px}
+.creativeBadge strong{display:block;font-size:24px;color:var(--mint)}.creativeBadge span{font-size:10px;color:var(--muted)}
+.creativeToolbar{display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:10px}
+.creativeStatus{padding:9px 11px;border:1px solid var(--line);background:var(--bg1);border-radius:10px;color:var(--muted);font-size:11px;margin-bottom:12px}
+.creativeStatus.ok{color:var(--mint)}.creativeStatus.error{color:var(--danger)}
+.creativeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.creativeCard{border:1px solid var(--line);background:var(--bg2);border-radius:12px;padding:12px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;min-height:88px}
+.creativeCard strong{display:block;font-size:12px;margin-bottom:4px}.creativeCard p{margin:0;color:var(--muted);font-size:10px;line-height:1.35}
+.creativeCard button{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:9px;padding:8px 10px;font-size:10px;font-weight:900}
+.creativeCard button:hover{border-color:var(--mint)}
+.creativePanel{margin-top:14px;padding:14px;border:1px solid var(--line);background:var(--bg1);border-radius:12px;white-space:pre-wrap;max-height:360px;overflow:auto;font-size:12px}
+.creativeList{display:grid;gap:8px}.creativeItem{padding:10px;border:1px solid var(--line);background:var(--bg2);border-radius:9px}
+body[data-creative-cinema="1"]{background:#000}body[data-creative-cinema="1"] .sidebar,body[data-creative-cinema="1"] .rightbar{opacity:.18}
+body[data-creative-focus="1"] .rail,body[data-creative-focus="1"] .sidebar,body[data-creative-focus="1"] .rightbar{display:none}
+@media(max-width:760px){.creativeToolbar{grid-template-columns:1fr}.creativeHead{flex-direction:column}.creativeBadge{width:100%}}
+
 </style>
 </head>
 <body>
@@ -3815,6 +3963,7 @@ body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-ch
             <button class="megaNavBtn" data-mega-page="call">Áudio e vídeo</button>
             <button class="megaNavBtn" data-mega-page="tools">Ferramentas e bots</button>
             <button class="megaNavBtn labsNavBtn" data-mega-page="labs">✦ Concorde 100+</button>
+            <button class="megaNavBtn creativeNavBtn" data-mega-page="creative">🚀 Concorde Criativo</button>
           </aside>
           <div class="megaBody">
             <section id="megaPageProfile" class="megaPage active">
@@ -3947,6 +4096,33 @@ body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-ch
               <div id="labsFeatureGrid" class="labsFeatureGrid"></div>
               <div id="labsOutput" class="labsOutput hidden"></div>
             </section>
+
+            <section id="megaPageCreative" class="megaPage">
+              <div class="creativeHead">
+                <div>
+                  <h2>🚀 Concorde Criativo</h2>
+                  <p>100 recursos úteis para comunidades, amigos, estudos, jogos, reuniões e servidores.</p>
+                </div>
+                <div class="creativeBadge"><strong>100</strong><span>recursos</span></div>
+              </div>
+              <div class="creativeToolbar">
+                <input id="creativeSearch" placeholder="Buscar recurso criativo">
+                <select id="creativeCategory">
+                  <option value="all">Todas as categorias</option>
+                  <option value="social">Social</option>
+                  <option value="call">Calls</option>
+                  <option value="chat">Chat</option>
+                  <option value="server">Servidor</option>
+                  <option value="productivity">Produtividade</option>
+                  <option value="media">Mídia</option>
+                  <option value="safety">Segurança</option>
+                </select>
+              </div>
+              <div id="creativeStatus" class="creativeStatus">Pronto para usar.</div>
+              <div id="creativeGrid" class="creativeGrid"></div>
+              <div id="creativePanel" class="creativePanel hidden"></div>
+            </section>
+
           </div>
         </div>
       </section>
@@ -4799,7 +4975,15 @@ const state = {
   labsNotes:localStorage.getItem('concorde-labs-notes')||'',
   labsStopwatchStarted:0,
   labsStopwatchTimer:null,
-  labsWakeLock:null
+  labsWakeLock:null,
+  creativeLocal:(()=>{
+    try{return JSON.parse(localStorage.getItem('concorde-creative-local')||'{}')||{}}catch{return {}}
+  })(),
+  creativeServer:{},
+  creativeStartedAt:Date.now(),
+  creativeHealthyTimer:null,
+  creativeSpeechMonitor:null,
+  creativeWordFilter:[]
 };
 
 const rtcConfig = {
@@ -6415,6 +6599,636 @@ function initializeLabsAfterStartup(){
 
 initializeLabsAfterStartup();
 
+
+const CREATIVE_FEATURES = [{"n": 1, "id": "tempRoom", "name": "Sala temporária automática", "desc": "Cria uma sala de voz temporária vinculada ao usuário.", "category": "call"}, {"n": 2, "id": "availableMode", "name": "Modo Estou disponível", "desc": "Publica disponibilidade para conversar, jogar ou estudar.", "category": "social"}, {"n": 3, "id": "peopleMatch", "name": "Match de pessoas do servidor", "desc": "Sugere membros com interesses semelhantes.", "category": "social"}, {"n": 4, "id": "interestGroups", "name": "Grupos automáticos por interesse", "desc": "Agrupa membros por interesses declarados.", "category": "social"}, {"n": 5, "id": "missedSummary", "name": "Resumo do que perdi", "desc": "Resume atividade recente do servidor.", "category": "chat"}, {"n": 6, "id": "callSummary", "name": "Resumo de call", "desc": "Registra decisões, links e tarefas de uma call.", "category": "call"}, {"n": 7, "id": "sharedCalendar", "name": "Agenda compartilhada", "desc": "Adiciona compromissos ao calendário do servidor.", "category": "productivity"}, {"n": 8, "id": "eventRsvp", "name": "Confirmação em eventos", "desc": "Registra Vou, Talvez ou Não vou.", "category": "productivity"}, {"n": 9, "id": "eventLobby", "name": "Sala de espera de eventos", "desc": "Cria uma sala de espera vinculada ao próximo evento.", "category": "call"}, {"n": 10, "id": "serverMissions", "name": "Missões do servidor", "desc": "Cria desafios de participação úteis.", "category": "server"}, {"n": 11, "id": "helpReputation", "name": "Reputação por ajuda", "desc": "Registra agradecimentos e ajuda entre membros.", "category": "social"}, {"n": 12, "id": "contributionProfile", "name": "Perfil de contribuição", "desc": "Mostra áreas em que um membro ajuda mais.", "category": "social"}, {"n": 13, "id": "dailyQuestion", "name": "Pergunta do dia", "desc": "Publica uma pergunta diária no servidor.", "category": "chat"}, {"n": 14, "id": "achievementWall", "name": "Mural de conquistas", "desc": "Registra conquistas reais dos membros.", "category": "social"}, {"n": 15, "id": "studyMode", "name": "Modo estudo em grupo", "desc": "Inicia sessão sincronizada de foco e pausa.", "category": "productivity"}, {"n": 16, "id": "speakerQueue", "name": "Fila para falar", "desc": "Cria uma fila organizada para calls grandes.", "category": "call"}, {"n": 17, "id": "mutedSpeechWarning", "name": "Aviso falando no mudo", "desc": "Ativa detecção local de voz com microfone mutado.", "category": "call"}, {"n": 18, "id": "screenShareWarning", "name": "Aviso de tela compartilhada", "desc": "Mostra alerta persistente enquanto a tela é compartilhada.", "category": "call"}, {"n": 19, "id": "preCallPreview", "name": "Prévia antes de entrar", "desc": "Abre teste de câmera e microfone.", "category": "call"}, {"n": 20, "id": "silentJoin", "name": "Entrada silenciosa", "desc": "Alterna sons de entrada na call.", "category": "call"}, {"n": 21, "id": "miniCall", "name": "Call em mini-player", "desc": "Ativa mini visão da call durante navegação.", "category": "call"}, {"n": 22, "id": "pipVideo", "name": "Picture-in-Picture", "desc": "Abre vídeo local/remoto em Picture-in-Picture.", "category": "call"}, {"n": 23, "id": "autoCallLayout", "name": "Layout automático de call", "desc": "Seleciona layout com foco em quem fala ou compartilha.", "category": "call"}, {"n": 24, "id": "breakoutRooms", "name": "Salas paralelas", "desc": "Cria salas de voz para pequenos grupos.", "category": "call"}, {"n": 25, "id": "walkieTalkie", "name": "Walkie-talkie", "desc": "Ativa push-to-talk rapidamente.", "category": "call"}, {"n": 26, "id": "spatialAudio", "name": "Áudio espacial simples", "desc": "Distribui participantes entre esquerda e direita.", "category": "call"}, {"n": 27, "id": "sharedAmbience", "name": "Som ambiente compartilhado", "desc": "Escolhe chuva, cafeteria, floresta ou ruído branco.", "category": "call"}, {"n": 28, "id": "collabPlaylist", "name": "Playlist colaborativa", "desc": "Adiciona links de música à fila do servidor.", "category": "media"}, {"n": 29, "id": "watchVote", "name": "Watch Party com votação", "desc": "Vota no próximo vídeo a assistir.", "category": "media"}, {"n": 30, "id": "cinemaMode", "name": "Modo cinema", "desc": "Escurece a interface e foca no conteúdo.", "category": "media"}, {"n": 31, "id": "scheduledMessage", "name": "Mensagem programada", "desc": "Agenda uma mensagem para envio futuro.", "category": "chat"}, {"n": 32, "id": "expiringMessage", "name": "Mensagem que expira", "desc": "Envia mensagem com tempo de expiração.", "category": "chat"}, {"n": 33, "id": "importantAck", "name": "Mensagem importante", "desc": "Cria aviso que exige confirmação de leitura.", "category": "chat"}, {"n": 34, "id": "anonymousBox", "name": "Caixa de sugestões anônimas", "desc": "Envia uma sugestão sem exibir o autor.", "category": "chat"}, {"n": 35, "id": "anonymousQuestions", "name": "Perguntas anônimas em call", "desc": "Envia perguntas anônimas para o servidor.", "category": "call"}, {"n": 36, "id": "quickThread", "name": "Thread rápida", "desc": "Cria uma conversa vinculada a um tema.", "category": "chat"}, {"n": 37, "id": "personalInbox", "name": "Inbox pessoal", "desc": "Reúne menções, respostas e itens importantes.", "category": "chat"}, {"n": 38, "id": "readLater", "name": "Ler depois", "desc": "Salva uma anotação ou mensagem para consultar depois.", "category": "chat"}, {"n": 39, "id": "savedFolders", "name": "Pastas de mensagens salvas", "desc": "Organiza itens salvos por pasta.", "category": "chat"}, {"n": 40, "id": "globalSearch", "name": "Pesquisa global inteligente", "desc": "Busca pessoas, canais, eventos e itens do servidor.", "category": "chat"}, {"n": 41, "id": "naturalCommands", "name": "Comandos naturais", "desc": "Interpreta comandos simples em linguagem natural.", "category": "productivity"}, {"n": 42, "id": "favorites", "name": "Favoritos", "desc": "Salva servidores, canais ou pessoas favoritas.", "category": "social"}, {"n": 43, "id": "recentHistory", "name": "Histórico recente", "desc": "Mostra as últimas áreas acessadas.", "category": "social"}, {"n": 44, "id": "commandPalette", "name": "Central Ctrl+K", "desc": "Abre uma paleta de navegação e ações.", "category": "productivity"}, {"n": 45, "id": "customDashboard", "name": "Painel inicial personalizado", "desc": "Escolhe widgets para o painel pessoal.", "category": "productivity"}, {"n": 46, "id": "serverHome", "name": "Página inicial do servidor", "desc": "Monta uma home com regras, eventos e destaques.", "category": "server"}, {"n": 47, "id": "smartOnboarding", "name": "Onboarding inteligente", "desc": "Registra interesses e recomenda canais/cargos.", "category": "server"}, {"n": 48, "id": "selfRoles", "name": "Cargos autoescolhidos", "desc": "Permite ao membro escolher cargos autorizados.", "category": "server"}, {"n": 49, "id": "faqChannel", "name": "FAQ do servidor", "desc": "Cria e consulta perguntas frequentes.", "category": "server"}, {"n": 50, "id": "serverWiki", "name": "Wiki interna", "desc": "Cria páginas permanentes dentro do servidor.", "category": "server"}, {"n": 51, "id": "kanban", "name": "Quadro Kanban", "desc": "Gerencia cartões em A fazer, Fazendo e Concluído.", "category": "productivity"}, {"n": 52, "id": "sharedTasks", "name": "Lista de tarefas compartilhada", "desc": "Cria tarefas e permite assumir responsáveis.", "category": "productivity"}, {"n": 53, "id": "eventChecklist", "name": "Checklist de evento", "desc": "Cria checklist colaborativo para eventos.", "category": "productivity"}, {"n": 54, "id": "groupDecisions", "name": "Decisões do grupo", "desc": "Registra decisões e participantes.", "category": "productivity"}, {"n": 55, "id": "eliminationPoll", "name": "Enquete eliminatória", "desc": "Cria votação em rodadas com eliminação.", "category": "productivity"}, {"n": 56, "id": "onlineDraw", "name": "Sorteio entre membros online", "desc": "Sorteia alguém entre usuários disponíveis.", "category": "social"}, {"n": 57, "id": "internalForms", "name": "Formulários internos", "desc": "Cria formulário simples para inscrições.", "category": "server"}, {"n": 58, "id": "usefulRanking", "name": "Ranking de participação útil", "desc": "Mostra ajuda, tarefas e contribuições registradas.", "category": "social"}, {"n": 59, "id": "customAchievements", "name": "Conquistas personalizadas", "desc": "Cria conquistas definidas pelo servidor.", "category": "server"}, {"n": 60, "id": "memberCard", "name": "Cartão de apresentação", "desc": "Cria cartão com bio, interesses e links.", "category": "social"}, {"n": 61, "id": "scheduleCompatibility", "name": "Compatibilidade de horários", "desc": "Compara faixas de disponibilidade dos membros.", "category": "social"}, {"n": 62, "id": "quickCallInvite", "name": "Chamar para conversar", "desc": "Envia convite rápido para call.", "category": "call"}, {"n": 63, "id": "messageOnlyStatus", "name": "Só mensagem", "desc": "Marca que o usuário prefere mensagem a call.", "category": "social"}, {"n": 64, "id": "timedStatus", "name": "Status com duração", "desc": "Define status temporário com expiração.", "category": "social"}, {"n": 65, "id": "serverInvisible", "name": "Invisível por servidor", "desc": "Oculta sua presença naquele servidor na camada criativa.", "category": "social"}, {"n": 66, "id": "blockUser", "name": "Bloquear usuário", "desc": "Mantém lista pessoal de usuários bloqueados.", "category": "safety"}, {"n": 67, "id": "personalWordFilter", "name": "Filtro de palavras pessoal", "desc": "Oculta termos escolhidos nas mensagens visíveis.", "category": "safety"}, {"n": 68, "id": "adaptiveAntiSpam", "name": "Anti-spam adaptativo", "desc": "Configura limites de repetição/flood.", "category": "safety"}, {"n": 69, "id": "smartSlowMode", "name": "Modo lento inteligente", "desc": "Configura intervalo mínimo entre mensagens.", "category": "safety"}, {"n": 70, "id": "raidProtection", "name": "Proteção contra raid", "desc": "Ativa proteção reforçada para novas entradas.", "category": "safety"}, {"n": 71, "id": "newMemberQuarantine", "name": "Quarentena de novos membros", "desc": "Define período de acesso restrito.", "category": "safety"}, {"n": 72, "id": "everyoneConfirm", "name": "Confirmação de @everyone", "desc": "Exige confirmação extra antes de menções amplas.", "category": "safety"}, {"n": 73, "id": "serverHealth", "name": "Saúde do servidor", "desc": "Exibe atividade, canais e sinais de manutenção.", "category": "server"}, {"n": 74, "id": "cleanupSuggestions", "name": "Sugestões de limpeza", "desc": "Lista canais pouco usados ou vazios.", "category": "server"}, {"n": 75, "id": "archiveChannels", "name": "Arquivar canais", "desc": "Arquiva um canal sem excluir seus metadados.", "category": "server"}, {"n": 76, "id": "recycleBin", "name": "Lixeira de canais", "desc": "Guarda canais removidos para restauração.", "category": "server"}, {"n": 77, "id": "configHistory", "name": "Histórico de configurações", "desc": "Exibe ações administrativas registradas.", "category": "server"}, {"n": 78, "id": "duplicateStructure", "name": "Duplicar canal/categoria", "desc": "Duplica a estrutura selecionada.", "category": "server"}, {"n": 79, "id": "serverTemplates", "name": "Templates de servidor", "desc": "Gera estrutura para estudos, gaming ou comunidade.", "category": "server"}, {"n": 80, "id": "cloneServer", "name": "Clonar estrutura", "desc": "Cria um novo servidor com estrutura semelhante.", "category": "server"}, {"n": 81, "id": "visitorMode", "name": "Modo visitante", "desc": "Configura acesso público limitado na camada criativa.", "category": "server"}, {"n": 82, "id": "perServerProfile", "name": "Perfil diferente por servidor", "desc": "Salva nome, bio e avatar específicos do servidor.", "category": "social"}, {"n": 83, "id": "timedNickname", "name": "Apelido com validade", "desc": "Define apelido temporário por servidor.", "category": "social"}, {"n": 84, "id": "photoWall", "name": "Mural de fotos", "desc": "Adiciona imagens por URL ao mural.", "category": "media"}, {"n": 85, "id": "collabAlbum", "name": "Álbum colaborativo", "desc": "Cria álbuns e adiciona imagens.", "category": "media"}, {"n": 86, "id": "fileGallery", "name": "Galeria de arquivos", "desc": "Organiza links de arquivos compartilhados.", "category": "media"}, {"n": 87, "id": "audioPlayer", "name": "Player de áudio integrado", "desc": "Toca um link direto de áudio.", "category": "media"}, {"n": 88, "id": "pdfViewer", "name": "Visualizador de PDF", "desc": "Abre PDF em visualizador interno do navegador.", "category": "media"}, {"n": 89, "id": "fileNotes", "name": "Notas em arquivos", "desc": "Adiciona comentários vinculados a arquivos.", "category": "media"}, {"n": 90, "id": "versionCompare", "name": "Comparar versões", "desc": "Compara dois textos ou descrições de versão.", "category": "media"}, {"n": 91, "id": "customReactions", "name": "Reações personalizadas", "desc": "Cria reações personalizadas do servidor.", "category": "media"}, {"n": 92, "id": "serverEmojiPacks", "name": "Pacotes de emojis", "desc": "Registra emojis personalizados por URL.", "category": "media"}, {"n": 93, "id": "stickersApproval", "name": "Stickers com aprovação", "desc": "Envia stickers para fila de aprovação.", "category": "media"}, {"n": 94, "id": "temporaryAvatar", "name": "Avatar temporário", "desc": "Define avatar local temporário com duração.", "category": "social"}, {"n": 95, "id": "serverTheme", "name": "Tema por servidor", "desc": "Salva cor e fundo preferidos para o servidor.", "category": "media"}, {"n": 96, "id": "communityThemes", "name": "Temas comunitários", "desc": "Exporta/importa tema compartilhável.", "category": "media"}, {"n": 97, "id": "healthyMode", "name": "Modo saudável", "desc": "Ativa lembretes após muito tempo em call.", "category": "productivity"}, {"n": 98, "id": "usageSummary", "name": "Resumo de tempo de uso", "desc": "Mostra tempo aproximado da sessão atual.", "category": "productivity"}, {"n": 99, "id": "concentrationMode", "name": "Modo concentração", "desc": "Silencia notificações exceto itens prioritários.", "category": "productivity"}, {"n": 100, "id": "todayHub", "name": "Hoje no Concorde", "desc": "Mostra eventos, disponibilidade, tarefas e destaques do dia.", "category": "productivity"}];
+
+function saveCreativeLocal(){
+  try{
+    localStorage.setItem('concorde-creative-local',JSON.stringify(state.creativeLocal||{}));
+  }catch{}
+}
+
+function setCreativeStatus(message,type=''){
+  const el=$('#creativeStatus');if(!el)return;
+  el.textContent=String(message||'');
+  el.classList.remove('ok','error');
+  if(type)el.classList.add(type);
+}
+
+function showCreative(value){
+  const panel=$('#creativePanel');if(!panel)return;
+  panel.textContent=typeof value==='string'?value:JSON.stringify(value,null,2);
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({block:'nearest',behavior:'smooth'});
+  setCreativeStatus('Resultado disponível abaixo.','ok');
+}
+
+function renderCreative(){
+  const grid=$('#creativeGrid');if(!grid)return;
+  const q=String($('#creativeSearch')?.value||'').trim().toLowerCase();
+  const category=$('#creativeCategory')?.value||'all';
+  grid.innerHTML='';
+
+  const items=CREATIVE_FEATURES.filter(f=>
+    (category==='all'||f.category===category) &&
+    (!q||(f.name+' '+f.desc+' '+f.n).toLowerCase().includes(q))
+  );
+
+  for(const feature of items){
+    const card=document.createElement('div');card.className='creativeCard';
+    const meta=document.createElement('div');
+    const title=document.createElement('strong');title.textContent=feature.n+'. '+feature.name;
+    const desc=document.createElement('p');desc.textContent=feature.desc;
+    meta.append(title,desc);
+
+    const btn=document.createElement('button');
+    btn.type='button';btn.dataset.creativeId=feature.id;btn.textContent='Usar';
+    card.append(meta,btn);grid.appendChild(card);
+  }
+
+  if(!items.length){
+    const empty=document.createElement('div');empty.className='creativeItem';
+    empty.textContent='Nenhum recurso encontrado.';grid.appendChild(empty);
+  }
+}
+
+function creativeServerRequired(){
+  const server=currentServer();
+  if(!server)throw new Error('Selecione um servidor primeiro');
+  return server;
+}
+
+function creativePrompt(label,initial=''){
+  const value=prompt(label,initial);
+  if(value===null)throw new Error('Ação cancelada');
+  return String(value).trim();
+}
+
+function creativeAppend(key,item){
+  const server=creativeServerRequired();
+  return new Promise((resolve,reject)=>{
+    socket.timeout(5000).emit('creative-append',{
+      serverId:server.id,key,item
+    },(err,response)=>{
+      if(err||!response?.ok)return reject(new Error(response?.error||'Servidor não respondeu'));
+      state.creativeServer=response.creative||{};
+      resolve(response);
+    });
+  });
+}
+
+function creativeSet(key,value){
+  const server=creativeServerRequired();
+  return new Promise((resolve,reject)=>{
+    socket.timeout(5000).emit('creative-set',{
+      serverId:server.id,key,value
+    },(err,response)=>{
+      if(err||!response?.ok)return reject(new Error(response?.error||'Servidor não respondeu'));
+      state.creativeServer=response.creative||{};
+      resolve(response);
+    });
+  });
+}
+
+function creativeGet(){
+  if(!state.serverId)return Promise.resolve({});
+  return new Promise(resolve=>{
+    socket.timeout(4000).emit('creative-get',{serverId:state.serverId},(err,response)=>{
+      if(!err&&response?.ok)state.creativeServer=response.creative||{};
+      resolve(state.creativeServer||{});
+    });
+  });
+}
+
+function creativeLocalList(key){
+  const value=state.creativeLocal[key];
+  return Array.isArray(value)?value:[];
+}
+
+function creativeLocalAppend(key,value){
+  state.creativeLocal[key]=[...creativeLocalList(key),value].slice(-500);
+  saveCreativeLocal();
+}
+
+function creativeToggle(key){
+  state.creativeLocal[key]=!state.creativeLocal[key];
+  saveCreativeLocal();
+  return !!state.creativeLocal[key];
+}
+
+function creativeMembers(){
+  return currentServer()?.memberProfiles||[];
+}
+
+function creativeRandomMember(){
+  const members=creativeMembers().filter(m=>String(m.id)!==String(state.userId));
+  return members.length?members[Math.floor(Math.random()*members.length)]:null;
+}
+
+function creativeDownload(name,data,type='application/json'){
+  const blob=new Blob([data],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
+
+function creativeApplyWordFilter(){
+  const words=creativeLocalList('wordFilter').map(v=>String(v).toLowerCase()).filter(Boolean);
+  document.querySelectorAll('#messages .message span').forEach(span=>{
+    const original=span.dataset.originalText||span.textContent||'';
+    span.dataset.originalText=original;
+    let value=original;
+    for(const word of words){
+      if(!word)continue;
+      value=value.replace(new RegExp(word.replace(/[.*+?^$()|[\]\\{}]/g,'\\$&'),'gi'),'••••');
+    }
+    span.textContent=value;
+  });
+}
+
+function creativeTodayText(){
+  const server=currentServer();
+  const creative=server?.creative||state.creativeServer||{};
+  const today=new Date().toDateString();
+  const events=(server?.events||[]).filter(e=>new Date(e.when).toDateString()===today);
+  const tasks=Array.isArray(creative.sharedTasks)?creative.sharedTasks.filter(t=>!t.done):[];
+  const available=creative.available||{};
+  return [
+    'HOJE NO CONCORDE',
+    '',
+    'Eventos hoje: '+events.length,
+    ...events.map(e=>'• '+e.title+' · '+new Date(e.when).toLocaleTimeString()),
+    '',
+    'Tarefas pendentes: '+tasks.length,
+    ...tasks.slice(0,8).map(t=>'• '+(t.title||t.text||'Tarefa')),
+    '',
+    'Disponíveis: '+Object.values(available).filter(Boolean).length,
+    'Não lidas: '+Object.values(state.unreadCounts||{}).reduce((a,b)=>a+Number(b||0),0)
+  ].join('\n');
+}
+
+async function runCreativeFeature(id){
+  const server=currentServer();
+
+  switch(id){
+    case 'tempRoom':{
+      const name='Temporária-'+(state.username||'usuario').slice(0,12);
+      const result=await new Promise((resolve,reject)=>{
+        socket.timeout(5000).emit('creative-temp-room',{serverId:creativeServerRequired().id,name},(err,response)=>{
+          if(err||!response?.ok)return reject(new Error(response?.error||'Não foi possível criar a sala'));
+          resolve(response);
+        });
+      });
+      showCreative('Sala temporária criada: '+result.name);break;
+    }
+    case 'availableMode':{
+      const kind=creativePrompt('Disponível para quê?','Conversar');
+      await creativeSet('available',{...(state.creativeServer.available||{}),[state.userId]:{username:state.username,kind,at:Date.now()}});
+      showCreative('Você está disponível para: '+kind);break;
+    }
+    case 'peopleMatch':{
+      const meWords=new Set(String(state.bio+' '+state.activity).toLowerCase().split(/\W+/).filter(w=>w.length>3));
+      const ranked=creativeMembers().filter(m=>m.id!==state.userId).map(m=>{
+        const words=String((m.bio||'')+' '+(m.username||'')).toLowerCase().split(/\W+/);
+        return {name:m.username,score:words.filter(w=>meWords.has(w)).length};
+      }).sort((a,b)=>b.score-a.score);
+      showCreative(ranked.length?ranked.slice(0,8).map((r,i)=>(i+1)+'. '+r.name+' · compatibilidade '+r.score).join('\n'):'Sem membros suficientes');break;
+    }
+    case 'interestGroups':{
+      const groups={};
+      creativeMembers().forEach(m=>{
+        const key=String(m.bio||'Sem interesse informado').split(/[,.]/)[0].trim()||'Sem interesse informado';
+        (groups[key]||(groups[key]=[])).push(m.username);
+      });
+      showCreative(Object.entries(groups).map(([k,v])=>k+': '+v.join(', ')).join('\n'));break;
+    }
+    case 'missedSummary':{
+      const c=await creativeGet();
+      const recent=[
+        ...(currentServer()?.events||[]).slice(-3).map(e=>'Evento: '+e.title),
+        ...(c.decisions||[]).slice(-3).map(e=>'Decisão: '+(e.text||e.title||'')),
+        ...(c.achievements||[]).slice(-3).map(e=>'Conquista: '+(e.text||'')),
+        ...(c.sharedTasks||[]).slice(-3).map(e=>'Tarefa: '+(e.title||e.text||''))
+      ];
+      showCreative(recent.length?'O QUE VOCÊ PERDEU\n\n'+recent.join('\n'):'Ainda não há atividade suficiente para resumir.');break;
+    }
+    case 'callSummary':{
+      const summary=creativePrompt('Resumo da call: decisões, links e tarefas','');
+      await creativeAppend('callSummaries',{text:summary,by:state.username,at:Date.now()});
+      showCreative('Resumo da call salvo.');break;
+    }
+    case 'sharedCalendar':{
+      const title=creativePrompt('Compromisso','Reunião');
+      const when=creativePrompt('Data/hora (ex.: 2026-09-01 19:00)','');
+      await creativeAppend('calendar',{title,when,by:state.username,at:Date.now()});showCreative('Compromisso adicionado: '+title+' · '+when);break;
+    }
+    case 'eventRsvp':{
+      const eventName=creativePrompt('Evento','Evento');
+      const answer=creativePrompt('Resposta: Vou, Talvez ou Não vou','Vou');
+      await creativeAppend('rsvps',{event:eventName,answer,username:state.username,userId:state.userId,at:Date.now()});showCreative('Resposta registrada: '+answer);break;
+    }
+    case 'eventLobby':{
+      const eventName=creativePrompt('Evento para a sala de espera','Evento');
+      const name='Espera-'+eventName.slice(0,18);
+      socket.emit('create-channel',{serverId:creativeServerRequired().id,type:'voice',name});
+      await creativeAppend('eventLobbies',{event:eventName,name,at:Date.now()});showCreative('Sala de espera criada: '+name);break;
+    }
+    case 'serverMissions':{
+      const mission=creativePrompt('Nova missão','Ajude um membro hoje');
+      await creativeAppend('missions',{text:mission,by:state.username,at:Date.now()});showCreative('Missão criada: '+mission);break;
+    }
+    case 'helpReputation':{
+      const member=creativePrompt('Quem te ajudou?','');
+      const reason=creativePrompt('Como ajudou?','');
+      await creativeAppend('helpThanks',{member,reason,from:state.username,at:Date.now()});showCreative('Agradecimento registrado para '+member);break;
+    }
+    case 'contributionProfile':{
+      const c=await creativeGet();const rows={};
+      (c.helpThanks||[]).forEach(x=>rows[x.member]=(rows[x.member]||0)+1);
+      showCreative(Object.entries(rows).sort((a,b)=>b[1]-a[1]).map(([n,v])=>n+': '+v+' ajuda(s)').join('\n')||'Nenhuma contribuição registrada.');break;
+    }
+    case 'dailyQuestion':{
+      const q=creativePrompt('Pergunta do dia','Qual foi a melhor coisa do seu dia?');
+      await creativeAppend('dailyQuestions',{text:q,date:new Date().toISOString().slice(0,10),by:state.username});showCreative('Pergunta do dia salva: '+q);break;
+    }
+    case 'achievementWall':{
+      const value=creativePrompt('Conquista','');
+      await creativeAppend('achievements',{text:value,username:state.username,at:Date.now()});showCreative('Conquista adicionada ao mural.');break;
+    }
+    case 'studyMode':{
+      const minutes=Math.max(1,Math.min(180,Number(creativePrompt('Minutos de foco','25'))||25));
+      await creativeSet('studySession',{minutes,startedAt:Date.now(),by:state.username,status:'focus'});
+      toast('Modo estudo iniciado por '+minutes+' min');setTimeout(()=>toast('Pausa do estudo em grupo'),minutes*60000);showCreative('Sessão de estudo: '+minutes+' min.');break;
+    }
+    case 'speakerQueue':{
+      const c=await creativeGet();const queue=Array.isArray(c.speakerQueue)?c.speakerQueue:[];
+      if(!queue.some(x=>x.userId===state.userId))queue.push({userId:state.userId,username:state.username,at:Date.now()});
+      await creativeSet('speakerQueue',queue);showCreative(queue.map((x,i)=>(i+1)+'. '+x.username).join('\n'));break;
+    }
+    case 'mutedSpeechWarning':{
+      const enabled=creativeToggle('mutedSpeechWarning');
+      showCreative('Aviso falando no mudo: '+(enabled?'ativado':'desativado')+'. Ele usa o estado local do microfone.');break;
+    }
+    case 'screenShareWarning':{
+      const enabled=creativeToggle('screenShareWarning');showCreative('Aviso de compartilhamento de tela: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'preCallPreview': await testMedia();showCreative('Prévia de câmera/microfone aberta.');break;
+    case 'silentJoin':{
+      state.creativeLocal.silentJoin=!state.creativeLocal.silentJoin;state.labsPrefs.sounds=!state.creativeLocal.silentJoin;saveCreativeLocal();saveLabsPrefs();showCreative('Entrada silenciosa: '+(state.creativeLocal.silentJoin?'ativada':'desativada'));break;
+    }
+    case 'miniCall':{
+      const enabled=creativeToggle('miniCall');$('#activeCallDock')?.classList.toggle('hidden',!enabled&&!state.joinedVoiceId);showCreative('Mini-player de call: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'pipVideo':{
+      const video=document.querySelector('#videoGrid video, #megaMediaPreview');
+      if(!video||!document.pictureInPictureEnabled)throw new Error('Nenhum vídeo compatível disponível');
+      await video.requestPictureInPicture();showCreative('Picture-in-Picture ativado.');break;
+    }
+    case 'autoCallLayout':{
+      const mode=creativePrompt('Layout: grade, foco ou apresentação','grade');
+      state.creativeLocal.callLayout=mode;saveCreativeLocal();showCreative('Layout de call salvo: '+mode);break;
+    }
+    case 'breakoutRooms':{
+      const count=Math.max(2,Math.min(8,Number(creativePrompt('Quantidade de salas','2'))||2));
+      for(let i=1;i<=count;i++)socket.emit('create-channel',{serverId:creativeServerRequired().id,type:'voice',name:'Grupo-'+i});
+      await creativeAppend('breakoutSets',{count,at:Date.now(),by:state.username});showCreative(count+' salas paralelas solicitadas.');break;
+    }
+    case 'walkieTalkie': state.pushToTalk=true;localStorage.setItem('acord-ptt','1');showCreative('Walkie-talkie ativado: push-to-talk ligado.');break;
+    case 'spatialAudio':{
+      const enabled=creativeToggle('spatialAudio');
+      let index=0;for(const audio of state.remoteAudio.values()){audio.volume=Math.max(.35,1-(index%3)*.1);index++}
+      showCreative('Áudio espacial simples: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'sharedAmbience':{
+      const sound=creativePrompt('Ambiente: chuva, cafeteria, floresta, branco','chuva');
+      await creativeSet('ambience',{sound,by:state.username,at:Date.now()});showCreative('Ambiente compartilhado selecionado: '+sound);break;
+    }
+    case 'collabPlaylist':{
+      const url=creativePrompt('Link da música','https://');
+      await creativeAppend('playlist',{url,by:state.username,at:Date.now()});showCreative('Música adicionada à playlist colaborativa.');break;
+    }
+    case 'watchVote':{
+      const url=creativePrompt('Link do vídeo candidato','https://');
+      await creativeAppend('watchVotes',{url,by:state.username,votes:[state.userId],at:Date.now()});showCreative('Vídeo adicionado para votação.');break;
+    }
+    case 'cinemaMode':{
+      const enabled=creativeToggle('cinemaMode');document.body.dataset.creativeCinema=enabled?'1':'0';showCreative('Modo cinema: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'scheduledMessage':{
+      const text=creativePrompt('Mensagem','');
+      const mins=Math.max(1,Number(creativePrompt('Enviar em quantos minutos?','1'))||1);
+      await creativeAppend('scheduledMessages',{text,channelId:state.textChannelId,userId:state.userId,username:state.username,sendAt:Date.now()+mins*60000});
+      showCreative('Mensagem programada para '+mins+' min.');break;
+    }
+    case 'expiringMessage':{
+      const text=creativePrompt('Mensagem temporária','');
+      const mins=Math.max(1,Number(creativePrompt('Expira em quantos minutos?','10'))||10);
+      if(!state.textChannelId)throw new Error('Selecione um canal de texto primeiro');
+      await new Promise((resolve,reject)=>{
+        socket.timeout(5000).emit('creative-expiring-message',{
+          serverId:creativeServerRequired().id,
+          channelId:state.textChannelId,
+          text,
+          expiresAt:Date.now()+mins*60000
+        },(err,response)=>{
+          if(err||!response?.ok)return reject(new Error(response?.error||'Não foi possível enviar'));
+          resolve(response);
+        });
+      });
+      showCreative('Mensagem temporária enviada. Ela expira em '+mins+' min.');break;
+    }
+    case 'importantAck':{
+      const text=creativePrompt('Mensagem importante','');
+      await creativeAppend('importantMessages',{id:String(Date.now()),text,by:state.username,acks:[state.userId],at:Date.now()});showCreative('Mensagem importante criada com confirmação de leitura.');break;
+    }
+    case 'anonymousBox':{
+      const text=creativePrompt('Sugestão anônima','');
+      await creativeAppend('anonymousSuggestions',{text,at:Date.now()});showCreative('Sugestão anônima enviada.');break;
+    }
+    case 'anonymousQuestions':{
+      const text=creativePrompt('Pergunta anônima','');
+      await creativeAppend('anonymousQuestions',{text,at:Date.now()});showCreative('Pergunta anônima enviada.');break;
+    }
+    case 'quickThread':{
+      const title=creativePrompt('Tema da thread','Novo assunto');
+      await creativeAppend('threads',{id:String(Date.now()),title,messages:[],by:state.username,at:Date.now()});showCreative('Thread criada: '+title);break;
+    }
+    case 'personalInbox':{
+      showCreative(JSON.stringify({nãoLidas:state.unreadCounts,salvos:creativeLocalList('readLater'),favoritos:creativeLocalList('favorites')},null,2));break;
+    }
+    case 'readLater':{
+      const text=creativePrompt('Salvar para ler depois',$('#messageInput')?.value||'');
+      creativeLocalAppend('readLater',{text,at:Date.now()});showCreative('Item salvo para ler depois.');break;
+    }
+    case 'savedFolders':{
+      const folder=creativePrompt('Nome da pasta','Importante');
+      const text=creativePrompt('Conteúdo','');
+      state.creativeLocal.savedFolders=state.creativeLocal.savedFolders||{};
+      (state.creativeLocal.savedFolders[folder]||(state.creativeLocal.savedFolders[folder]=[])).push({text,at:Date.now()});saveCreativeLocal();showCreative('Salvo na pasta '+folder);break;
+    }
+    case 'globalSearch':{
+      const q=creativePrompt('Pesquisar','').toLowerCase();const c=await creativeGet();
+      const matches=[];
+      creativeMembers().forEach(m=>{if((m.username+' '+(m.bio||'')).toLowerCase().includes(q))matches.push('Pessoa: '+m.username)});
+      (server?.textChannels||[]).forEach(ch=>{if(ch.name.toLowerCase().includes(q))matches.push('Canal: #'+ch.name)});
+      Object.entries(c).forEach(([k,v])=>{if(JSON.stringify(v).toLowerCase().includes(q))matches.push('Recurso: '+k)});
+      showCreative(matches.slice(0,50).join('\n')||'Nenhum resultado.');break;
+    }
+    case 'naturalCommands':{
+      const cmd=creativePrompt('Comando natural','criar tarefa estudar');
+      if(/^criar tarefa /i.test(cmd)){const title=cmd.replace(/^criar tarefa /i,'');await creativeAppend('sharedTasks',{title,done:false,by:state.username,at:Date.now()});showCreative('Tarefa criada: '+title)}
+      else if(/^status /i.test(cmd)){state.customStatus=cmd.replace(/^status /i,'');showCreative('Status preparado: '+state.customStatus)}
+      else showCreative('Comandos entendidos: "criar tarefa ..." e "status ...".');break;
+    }
+    case 'favorites':{
+      const item=creativePrompt('Favorito (servidor, canal ou pessoa)',currentServer()?.name||'');
+      creativeLocalAppend('favorites',item);showCreative('Favorito salvo: '+item);break;
+    }
+    case 'recentHistory': showCreative((JSON.parse(localStorage.getItem('concorde-recent-history')||'[]')||[]).join('\n')||'Sem histórico recente.');break;
+    case 'commandPalette':{
+      const cmd=creativePrompt('Ctrl+K — comando','amigos');
+      if(/amigo/i.test(cmd))setView('friends');else if(/mensag/i.test(cmd))setView('dm');else if(/call/i.test(cmd))returnToActiveCall();else showCreative('Comandos: amigos, mensagens, call.');break;
+    }
+    case 'customDashboard':{
+      const widgets=creativePrompt('Widgets separados por vírgula','eventos, amigos online, não lidas, tarefas');
+      state.creativeLocal.dashboard=widgets.split(',').map(v=>v.trim()).filter(Boolean);saveCreativeLocal();showCreative('Painel salvo: '+state.creativeLocal.dashboard.join(', '));break;
+    }
+    case 'serverHome':{
+      const c=await creativeGet();showCreative(['HOME — '+creativeServerRequired().name,'',server.rules||'Sem regras.','', 'Eventos: '+(server.events||[]).length,'FAQ: '+(c.faq||[]).length,'Tarefas: '+(c.sharedTasks||[]).length].join('\n'));break;
+    }
+    case 'smartOnboarding':{
+      const interests=creativePrompt('Seus interesses','jogos, estudo').split(',').map(v=>v.trim()).filter(Boolean);
+      await creativeAppend('onboarding',{userId:state.userId,username:state.username,interests,at:Date.now()});showCreative('Onboarding salvo. Recomendações serão baseadas nesses interesses.');break;
+    }
+    case 'selfRoles':{
+      const role=creativePrompt('Nome do cargo desejado','');
+      await creativeAppend('selfRoleRequests',{userId:state.userId,username:state.username,role,at:Date.now()});showCreative('Solicitação de cargo registrada: '+role);break;
+    }
+    case 'faqChannel':{
+      const q=creativePrompt('Pergunta','');
+      const a=creativePrompt('Resposta','');
+      await creativeAppend('faq',{q,a,by:state.username,at:Date.now()});showCreative('FAQ adicionado.');break;
+    }
+    case 'serverWiki':{
+      const title=creativePrompt('Título da página','Nova página');
+      const body=creativePrompt('Conteúdo','');
+      await creativeAppend('wiki',{title,body,by:state.username,updatedAt:Date.now()});showCreative('Página da wiki salva: '+title);break;
+    }
+    case 'kanban':{
+      const title=creativePrompt('Cartão','Nova tarefa');
+      const column=creativePrompt('Coluna: A fazer, Fazendo ou Concluído','A fazer');
+      await creativeAppend('kanban',{title,column,by:state.username,at:Date.now()});showCreative('Cartão criado em '+column);break;
+    }
+    case 'sharedTasks':{
+      const title=creativePrompt('Tarefa','');
+      await creativeAppend('sharedTasks',{title,done:false,assignee:'',by:state.username,at:Date.now()});showCreative('Tarefa compartilhada criada.');break;
+    }
+    case 'eventChecklist':{
+      const event=creativePrompt('Evento','Evento');
+      const item=creativePrompt('Item do checklist','');
+      await creativeAppend('eventChecklist',{event,item,done:false,by:state.username,at:Date.now()});showCreative('Item adicionado ao checklist.');break;
+    }
+    case 'groupDecisions':{
+      const text=creativePrompt('Decisão tomada','');
+      await creativeAppend('decisions',{text,participants:[state.username],at:Date.now()});showCreative('Decisão registrada.');break;
+    }
+    case 'eliminationPoll':{
+      const q=creativePrompt('Pergunta','Escolha uma opção');
+      const options=creativePrompt('Opções separadas por |','A | B | C').split('|').map(v=>v.trim()).filter(Boolean);
+      await creativeAppend('eliminationPolls',{q,options,round:1,votes:{},at:Date.now()});showCreative('Enquete eliminatória criada com '+options.length+' opções.');break;
+    }
+    case 'onlineDraw':{
+      const member=creativeRandomMember();showCreative(member?'Sorteado: '+member.username:'Sem membros disponíveis para sortear.');break;
+    }
+    case 'internalForms':{
+      const title=creativePrompt('Título do formulário','Inscrição');
+      const fields=creativePrompt('Campos separados por vírgula','Nome, resposta').split(',').map(v=>v.trim());
+      await creativeAppend('forms',{id:String(Date.now()),title,fields,responses:[],by:state.username});showCreative('Formulário criado: '+title);break;
+    }
+    case 'usefulRanking':{
+      const c=await creativeGet(),score={};
+      (c.helpThanks||[]).forEach(x=>score[x.member]=(score[x.member]||0)+3);
+      (c.achievements||[]).forEach(x=>score[x.username]=(score[x.username]||0)+1);
+      (c.sharedTasks||[]).forEach(x=>{if(x.assignee)score[x.assignee]=(score[x.assignee]||0)+2});
+      showCreative(Object.entries(score).sort((a,b)=>b[1]-a[1]).map(([n,s],i)=>(i+1)+'. '+n+' · '+s).join('\n')||'Sem dados para ranking.');break;
+    }
+    case 'customAchievements':{
+      const name=creativePrompt('Nome da conquista','Colaborador');
+      const desc=creativePrompt('Critério','');
+      await creativeAppend('customAchievements',{name,desc,by:state.username,at:Date.now()});showCreative('Conquista personalizada criada.');break;
+    }
+    case 'memberCard':{
+      const interests=creativePrompt('Interesses','');
+      state.creativeLocal.memberCard={displayName:state.displayName||state.username,bio:state.bio,interests,links:state.links||{}};saveCreativeLocal();showCreative(state.creativeLocal.memberCard);break;
+    }
+    case 'scheduleCompatibility':{
+      const range=creativePrompt('Seu horário disponível','18:00-22:00');
+      await creativeAppend('availabilityRanges',{userId:state.userId,username:state.username,range,at:Date.now()});
+      const c=await creativeGet();showCreative((c.availabilityRanges||[]).map(x=>x.username+': '+x.range).join('\n'));break;
+    }
+    case 'quickCallInvite':{
+      const member=creativePrompt('Usuário para chamar','');
+      await creativeAppend('callInvites',{from:state.username,to:member,at:Date.now()});showCreative('Convite de call enviado para '+member);break;
+    }
+    case 'messageOnlyStatus':{
+      const enabled=creativeToggle('messageOnly');state.customStatus=enabled?'💬 Só mensagem':'';showCreative('Só mensagem: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'timedStatus':{
+      const value=creativePrompt('Status temporário','Ocupado');
+      const mins=Math.max(1,Number(creativePrompt('Duração em minutos','60'))||60);
+      state.customStatus=value;state.creativeLocal.timedStatus={value,expiresAt:Date.now()+mins*60000};saveCreativeLocal();
+      setTimeout(()=>{if(state.creativeLocal.timedStatus?.expiresAt<=Date.now()){state.customStatus='';delete state.creativeLocal.timedStatus;saveCreativeLocal()}},mins*60000);
+      showCreative('Status ativo por '+mins+' min.');break;
+    }
+    case 'serverInvisible':{
+      const enabled=creativeToggle('invisible:'+state.serverId);await creativeAppend('invisibleMembers',{userId:state.userId,enabled,at:Date.now()});showCreative('Invisível neste servidor: '+(enabled?'sim':'não'));break;
+    }
+    case 'blockUser':{
+      const user=creativePrompt('Usuário para bloquear','');
+      creativeLocalAppend('blockedUsers',user.toLowerCase());showCreative('Usuário adicionado à lista de bloqueio: '+user);break;
+    }
+    case 'personalWordFilter':{
+      const word=creativePrompt('Palavra para ocultar','');
+      creativeLocalAppend('wordFilter',word);creativeApplyWordFilter();showCreative('Filtro aplicado para: '+word);break;
+    }
+    case 'adaptiveAntiSpam':{
+      const limit=Math.max(2,Number(creativePrompt('Máximo de mensagens repetidas','3'))||3);await creativeSet('antiSpam',{enabled:true,repeatLimit:limit,updatedAt:Date.now()});showCreative('Anti-spam configurado.');break;
+    }
+    case 'smartSlowMode':{
+      const seconds=Math.max(0,Number(creativePrompt('Intervalo mínimo em segundos','5'))||0);await creativeSet('slowMode',{seconds,updatedAt:Date.now()});showCreative('Modo lento: '+seconds+'s.');break;
+    }
+    case 'raidProtection':{
+      const enabled=creativePrompt('Ativar proteção contra raid? sim/não','sim').toLowerCase().startsWith('s');await creativeSet('raidProtection',{enabled,updatedAt:Date.now()});showCreative('Proteção contra raid: '+(enabled?'ativada':'desativada'));break;
+    }
+    case 'newMemberQuarantine':{
+      const mins=Math.max(0,Number(creativePrompt('Minutos de quarentena','10'))||0);await creativeSet('quarantine',{minutes:mins,updatedAt:Date.now()});showCreative('Quarentena configurada para '+mins+' min.');break;
+    }
+    case 'everyoneConfirm':{
+      const enabled=creativePrompt('Exigir confirmação para @everyone? sim/não','sim').toLowerCase().startsWith('s');await creativeSet('everyoneConfirm',{enabled});showCreative('Confirmação @everyone: '+(enabled?'ativada':'desativada'));break;
+    }
+    case 'serverHealth':{
+      const c=await creativeGet();showCreative(['SAÚDE DO SERVIDOR','Membros: '+(server?.memberProfiles?.length||0),'Canais de texto: '+(server?.textChannels?.length||0),'Canais de voz: '+(server?.voiceChannels?.length||0),'Tarefas: '+(c.sharedTasks||[]).length,'FAQ: '+(c.faq||[]).length,'Wiki: '+(c.wiki||[]).length].join('\n'));break;
+    }
+    case 'cleanupSuggestions':{
+      const empty=(server?.textChannels||[]).filter(ch=>!ch.name||/novo|teste/i.test(ch.name));
+      showCreative(empty.length?'Possíveis canais para revisar:\n'+empty.map(c=>'• '+c.name).join('\n'):'Nenhum canal claramente abandonado detectado.');break;
+    }
+    case 'archiveChannels':{
+      const ch=currentText();if(!ch)throw new Error('Selecione um canal de texto');
+      await creativeAppend('archivedChannels',{...ch,archivedAt:Date.now(),by:state.username});showCreative('Canal registrado no arquivo: #'+ch.name);break;
+    }
+    case 'recycleBin':{
+      const c=await creativeGet();showCreative((c.recycleBin||[]).map(x=>x.name||x.title||JSON.stringify(x)).join('\n')||'Lixeira vazia.');break;
+    }
+    case 'configHistory': socket.emit('mega-get-audit',{serverId:creativeServerRequired().id});showCreative('Histórico solicitado. Veja também o log de moderação em Servidor.');break;
+    case 'duplicateStructure':{
+      const ch=currentText();if(!ch)throw new Error('Selecione um canal de texto');
+      socket.emit('create-channel',{serverId:creativeServerRequired().id,type:'text',name:(ch.name+'-copia').slice(0,28)});showCreative('Duplicação solicitada: #'+ch.name+'-copia');break;
+    }
+    case 'serverTemplates':{
+      const type=creativePrompt('Template: estudo, gaming, comunidade','estudo');
+      const presets={estudo:['geral','duvidas','materiais','foco'],gaming:['geral','clips','times','estrategia'],comunidade:['geral','anuncios','eventos','sugestoes']};
+      const names=presets[type]||presets.estudo;for(const n of names)socket.emit('create-channel',{serverId:creativeServerRequired().id,type:'text',name:n});
+      showCreative('Template '+type+' solicitado com '+names.length+' canais.');break;
+    }
+    case 'cloneServer':{
+      const name=creativePrompt('Nome do clone',(server?.name||'Servidor')+' Clone');
+      socket.emit('create-server',{name});creativeLocalAppend('cloneRequests',{source:state.serverId,name,at:Date.now()});showCreative('Novo servidor solicitado. A estrutura pode ser replicada manualmente pelo template.');break;
+    }
+    case 'visitorMode':{
+      const enabled=creativePrompt('Ativar modo visitante? sim/não','sim').toLowerCase().startsWith('s');await creativeSet('visitorMode',{enabled,updatedAt:Date.now()});showCreative('Modo visitante criativo: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'perServerProfile':{
+      const nickname=creativePrompt('Nome neste servidor',state.displayName||state.username);
+      const bio=creativePrompt('Bio neste servidor',state.bio||'');
+      state.creativeLocal.serverProfiles=state.creativeLocal.serverProfiles||{};state.creativeLocal.serverProfiles[state.serverId]={nickname,bio};saveCreativeLocal();showCreative('Perfil do servidor salvo: '+nickname);break;
+    }
+    case 'timedNickname':{
+      const nick=creativePrompt('Apelido temporário','');
+      const mins=Math.max(1,Number(creativePrompt('Duração em minutos','60'))||60);
+      state.creativeLocal.timedNick={serverId:state.serverId,nick,expiresAt:Date.now()+mins*60000};saveCreativeLocal();showCreative('Apelido temporário salvo por '+mins+' min.');break;
+    }
+    case 'photoWall':{
+      const url=creativePrompt('URL da foto','https://');await creativeAppend('photoWall',{url,by:state.username,at:Date.now()});showCreative('Foto adicionada ao mural.');break;
+    }
+    case 'collabAlbum':{
+      const album=creativePrompt('Nome do álbum','Geral');const url=creativePrompt('URL da foto','https://');await creativeAppend('albums',{album,url,by:state.username,at:Date.now()});showCreative('Foto adicionada ao álbum '+album);break;
+    }
+    case 'fileGallery':{
+      const name=creativePrompt('Nome do arquivo','Arquivo');const url=creativePrompt('URL do arquivo','https://');await creativeAppend('fileGallery',{name,url,by:state.username,at:Date.now()});showCreative('Arquivo adicionado à galeria.');break;
+    }
+    case 'audioPlayer':{
+      const url=creativePrompt('URL direta do áudio','https://');const audio=new Audio(url);audio.controls=true;audio.autoplay=true;const panel=$('#creativePanel');panel.innerHTML='';panel.classList.remove('hidden');panel.appendChild(audio);setCreativeStatus('Player de áudio aberto.','ok');break;
+    }
+    case 'pdfViewer':{
+      const url=creativePrompt('URL do PDF','https://');const iframe=document.createElement('iframe');iframe.src=url;iframe.style.cssText='width:100%;height:320px;border:0';const panel=$('#creativePanel');panel.innerHTML='';panel.classList.remove('hidden');panel.appendChild(iframe);setCreativeStatus('PDF aberto.','ok');break;
+    }
+    case 'fileNotes':{
+      const file=creativePrompt('Arquivo/link','');const note=creativePrompt('Nota','');await creativeAppend('fileNotes',{file,note,by:state.username,at:Date.now()});showCreative('Nota vinculada ao arquivo.');break;
+    }
+    case 'versionCompare':{
+      const a=creativePrompt('Versão A','');const b=creativePrompt('Versão B','');const aw=a.split(/\s+/),bw=b.split(/\s+/);const onlyA=aw.filter(x=>!bw.includes(x)),onlyB=bw.filter(x=>!aw.includes(x));showCreative('Somente A: '+onlyA.join(' ')+'\n\nSomente B: '+onlyB.join(' '));break;
+    }
+    case 'customReactions':{
+      const emoji=creativePrompt('Reação','⭐');const label=creativePrompt('Nome','Destaque');await creativeAppend('customReactions',{emoji,label,by:state.username});showCreative('Reação criada: '+emoji+' '+label);break;
+    }
+    case 'serverEmojiPacks':{
+      const name=creativePrompt('Nome do emoji','emoji');const url=creativePrompt('URL da imagem','https://');await creativeAppend('emojiPack',{name,url,by:state.username});showCreative('Emoji personalizado registrado.');break;
+    }
+    case 'stickersApproval':{
+      const name=creativePrompt('Nome do sticker','sticker');const url=creativePrompt('URL da imagem','https://');await creativeAppend('stickerQueue',{name,url,by:state.username,status:'pending'});showCreative('Sticker enviado para aprovação.');break;
+    }
+    case 'temporaryAvatar':{
+      const url=creativePrompt('URL do avatar temporário','https://');const mins=Math.max(1,Number(creativePrompt('Duração em minutos','60'))||60);state.creativeLocal.tempAvatar={url,expiresAt:Date.now()+mins*60000};saveCreativeLocal();$('#userAvatar').style.backgroundImage='url("'+url.replace(/"/g,'')+'")';showCreative('Avatar temporário aplicado localmente.');break;
+    }
+    case 'serverTheme':{
+      const color=creativePrompt('Cor principal hexadecimal','#41d99a');const background=creativePrompt('URL de fundo (opcional)','');state.creativeLocal.serverThemes=state.creativeLocal.serverThemes||{};state.creativeLocal.serverThemes[state.serverId]={color,background};saveCreativeLocal();document.documentElement.style.setProperty('--coral',color);showCreative('Tema do servidor aplicado.');break;
+    }
+    case 'communityThemes':{
+      const action=creativePrompt('exportar ou importar','exportar');
+      if(/^exp/i.test(action)){creativeDownload('concorde-tema.json',JSON.stringify(state.creativeLocal.serverThemes?.[state.serverId]||{},null,2))}
+      else{const raw=creativePrompt('Cole o JSON do tema','{}');state.creativeLocal.serverThemes=state.creativeLocal.serverThemes||{};state.creativeLocal.serverThemes[state.serverId]=JSON.parse(raw);saveCreativeLocal();showCreative('Tema importado.')}break;
+    }
+    case 'healthyMode':{
+      const enabled=creativeToggle('healthyMode');if(state.creativeHealthyTimer)clearInterval(state.creativeHealthyTimer);
+      if(enabled)state.creativeHealthyTimer=setInterval(()=>{if(state.joinedVoiceId)toast('Você está há bastante tempo em call. Considere uma pausa.')},60*60*1000);
+      showCreative('Modo saudável: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'usageSummary':{
+      const mins=Math.round((Date.now()-state.creativeStartedAt)/60000);showCreative('Tempo aproximado nesta sessão: '+mins+' minuto(s).');break;
+    }
+    case 'concentrationMode':{
+      const enabled=creativeToggle('concentrationMode');state.labsPrefs.dnd=enabled;saveLabsPrefs();showCreative('Modo concentração: '+(enabled?'ativado':'desativado'));break;
+    }
+    case 'todayHub': await creativeGet();showCreative(creativeTodayText());break;
+    default: throw new Error('Recurso ainda não reconhecido: '+id);
+  }
+}
+
+async function handleCreativeClick(event){
+  const button=event.target.closest('button[data-creative-id]');
+  if(!button)return;
+  event.preventDefault();event.stopPropagation();
+
+  const feature=CREATIVE_FEATURES.find(f=>f.id===button.dataset.creativeId);
+  if(!feature)return;
+
+  setCreativeStatus('Executando: '+feature.name+'...');
+  button.disabled=true;
+
+  try{
+    await runCreativeFeature(feature.id);
+    if(!$('#creativeStatus')?.classList.contains('error'))setCreativeStatus(feature.name+': concluído.','ok');
+  }catch(error){
+    console.error('Concorde Criativo:',feature.id,error);
+    setCreativeStatus(feature.name+': '+(error?.message||'erro'),'error');
+    showCreative('Não foi possível executar '+feature.name+'.\n'+String(error?.message||error));
+  }finally{
+    button.disabled=false;
+  }
+}
+
+
 function openMegaView(page='profile',fromServer=false){
   state.megaFromServer=!!fromServer;
 
@@ -6458,6 +7272,10 @@ function selectMegaPage(page){
   if(page==='labs'){
     setLabsStatus('Pronto para usar.');
     renderLabsFeatures();
+  }
+  if(page==='creative'){
+    setCreativeStatus('Pronto para usar.');
+    creativeGet().then(()=>renderCreative());
   }
   if(page==='whiteboard' && state.serverId){
     initMegaWhiteboard();
@@ -7016,7 +7834,8 @@ function safeServerSnapshot(serverData){
     pinned:Array.isArray(serverData.pinned)?serverData.pinned.slice(-200):[],
     events:Array.isArray(serverData.events)?serverData.events.slice(-200):[],
     polls:Array.isArray(serverData.polls)?serverData.polls.slice(-200):[],
-    watchParty:serverData.watchParty&&typeof serverData.watchParty==='object'?serverData.watchParty:{url:'',position:0,playing:false,updatedAt:0}
+    watchParty:serverData.watchParty&&typeof serverData.watchParty==='object'?serverData.watchParty:{url:'',position:0,playing:false,updatedAt:0},
+    creative:serverData.creative&&typeof serverData.creative==='object'?serverData.creative:{}
   };
 }
 
@@ -8898,6 +9717,8 @@ function appendPublicChatMessage(message){
   box.appendChild(row);
   if(state.labsPrefs?.['auto-scroll']!==false) box.scrollTop=box.scrollHeight;
 
+  creativeApplyWordFilter();
+
   if(mentioned && !mine){
     playCallCue('join');
     maybeNotify('Você foi mencionado',message.username+' mencionou você');
@@ -8913,12 +9734,20 @@ function sendPublicChat(){
   if(!text && !state.pendingChatAttachment) return;
   if(!state.serverId || !state.textChannelId) return;
 
+  let confirmedEveryone=false;
+
+  if(/@everyone\b/i.test(text) && currentServer()?.creative?.everyoneConfirm?.enabled){
+    confirmedEveryone=confirm('Você está prestes a mencionar @everyone. Enviar mesmo assim?');
+    if(!confirmedEveryone) return;
+  }
+
   socket.emit('public-chat-message',{
     serverId:state.serverId,
     channelId:state.textChannelId,
     text,
     attachment:state.pendingChatAttachment,
-    replyTo:state.replyToMessageId
+    replyTo:state.replyToMessageId,
+    confirmedEveryone
   });
 
   input.value='';
@@ -11493,6 +12322,9 @@ document.querySelectorAll('.megaNavBtn').forEach(btn=>btn.addEventListener('clic
 $('#labsSearch').addEventListener('input',renderLabsFeatures);
 $('#labsCategory').addEventListener('change',renderLabsFeatures);
 $('#labsFeatureGrid').addEventListener('click',handleLabsGridClick);
+$('#creativeSearch').addEventListener('input',renderCreative);
+$('#creativeCategory').addEventListener('change',renderCreative);
+$('#creativeGrid').addEventListener('click',handleCreativeClick);
 $('#megaSaveProfile').addEventListener('click',saveMegaProfile);
 $('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
 $('#megaSaveServer').addEventListener('click',saveMegaServer);
@@ -12448,6 +13280,15 @@ socket.on('public-chat-history',payload=>{
 
 socket.on('public-chat-message',message=>{
   if(!message) return;
+
+  const blocked=creativeLocalList('blockedUsers').map(v=>String(v).toLowerCase());
+  if(
+    String(message.userId)!==String(state.userId) &&
+    blocked.includes(String(message.username||'').toLowerCase())
+  ){
+    return;
+  }
+
   const isCurrent=
     String(message.serverId)===String(state.serverId) &&
     String(message.channelId)===String(state.textChannelId) &&
@@ -12506,6 +13347,15 @@ socket.on('dm-history',history=>{
 
 socket.on('dm-message',message=>{
   if(!message) return;
+
+  const blocked=creativeLocalList('blockedUsers').map(v=>String(v).toLowerCase());
+  if(
+    message.fromUserId!==state.userId &&
+    blocked.includes(String(message.fromUsername||'').toLowerCase())
+  ){
+    return;
+  }
+
   if(message.fromUserId!==state.userId) maybeNotify('Nova mensagem privada',message.fromUsername||'Acord');
 
   const targetId = state.dmTarget?.id;
@@ -13614,7 +14464,8 @@ io.on('connection', socket => {
                 pinned:raw?.pinned,
                 events:raw?.events,
                 polls:raw?.polls,
-                watchParty:raw?.watchParty
+                watchParty:raw?.watchParty,
+                creative:raw?.creative
               });
             }
           }
@@ -13820,7 +14671,8 @@ io.on('connection', socket => {
                 pinned:raw?.pinned,
                 events:raw?.events,
                 polls:raw?.polls,
-                watchParty:raw?.watchParty
+                watchParty:raw?.watchParty,
+                creative:raw?.creative
               }
             );
           }
@@ -15246,7 +16098,7 @@ io.on('connection', socket => {
     return userRoles(serverData,socket).some(role=>role.id===policy.roleId);
   }
 
-  socket.on('public-chat-message', ({ serverId, channelId, text, attachment, replyTo }) => {
+  socket.on('public-chat-message', ({ serverId, channelId, text, attachment, replyTo, confirmedEveryone }) => {
     if(!socket.data.userId) return;
 
     const safeServerId=String(serverId||'').slice(0,80);
@@ -15268,6 +16120,42 @@ io.on('connection', socket => {
     }
 
     const safeText=String(text||'').trim().slice(0,2000);
+    const creative=serverData.creative||{};
+
+    if(
+      creative.everyoneConfirm?.enabled &&
+      /@everyone\b/i.test(safeText) &&
+      !confirmedEveryone
+    ){
+      socket.emit('permission-error',{error:'Confirme a menção @everyone antes de enviar'});
+      return;
+    }
+
+    const slowSeconds=Math.max(0,Number(creative.slowMode?.seconds||0));
+    if(slowSeconds>0 && !hasServerPermission(serverData,socket,'manageServer')){
+      socket.data.creativeLastMessages=socket.data.creativeLastMessages||{};
+      const key=safeServerId+':'+safeChannelId;
+      const last=Number(socket.data.creativeLastMessages[key]||0);
+      if(Date.now()-last<slowSeconds*1000){
+        socket.emit('permission-error',{error:'Modo lento ativo. Aguarde '+slowSeconds+' segundos.'});
+        return;
+      }
+      socket.data.creativeLastMessages[key]=Date.now();
+    }
+
+    const repeatLimit=Math.max(2,Number(creative.antiSpam?.repeatLimit||0));
+    if(creative.antiSpam?.enabled && safeText){
+      socket.data.creativeRecentTexts=Array.isArray(socket.data.creativeRecentTexts)
+        ? socket.data.creativeRecentTexts.slice(-20)
+        : [];
+      const normalized=safeText.toLowerCase().replace(/\s+/g,' ').trim();
+      const repeated=socket.data.creativeRecentTexts.filter(item=>item===normalized).length;
+      if(repeated>=repeatLimit-1){
+        socket.emit('permission-error',{error:'Anti-spam: mensagem repetida bloqueada'});
+        return;
+      }
+      socket.data.creativeRecentTexts.push(normalized);
+    }
     const data=String(attachment?.data||'');
     const safeAttachment=
       attachment && /^data:[^;]+;base64,/i.test(data) && data.length<=600000
@@ -15715,6 +16603,152 @@ io.on('connection', socket => {
     const data=String(payload?.data||'');if(!/^data:[^;]+;base64,/i.test(data)||data.length>600000)return;
     const message={serverId:s.id,username:socket.data.username||'Usuário',name:String(payload?.name||'arquivo').slice(0,100),type:String(payload?.type||'application/octet-stream').slice(0,100),data};
     for(const client of io.sockets.sockets.values()){if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-call-file',message)}
+  });
+
+
+  function sanitizeCreativeValue(value,depth=0){
+    if(depth>5) return null;
+    if(value===null || typeof value==='boolean' || typeof value==='number'){
+      return value;
+    }
+    if(typeof value==='string') return value.slice(0,5000);
+    if(Array.isArray(value)) return value.slice(-500).map(v=>sanitizeCreativeValue(v,depth+1));
+    if(value && typeof value==='object'){
+      const out={};
+      for(const [key,val] of Object.entries(value).slice(0,100)){
+        const safeKey=String(key).replace(/[^a-zA-Z0-9_.:-]/g,'').slice(0,80);
+        if(safeKey)out[safeKey]=sanitizeCreativeValue(val,depth+1);
+      }
+      return out;
+    }
+    return null;
+  }
+
+
+  socket.on('creative-temp-room',({serverId,name},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+
+    if(!s||!requireServerAccess(s,socket)){
+      reply({ok:false,error:'Servidor indisponível'});
+      return;
+    }
+
+    const channel={
+      id:id(),
+      name:cleanChannel(name,'temporaria'),
+      categoryId:null,
+      order:(s.voiceChannels||[]).length,
+      mode:'voice'
+    };
+
+    s.voiceChannels.push(channel);
+    s.creative=s.creative&&typeof s.creative==='object'?s.creative:{};
+    const rooms=Array.isArray(s.creative.tempRooms)?s.creative.tempRooms:[];
+    rooms.push({
+      channelId:channel.id,
+      ownerId:socket.data.userId,
+      createdAt:Date.now()
+    });
+    s.creative.tempRooms=rooms.slice(-100);
+
+    saveServersToDisk();
+    broadcastServerUpdate(s);
+    reply({ok:true,channelId:channel.id,name:channel.name});
+  });
+
+  socket.on('creative-expiring-message',({serverId,channelId,text,expiresAt},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+    const safeChannelId=String(channelId||'');
+
+    if(
+      !s ||
+      !requireServerAccess(s,socket) ||
+      !s.textChannels.some(c=>c.id===safeChannelId)
+    ){
+      reply({ok:false,error:'Canal indisponível'});
+      return;
+    }
+
+    const safeText=String(text||'').trim().slice(0,1800);
+    if(!safeText){
+      reply({ok:false,error:'Mensagem vazia'});
+      return;
+    }
+
+    const message={
+      id:id(),
+      serverId:s.id,
+      channelId:safeChannelId,
+      userId:socket.data.userId,
+      username:socket.data.username||'Usuário',
+      text:'⏳ '+safeText,
+      attachment:null,
+      replyTo:null,
+      mentions:[],
+      at:Date.now(),
+      edited:false,
+      expiresAt:Math.max(Date.now()+60000,Number(expiresAt||0))
+    };
+
+    const history=s.messages.get(safeChannelId)||[];
+    history.push(message);
+    if(history.length>500)history.splice(0,history.length-500);
+    s.messages.set(safeChannelId,history);
+
+    s.creative=s.creative&&typeof s.creative==='object'?s.creative:{};
+    const list=Array.isArray(s.creative.expiringMessages)?s.creative.expiringMessages:[];
+    list.push({
+      channelId:safeChannelId,
+      messageId:message.id,
+      expiresAt:message.expiresAt
+    });
+    s.creative.expiringMessages=list.slice(-500);
+
+    saveServersToDisk();
+
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client))client.emit('public-chat-message',message);
+    }
+
+    reply({ok:true,messageId:message.id});
+  });
+
+  socket.on('creative-get',({serverId},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+    if(!s||!requireServerAccess(s,socket)){reply({ok:false,error:'Servidor indisponível'});return}
+    reply({ok:true,creative:s.creative||{}});
+  });
+
+  socket.on('creative-set',({serverId,key,value},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+    if(!s||!requireServerAccess(s,socket)){reply({ok:false,error:'Servidor indisponível'});return}
+    const safeKey=String(key||'').replace(/[^a-zA-Z0-9_.:-]/g,'').slice(0,80);
+    if(!safeKey){reply({ok:false,error:'Chave inválida'});return}
+    s.creative=s.creative&&typeof s.creative==='object'?s.creative:{};
+    s.creative[safeKey]=sanitizeCreativeValue(value);
+    saveServersToDisk();
+    broadcastServerUpdate(s);
+    reply({ok:true,creative:s.creative});
+  });
+
+  socket.on('creative-append',({serverId,key,item},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+    if(!s||!requireServerAccess(s,socket)){reply({ok:false,error:'Servidor indisponível'});return}
+    const safeKey=String(key||'').replace(/[^a-zA-Z0-9_.:-]/g,'').slice(0,80);
+    if(!safeKey){reply({ok:false,error:'Chave inválida'});return}
+    s.creative=s.creative&&typeof s.creative==='object'?s.creative:{};
+    const list=Array.isArray(s.creative[safeKey])?s.creative[safeKey]:[];
+    list.push(sanitizeCreativeValue(item));
+    if(list.length>500)list.splice(0,list.length-500);
+    s.creative[safeKey]=list;
+    saveServersToDisk();
+    broadcastServerUpdate(s);
+    reply({ok:true,creative:s.creative});
   });
 
   socket.on('labs-ping',(payload,ack)=>{
