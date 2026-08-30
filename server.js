@@ -1387,8 +1387,9 @@ app.get('/icon-512.png', (req,res) => {
 });
 
 app.get('/sw.js', (req,res) => {
+  res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v36-essential-mobile';
+const CACHE='acord-app-stable-v37-essential-fixed';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -1413,8 +1414,16 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
 
   // HTML principal e Socket.IO sempre vêm da versão atual do servidor.
-  if(url.pathname==='/' || url.pathname.startsWith('/socket.io/')){
-    event.respondWith(fetch(event.request));
+  if(
+    event.request.mode==='navigate' ||
+    url.pathname==='/' ||
+    url.pathname.startsWith('/socket.io/') ||
+    url.pathname==='/sw.js'
+  ){
+    event.respondWith(
+      fetch(event.request,{cache:'no-store'})
+        .catch(()=>caches.match(event.request))
+    );
     return;
   }
 
@@ -3882,6 +3891,18 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
 #appShell.hidden ~ .mobileNav{
   display:none!important;
 }
+
+.essentialActionStatus{
+  margin:0 0 12px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  border-radius:10px;
+  color:var(--muted);
+  font-size:11px;
+}
+.essentialActionStatus.ok{color:var(--mint)}
+.essentialActionStatus.error{color:var(--danger)}
 </style>
 </head>
 <body>
@@ -4233,6 +4254,7 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
                 <span id="essentialConnectionBadge" class="essentialBadge">Verificando...</span>
               </div>
 
+              <div id="essentialActionStatus" class="essentialActionStatus">Pronto para usar.</div>
               <div class="essentialGrid">
                 <div class="essentialCard">
                   <h3>Modo celular</h3>
@@ -5063,6 +5085,14 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
 const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
+
+document.addEventListener('click',event=>{
+  try{
+    handleEssentialDelegatedClick(event);
+  }catch(error){
+    console.error('Falha no controlador Essenciais:',error);
+  }
+});
 
 function getOrCreateUserId(){
   let value = localStorage.getItem('ecord-user-id');
@@ -7531,7 +7561,16 @@ function updateMobileNav(){
   $('#mobileCallBtn')?.classList.toggle('active',view==='voice');
 }
 
+function setEssentialActionStatus(message,type=''){
+  const el=$('#essentialActionStatus');
+  if(!el)return;
+  el.textContent=String(message||'');
+  el.classList.remove('ok','error');
+  if(type)el.classList.add(type);
+}
+
 function setEssentialStatus(message,type=''){
+  setEssentialActionStatus(message,type);
   const out=$('#essentialOutput');
   if(!out)return;
   out.textContent=String(message||'');
@@ -7540,6 +7579,7 @@ function setEssentialStatus(message,type=''){
 }
 
 async function essentialConnectionCheck(){
+  setEssentialActionStatus('Testando conexão...');
   const badge=$('#essentialConnectionBadge');
   const info=$('#essentialConnectionInfo');
   const started=performance.now();
@@ -7547,6 +7587,7 @@ async function essentialConnectionCheck(){
   if(!socket.connected){
     if(badge){badge.textContent='Desconectado';badge.className='essentialBadge error'}
     if(info)info.textContent='Socket.IO desconectado.';
+    setEssentialActionStatus('Sem conexão com o servidor.','error');
     return;
   }
 
@@ -7554,11 +7595,13 @@ async function essentialConnectionCheck(){
     if(err||!response?.ok){
       if(badge){badge.textContent='Instável';badge.className='essentialBadge error'}
       if(info)info.textContent='Servidor conectado, mas sem resposta ao teste.';
+      setEssentialActionStatus('Servidor sem resposta ao teste.','error');
       return;
     }
 
     const ms=Math.round(performance.now()-started);
     if(badge){badge.textContent='Online · '+ms+' ms';badge.className='essentialBadge ok'}
+    setEssentialActionStatus('Conexão funcionando.','ok');
     if(info){
       info.textContent=[
         'Conectado',
@@ -7699,20 +7742,76 @@ function performEssentialSearch(){
     return;
   }
 
+  setEssentialActionStatus('Buscando...');
+
   socket.timeout(6000).emit('essential-search',{query},(err,response)=>{
-    if(err||!response?.ok){
-      setEssentialStatus(response?.error||'A busca falhou.','error');
+    if(!err&&response?.ok){
+      renderEssentialSearchResults(response.results||[]);
+      setEssentialActionStatus('Busca concluída.','ok');
       return;
     }
 
-    renderEssentialSearchResults(response.results||[]);
+    // Fallback local: ainda permite buscar nos servidores já carregados no navegador.
+    const q=query.toLowerCase();
+    const results=[];
+
+    for(const server of state.servers||[]){
+      if(String(server.name||'').toLowerCase().includes(q)){
+        results.push({
+          type:'server',
+          title:'Servidor · '+server.name,
+          preview:server.description||'',
+          serverId:server.id
+        });
+      }
+
+      for(const channel of server.textChannels||[]){
+        if(String(channel.name||'').toLowerCase().includes(q)){
+          results.push({
+            type:'channel',
+            title:'# '+channel.name+' · '+server.name,
+            preview:'Canal de texto',
+            serverId:server.id,
+            channelId:channel.id
+          });
+        }
+      }
+
+      for(const member of server.memberProfiles||[]){
+        if(
+          (String(member.username||'')+' '+String(member.bio||''))
+            .toLowerCase()
+            .includes(q)
+        ){
+          results.push({
+            type:'user',
+            title:'Pessoa · '+member.username,
+            preview:member.bio||''
+          });
+        }
+      }
+    }
+
+    renderEssentialSearchResults(results.slice(0,100));
+    setEssentialActionStatus(
+      results.length
+        ? 'Busca feita com os dados locais disponíveis.'
+        : (response?.error||'Nenhum resultado e o servidor não respondeu.'),
+      results.length?'ok':'error'
+    );
   });
 }
 
 function loadEssentialSessions(){
   socket.timeout(5000).emit('essential-sessions',{token:state.authToken},(err,response)=>{
     if(err||!response?.ok){
-      setEssentialStatus(response?.error||'Não foi possível carregar as sessões.','error');
+      setEssentialStatus(
+        response?.error||
+        (state.authToken
+          ? 'Sua sessão atual está ativa, mas o servidor não respondeu à lista completa.'
+          : 'Entre na conta novamente.'),
+        'error'
+      );
       return;
     }
 
@@ -7822,6 +7921,131 @@ function applyDataSaver(){
   }
 }
 
+
+async function runEssentialAction(action,event){
+  try{
+    setEssentialActionStatus('Executando...');
+
+    switch(action){
+      case 'apply-mobile':
+        state.interfaceMode=$('#essentialMobileMode').value;
+        state.dataSaver=$('#essentialDataSaver').checked;
+        localStorage.setItem('concorde-interface-mode',state.interfaceMode);
+        applyDataSaver();
+        applyInterfaceMode();
+        setEssentialStatus('Modo de interface aplicado.','ok');
+        return;
+
+      case 'install':
+        if(deferredInstallPrompt){
+          deferredInstallPrompt.prompt();
+          try{await deferredInstallPrompt.userChoice}catch{}
+          deferredInstallPrompt=null;
+          updateInstallButton();
+          setEssentialStatus('Instalação solicitada ao navegador.','ok');
+        }else{
+          setEssentialStatus(
+            'No celular, abra o menu do navegador e escolha “Adicionar à tela inicial” ou “Instalar app”.',
+            'ok'
+          );
+        }
+        return;
+
+      case 'backup':
+        downloadEssentialBackup();
+        return;
+
+      case 'refresh-backup':
+        saveLocalRecoverySnapshot();
+        await loadPersistenceStatus();
+        setEssentialStatus('Backup local atualizado.','ok');
+        return;
+
+      case 'search':
+        performEssentialSearch();
+        return;
+
+      case 'sessions':
+        loadEssentialSessions();
+        return;
+
+      case 'logout-others':
+        revokeOtherSessions();
+        return;
+
+      case 'change-password':
+        changeEssentialPassword();
+        return;
+
+      case 'ping':
+        essentialConnectionCheck();
+        return;
+
+      case 'reconnect':
+        setEssentialActionStatus('Reconectando...');
+        socket.disconnect();
+        setTimeout(()=>socket.connect(),250);
+        setTimeout(essentialConnectionCheck,1000);
+        return;
+
+      case 'block':
+        essentialBlock('block');
+        return;
+
+      case 'unblock':
+        essentialBlock('unblock');
+        return;
+
+      case 'report':
+        essentialReport();
+        return;
+
+      default:
+        throw new Error('Ação essencial desconhecida: '+action);
+    }
+  }catch(error){
+    console.error('Essenciais:',action,error);
+    setEssentialStatus(error?.message||'Não foi possível executar esta função.','error');
+  }
+}
+
+function essentialActionFromElement(target){
+  const id=target?.id||'';
+
+  const map={
+    essentialApplyMobileBtn:'apply-mobile',
+    essentialInstallBtn:'install',
+    essentialBackupBtn:'backup',
+    essentialRefreshBackupBtn:'refresh-backup',
+    essentialSearchBtn:'search',
+    essentialSessionsBtn:'sessions',
+    essentialLogoutOthersBtn:'logout-others',
+    essentialChangePasswordBtn:'change-password',
+    essentialPingBtn:'ping',
+    essentialReconnectBtn:'reconnect',
+    essentialBlockBtn:'block',
+    essentialUnblockBtn:'unblock',
+    essentialReportBtn:'report'
+  };
+
+  return map[id]||'';
+}
+
+function handleEssentialDelegatedClick(event){
+  const button=event.target.closest(
+    '#megaPageEssential button, #essentialInstallBtn'
+  );
+
+  if(!button)return;
+
+  const action=essentialActionFromElement(button);
+  if(!action)return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  runEssentialAction(action,event);
+}
+
 function openEssentials(){
   openMegaView('essential',state.megaFromServer);
 }
@@ -7875,9 +8099,13 @@ function selectMegaPage(page){
     creativeGet().then(()=>renderCreative());
   }
   if(page==='essential'){
+    setEssentialActionStatus('Carregando recursos essenciais...');
     applyInterfaceMode();
-    essentialConnectionCheck();
-    loadPersistenceStatus();
+
+    Promise.resolve()
+      .then(()=>loadPersistenceStatus())
+      .catch(()=>{})
+      .finally(()=>essentialConnectionCheck());
   }
   if(page==='whiteboard' && state.serverId){
     initMegaWhiteboard();
@@ -12935,37 +13163,29 @@ $('#creativeCategory').addEventListener('change',renderCreative);
 $('#creativeGrid').addEventListener('click',handleCreativeClick);
 $('#essentialMobileMode').addEventListener('change',event=>{state.interfaceMode=event.target.value});
 $('#essentialDataSaver').addEventListener('change',event=>{state.dataSaver=event.target.checked});
-$('#essentialApplyMobileBtn').addEventListener('click',()=>{
-  state.interfaceMode=$('#essentialMobileMode').value;
-  state.dataSaver=$('#essentialDataSaver').checked;
-  localStorage.setItem('concorde-interface-mode',state.interfaceMode);
-  applyDataSaver();
-  applyInterfaceMode();
-  setEssentialStatus('Modo de interface aplicado.','ok');
+
+
+
+
+$('#essentialRestoreFile').addEventListener('change',event=>{
+  setEssentialActionStatus('Importando backup...');
+  restoreEssentialBackup(event.target.files?.[0]);
 });
-$('#essentialInstallBtn').addEventListener('click',async()=>{
-  if(deferredInstallPrompt){
-    deferredInstallPrompt.prompt();
-    try{await deferredInstallPrompt.userChoice}catch{}
-    deferredInstallPrompt=null;
-    updateInstallButton();
-  }else{
-    setEssentialStatus('No celular, use “Adicionar à tela inicial” / “Instalar app” no menu do navegador.','ok');
+
+$('#essentialSearchInput').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){
+    event.preventDefault();
+    runEssentialAction('search',event);
   }
 });
-$('#essentialBackupBtn').addEventListener('click',downloadEssentialBackup);
-$('#essentialRefreshBackupBtn').addEventListener('click',()=>{saveLocalRecoverySnapshot();loadPersistenceStatus();setEssentialStatus('Backup local atualizado.','ok')});
-$('#essentialRestoreFile').addEventListener('change',event=>restoreEssentialBackup(event.target.files?.[0]));
-$('#essentialSearchBtn').addEventListener('click',performEssentialSearch);
-$('#essentialSearchInput').addEventListener('keydown',event=>{if(event.key==='Enter')performEssentialSearch()});
-$('#essentialSessionsBtn').addEventListener('click',loadEssentialSessions);
-$('#essentialLogoutOthersBtn').addEventListener('click',revokeOtherSessions);
-$('#essentialChangePasswordBtn').addEventListener('click',changeEssentialPassword);
-$('#essentialPingBtn').addEventListener('click',essentialConnectionCheck);
-$('#essentialReconnectBtn').addEventListener('click',()=>{socket.disconnect();setTimeout(()=>socket.connect(),250);setTimeout(essentialConnectionCheck,900)});
-$('#essentialBlockBtn').addEventListener('click',()=>essentialBlock('block'));
-$('#essentialUnblockBtn').addEventListener('click',()=>essentialBlock('unblock'));
-$('#essentialReportBtn').addEventListener('click',essentialReport);
+
+
+
+
+
+
+
+
 
 $('#mobileHomeBtn').addEventListener('click',()=>{closeMobileServers();setAppMode('hub');setView('friends')});
 $('#mobileServersBtn').addEventListener('click',toggleMobileServers);
