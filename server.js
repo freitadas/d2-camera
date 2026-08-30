@@ -80,7 +80,7 @@ app.use((req,res,next)=>{
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: blob:; " +
+    "img-src 'self' data: blob: https://api.qrserver.com; " +
     "media-src 'self' blob: https:; " +
     "connect-src 'self' ws: wss:; " +
     "font-src 'self' data:; " +
@@ -1183,7 +1183,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v23';
+const CACHE='acord-app-stable-v24';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3393,9 +3393,12 @@ html,body{
 .phoneCameraHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .phoneCameraHead strong{display:block;color:var(--text);font-size:13px}
 .phoneCameraHead span{display:block;color:var(--muted);font-size:11px;margin-top:3px}
-.phoneCameraLinkWrap{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:11px}
+.phoneCameraQrWrap{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
+.phoneCameraQrCard{display:grid;justify-items:center;gap:8px;padding:12px;background:#fff;border-radius:14px}
+.phoneCameraQrCard img{width:210px;height:210px;display:block}
+.phoneCameraQrText{max-width:210px;color:#1b1b1b;font-size:11px;font-weight:800;line-height:1.35;text-align:center}
 .phoneCameraStatus{margin-top:9px;color:var(--muted);font-size:11px}
-@media(max-width:700px){.phoneCameraHead{align-items:flex-start;flex-direction:column}.phoneCameraLinkWrap{grid-template-columns:1fr}}
+@media(max-width:700px){.phoneCameraHead{align-items:flex-start;flex-direction:column}.phoneCameraQrWrap{align-items:flex-start;flex-direction:column}}
 
 </style>
 </head>
@@ -3902,9 +3905,13 @@ html,body{
                 </div>
                 <button id="phoneCameraCreateBtn" class="btn primary small" type="button">Conectar celular</button>
               </div>
-              <div id="phoneCameraLinkWrap" class="phoneCameraLinkWrap hidden">
-                <input id="phoneCameraLink" readonly>
-                <button id="phoneCameraCopyBtn" class="btn secondary small" type="button">Copiar link</button>
+              <div id="phoneCameraLinkWrap" class="phoneCameraQrWrap hidden">
+                <div class="phoneCameraQrCard">
+                  <img id="phoneCameraQr" alt="QR Code para conectar a câmera do celular">
+                  <div class="phoneCameraQrText">
+                    Aponte a câmera do celular para este QR Code.
+                  </div>
+                </div>
                 <button id="phoneCameraStopBtn" class="btn danger small" type="button">Desconectar</button>
               </div>
               <div id="phoneCameraStatus" class="phoneCameraStatus">Nenhum celular conectado.</div>
@@ -4911,17 +4918,26 @@ async function refreshMediaDevices(){
 }
 function updatePhoneCameraUI(){
   const wrap=$('#phoneCameraLinkWrap');
-  const link=$('#phoneCameraLink');
+  const qr=$('#phoneCameraQr');
   const status=$('#phoneCameraStatus');
-  if(!wrap || !link || !status) return;
+  if(!wrap || !qr || !status) return;
+
   const active=!!state.phoneCameraToken;
   wrap.classList.toggle('hidden',!active);
-  link.value=state.phoneCameraLink || '';
+
+  if(active && state.phoneCameraLink){
+    qr.src=
+      'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' +
+      encodeURIComponent(state.phoneCameraLink);
+  }else{
+    qr.removeAttribute('src');
+  }
+
   status.textContent=
     state.phoneCameraTrack?.readyState==='live'
       ? 'Celular conectado · câmera ativa'
       : active
-        ? 'Aguardando o celular abrir o link...'
+        ? 'Escaneie o QR Code com o celular'
         : 'Nenhum celular conectado.';
 }
 
@@ -4933,18 +4949,6 @@ function createPhoneCameraLink(){
   socket.emit('phone-camera-create');
 }
 
-async function copyPhoneCameraLink(){
-  const value=state.phoneCameraLink || '';
-  if(!value) return;
-  try{
-    await navigator.clipboard.writeText(value);
-  }catch{
-    const input=$('#phoneCameraLink');
-    input.select();
-    document.execCommand('copy');
-  }
-  toast('Link da câmera copiado');
-}
 
 function closePhoneCameraPeer(){
   const old=state.phoneCameraPc;
@@ -10525,7 +10529,6 @@ $('#cameraDeviceSelect').addEventListener('change',event=>{
   state.preferredCameraId=event.target.value;localStorage.setItem('acord-camera-device',state.preferredCameraId);
 });
 $('#phoneCameraCreateBtn').addEventListener('click',createPhoneCameraLink);
-$('#phoneCameraCopyBtn').addEventListener('click',copyPhoneCameraLink);
 $('#phoneCameraStopBtn').addEventListener('click',()=>stopPhoneCameraConnection(true));
 $('#noiseSuppressionToggle').checked=state.noiseSuppression;
 $('#noiseSuppressionToggle').addEventListener('change',event=>{
@@ -11293,7 +11296,7 @@ socket.on('phone-camera-created',data=>{
   state.phoneCameraToken=data.token;
   state.phoneCameraLink=location.origin + '/phone-camera/' + encodeURIComponent(data.token);
   updatePhoneCameraUI();
-  toast('Abra o link no celular');
+  toast('Escaneie o QR Code com o celular');
 });
 
 socket.on('phone-camera-phone-ready',data=>{
