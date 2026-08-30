@@ -1260,7 +1260,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v33-auth-persist';
+const CACHE='acord-app-stable-v34-labs-fixed';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3571,6 +3571,19 @@ body[data-lab-sticky-composer="1"] .compose{position:sticky;bottom:0;z-index:5}
 body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-channel-id);font-size:8px;color:var(--low)}
 @media(max-width:760px){.labsToolbar{grid-template-columns:1fr}.labsHead{flex-direction:column}.labsCount{width:100%}}
 
+
+.labsActionStatus{
+  margin:0 0 12px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  background:var(--bg1);
+  color:var(--muted);
+  border-radius:10px;
+  font-size:11px;
+}
+.labsActionStatus.ok{color:var(--mint)}
+.labsActionStatus.error{color:var(--danger)}
+
 </style>
 </head>
 <body>
@@ -3930,6 +3943,7 @@ body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-ch
                   <option value="system">Sistema e acessibilidade</option>
                 </select>
               </div>
+              <div id="labsActionStatus" class="labsActionStatus">Pronto para usar.</div>
               <div id="labsFeatureGrid" class="labsFeatureGrid"></div>
               <div id="labsOutput" class="labsOutput hidden"></div>
             </section>
@@ -6016,48 +6030,147 @@ function updateLabsEnabledCount(){
   const el=$('#labsEnabledCount');if(el)el.textContent=String(count);
 }
 
+function setLabsStatus(message,type=''){
+  const el=$('#labsActionStatus');
+  if(!el) return;
+  el.textContent=String(message||'');
+  el.classList.remove('ok','error');
+  if(type) el.classList.add(type);
+}
+
+function labsConflictKeys(key){
+  const groups=[
+    ['large-text','small-text'],
+    ['wide-chat','narrow-chat'],
+    ['round','square'],
+    ['video-fill','video-contain'],
+    ['protanopia','deuteranopia','tritanopia']
+  ];
+  return groups.find(group=>group.includes(key))||[];
+}
+
+function toggleLabsFeature(feature){
+  const key=labsPrefKey(feature);
+  const next=!state.labsPrefs[key];
+
+  if(next){
+    for(const other of labsConflictKeys(key)){
+      if(other!==key) state.labsPrefs[other]=false;
+    }
+  }
+
+  state.labsPrefs[key]=next;
+  saveLabsPrefs();
+  applyLabsPreferences();
+
+  setLabsStatus(
+    feature.name+': '+(next?'ativado':'desativado'),
+    'ok'
+  );
+
+  renderLabsFeatures();
+}
+
+async function runLabActionSafe(feature){
+  if(!feature) return;
+
+  setLabsStatus('Executando: '+feature.name+'...');
+
+  try{
+    await runLabAction(feature.key||feature.id);
+
+    if(!$('#labsActionStatus')?.classList.contains('error')){
+      setLabsStatus(feature.name+': concluído.','ok');
+    }
+  }catch(error){
+    console.error('Erro no Concorde 100+ ('+feature.name+'):',error);
+    setLabsStatus(
+      feature.name+': '+(error?.message||'não foi possível executar'),
+      'error'
+    );
+    showLabsOutput(
+      'Erro ao executar "'+feature.name+'".\n'+
+      String(error?.message||error||'Erro desconhecido')
+    );
+  }
+}
+
+function handleLabsGridClick(event){
+  const button=event.target.closest('button[data-lab-id]');
+  if(!button) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const feature=LAB_FEATURES.find(item=>item.id===button.dataset.labId);
+  if(!feature){
+    setLabsStatus('Recurso não encontrado.','error');
+    return;
+  }
+
+  if(feature.type==='toggle'){
+    toggleLabsFeature(feature);
+  }else{
+    runLabActionSafe(feature);
+  }
+}
+
 function renderLabsFeatures(){
   const grid=$('#labsFeatureGrid');if(!grid)return;
+
   const query=String($('#labsSearch')?.value||'').trim().toLowerCase();
   const category=$('#labsCategory')?.value||'all';
   grid.innerHTML='';
 
-  LAB_FEATURES
+  const visible=LAB_FEATURES
     .filter(feature=>(category==='all'||feature.category===category))
-    .filter(feature=>!query || (feature.name+' '+feature.desc+' '+feature.n).toLowerCase().includes(query))
-    .forEach(feature=>{
-      const card=document.createElement('div');card.className='labsCard';
-      const meta=document.createElement('div');
-      const title=document.createElement('strong');title.textContent=feature.n+'. '+feature.name;
-      const desc=document.createElement('p');desc.textContent=feature.desc;
-      meta.append(title,desc);
+    .filter(feature=>!query || (feature.name+' '+feature.desc+' '+feature.n).toLowerCase().includes(query));
 
-      const button=document.createElement('button');
-      if(feature.type==='toggle'){
-        const active=labsToggleValue(feature);
-        button.textContent=active?'Ativo':'Ativar';
-        button.classList.toggle('active',active);
-        button.addEventListener('click',()=>{
-          const key=labsPrefKey(feature);
-          state.labsPrefs[key]=!state.labsPrefs[key];
-          saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();
-        });
-      }else{
-        button.textContent='Usar';
-        button.addEventListener('click',()=>runLabAction(feature.key||feature.id));
-      }
+  for(const feature of visible){
+    const card=document.createElement('div');
+    card.className='labsCard';
 
-      card.append(meta,button);grid.appendChild(card);
-    });
+    const meta=document.createElement('div');
+    const title=document.createElement('strong');
+    title.textContent=feature.n+'. '+feature.name;
+
+    const desc=document.createElement('p');
+    desc.textContent=feature.desc;
+    meta.append(title,desc);
+
+    const button=document.createElement('button');
+    button.type='button';
+    button.dataset.labId=feature.id;
+
+    if(feature.type==='toggle'){
+      const active=labsToggleValue(feature);
+      button.textContent=active?'Desativar':'Ativar';
+      button.classList.toggle('active',active);
+      button.setAttribute('aria-pressed',active?'true':'false');
+    }else{
+      button.textContent='Usar';
+    }
+
+    card.append(meta,button);
+    grid.appendChild(card);
+  }
 
   updateLabsEnabledCount();
+
+  if(!visible.length){
+    const empty=document.createElement('div');
+    empty.className='megaItem';
+    empty.textContent='Nenhum recurso encontrado.';
+    grid.appendChild(empty);
+  }
 }
 
 function showLabsOutput(value){
   const box=$('#labsOutput');if(!box)return;
   box.textContent=String(value||'');
   box.classList.remove('hidden');
-  box.scrollIntoView({block:'nearest'});
+  setLabsStatus('Resultado disponível abaixo.','ok');
+  box.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 
 function downloadLabsText(filename,text,type='text/plain'){
@@ -6069,8 +6182,15 @@ function downloadLabsText(filename,text,type='text/plain'){
 }
 
 async function copyLabs(value){
-  try{await navigator.clipboard.writeText(String(value||''));toast('Copiado')}
-  catch{showLabsOutput(value)}
+  const text=String(value??'');
+  if(!text) throw new Error('Não há conteúdo para copiar');
+
+  try{
+    await navigator.clipboard.writeText(text);
+    toast('Copiado');
+  }catch{
+    showLabsOutput(text);
+  }
 }
 
 function currentChatText(){
@@ -6085,6 +6205,7 @@ function startLabTimer(minutes){
   const end=Date.now()+minutes*60000;
   localStorage.setItem('concorde-lab-timer-end',String(end));
   toast('Timer de '+minutes+' min iniciado');
+  showLabsOutput('Timer iniciado: '+minutes+' minutos.');
   setTimeout(()=>{playCallCue('join');toast('Timer concluído')},minutes*60000);
 }
 
@@ -6113,7 +6234,12 @@ async function runLabAction(action){
 
   switch(action){
     case 'fullscreen':
-      if(!document.fullscreenElement){await document.documentElement.requestFullscreen?.()}else{await document.exitFullscreen?.()}
+      if(!document.fullscreenElement){
+        if(!document.documentElement.requestFullscreen) throw new Error('Tela cheia não é suportada neste navegador');
+        await document.documentElement.requestFullscreen();
+      }else{
+        if(document.exitFullscreen) await document.exitFullscreen();
+      }
       break;
     case 'zenCall':
       state.labsPrefs['hide-sidebar']=!state.labsPrefs['hide-sidebar'];
@@ -6122,9 +6248,9 @@ async function runLabAction(action){
     case 'timestamps':
       document.querySelectorAll('#messages .message').forEach(row=>{if(!row.title)row.title='Mensagem exibida no histórico atual'});
       toast('Tooltips ativados nas mensagens visíveis');break;
-    case 'copyChannelId': copyLabs(state.textChannelId||'');break;
-    case 'copyServerId': copyLabs(state.serverId||'');break;
-    case 'copyUsername': copyLabs(state.username||'');break;
+    case 'copyChannelId': if(!state.textChannelId){throw new Error('Selecione um canal de texto primeiro')} await copyLabs(state.textChannelId);break;
+    case 'copyServerId': if(!state.serverId){throw new Error('Selecione um servidor primeiro')} await copyLabs(state.serverId);break;
+    case 'copyUsername': if(!state.username){throw new Error('Entre na sua conta primeiro')} await copyLabs(state.username);break;
     case 'clearUnread': clearAllUnread();break;
     case 'exportChat': downloadLabsText('concorde-chat-'+Date.now()+'.txt',currentChatText());break;
     case 'searchMessages':{
@@ -6188,7 +6314,7 @@ async function runLabAction(action){
     case 'roleCount': showLabsOutput('Cargos: '+(server?.roles?.length||0));break;
     case 'copyInvite':
       if(server?.inviteToken)copyLabs(location.origin+'/invite/'+server.inviteToken);else toast('Sem convite');break;
-    case 'copyRules': copyLabs(server?.rules||'');break;
+    case 'copyRules': if(!server){throw new Error('Selecione um servidor primeiro')} await copyLabs(server.rules||'');break;
     case 'exportServer':
       if(server)downloadLabsText('concorde-servidor-'+Date.now()+'.json',JSON.stringify(server,null,2),'application/json');break;
     case 'findChannel':{
@@ -6198,7 +6324,11 @@ async function runLabAction(action){
     }
     case 'collapseChannels': if($('#channelTree'))$('#channelTree').style.display='none';break;
     case 'expandChannels': if($('#channelTree'))$('#channelTree').style.display='';break;
-    case 'requestNotify': await requestNotifications();toast(Notification.permission==='granted'?'Notificações permitidas':'Permissão não concedida');break;
+    case 'requestNotify':
+      if(!('Notification' in window)) throw new Error('Notificações não são suportadas neste navegador');
+      await requestNotifications();
+      toast(Notification.permission==='granted'?'Notificações permitidas':'Permissão não concedida');
+      break;
     case 'wakeLock':
       try{state.labsWakeLock=await navigator.wakeLock?.request('screen');toast(state.labsWakeLock?'Tela mantida ligada':'Wake Lock indisponível')}catch{toast('Wake Lock indisponível')}break;
     case 'wakeRelease':
@@ -6260,8 +6390,18 @@ async function runLabAction(action){
     case 'localClock': showLabsOutput('Hora local: '+new Date().toLocaleString());break;
     case 'resetLabs':
       if(confirm('Resetar todas as preferências do Concorde 100+?')){
-        state.labsPrefs={};saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();toast('Concorde 100+ resetado');
-      }break;
+        state.labsPrefs={};
+        if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'notifications')) state.labsPrefs.notifications=true;
+        if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'sounds')) state.labsPrefs.sounds=true;
+        if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'auto-scroll')) state.labsPrefs['auto-scroll']=true;
+        saveLabsPrefs();
+        applyLabsPreferences();
+        renderLabsFeatures();
+        toast('Concorde 100+ resetado');
+      }
+      break;
+    default:
+      throw new Error('Ação não implementada: '+action);
   }
 }
 
@@ -6315,7 +6455,10 @@ function selectMegaPage(page){
   if(page==='community') renderMegaCommunity();
   if(page==='server') renderMegaServerControls();
   if(page==='call') updateMegaConnectionInfo();
-  if(page==='labs') renderLabsFeatures();
+  if(page==='labs'){
+    setLabsStatus('Pronto para usar.');
+    renderLabsFeatures();
+  }
   if(page==='whiteboard' && state.serverId){
     initMegaWhiteboard();
     socket.emit('mega-whiteboard-get',{serverId:state.serverId});
@@ -11349,6 +11492,7 @@ $('#serverConcordeBtn').addEventListener('click',()=>openMegaView('server',true)
 document.querySelectorAll('.megaNavBtn').forEach(btn=>btn.addEventListener('click',()=>selectMegaPage(btn.dataset.megaPage)));
 $('#labsSearch').addEventListener('input',renderLabsFeatures);
 $('#labsCategory').addEventListener('change',renderLabsFeatures);
+$('#labsFeatureGrid').addEventListener('click',handleLabsGridClick);
 $('#megaSaveProfile').addEventListener('click',saveMegaProfile);
 $('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
 $('#megaSaveServer').addEventListener('click',saveMegaServer);
