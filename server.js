@@ -1389,7 +1389,7 @@ app.get('/icon-512.png', (req,res) => {
 app.get('/sw.js', (req,res) => {
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v38-call-core';
+const CACHE='acord-app-stable-v39-call-ui';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3926,6 +3926,205 @@ body.callMirrorSelf #v-local video{transform:scaleX(-1)}
   body.mobileMode .voiceHeadActions{gap:5px}
   body.mobileMode #preCallTestBtn{font-size:10px;padding:8px}
 }
+
+/* v3.9 — correção visual do painel de call */
+.callSettingsPanel{
+  width:min(440px,calc(100% - 24px))!important;
+  max-height:min(78dvh,760px)!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  padding:16px!important;
+  scrollbar-width:thin;
+  scrollbar-color:var(--line) transparent;
+}
+.callSettingsPanel::-webkit-scrollbar{width:7px}
+.callSettingsPanel::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+.callSettingsPanel>div:first-child{
+  position:sticky;
+  top:-16px;
+  z-index:4;
+  margin:-16px -16px 12px!important;
+  padding:14px 16px 12px;
+  background:var(--bg1);
+  border-bottom:1px solid var(--line);
+}
+.callSettingsGrid{gap:8px!important}
+.callSettingsGrid>label{
+  padding:9px 10px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--bg2);
+  text-transform:none!important;
+  letter-spacing:0!important;
+  color:var(--muted)!important;
+  font-size:11px!important;
+}
+.callSettingsGrid>label select{
+  margin-top:6px!important;
+  min-height:40px;
+  background:var(--bg1)!important;
+}
+.callToggle{
+  min-height:42px;
+  padding:9px 11px!important;
+  color:var(--text);
+}
+.callToggle input[type="checkbox"]{
+  width:18px!important;
+  height:18px!important;
+  min-width:18px;
+  accent-color:var(--mint);
+  cursor:pointer;
+}
+.callMeterWrap{min-height:42px}
+.callEssentialActions{
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:8px!important;
+  margin-top:2px;
+}
+.callEssentialActions .btn{
+  min-height:42px;
+  padding:9px 8px!important;
+  line-height:1.15;
+  white-space:normal;
+}
+.callSettingsPanel .btn.primary,
+.callSettingsPanel #callRepairBtn,
+.callSettingsPanel #phoneCameraCreateBtn{
+  background:var(--mint)!important;
+  color:#062219!important;
+  border:1px solid rgba(255,255,255,.08)!important;
+  text-shadow:none!important;
+  opacity:1!important;
+}
+.callSettingsPanel .btn.primary:hover,
+.callSettingsPanel #callRepairBtn:hover,
+.callSettingsPanel #phoneCameraCreateBtn:hover{
+  filter:brightness(1.08);
+}
+.callSettingsPanel .btn.secondary{
+  background:var(--bg3)!important;
+  color:var(--text)!important;
+  border:1px solid var(--line)!important;
+}
+.callPreviewVideo{
+  width:100%!important;
+  aspect-ratio:16/9;
+  height:auto!important;
+  max-height:170px!important;
+  object-fit:cover!important;
+  border-radius:12px!important;
+  border:1px solid var(--line)!important;
+  background:#020403!important;
+}
+.callHealthPanel{
+  min-height:48px;
+  max-height:150px;
+  overflow:auto;
+  padding:11px!important;
+  border-color:var(--line)!important;
+  color:var(--muted)!important;
+  background:var(--bg0)!important;
+}
+.phoneCameraBox{
+  margin-top:4px!important;
+  padding:12px!important;
+  border-radius:12px!important;
+  background:var(--bg2)!important;
+}
+.phoneCameraHead{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:12px!important;
+}
+.phoneCameraHead>div{min-width:0}
+.phoneCameraHead strong{font-size:12px!important}
+.phoneCameraHead span{
+  font-size:10px!important;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+#phoneCameraCreateBtn{
+  min-width:112px;
+  min-height:42px;
+  padding:8px 10px!important;
+  white-space:normal;
+  line-height:1.1;
+}
+.phoneCameraStatus{
+  margin-top:8px!important;
+  padding-top:8px;
+  border-top:1px solid var(--line);
+}
+.phoneCameraPreviewWrap{
+  width:100%!important;
+  max-width:100%!important;
+  margin-top:10px!important;
+}
+.phoneCameraPreview{
+  width:100%!important;
+  max-height:170px;
+  aspect-ratio:16/9;
+  object-fit:cover;
+}
+.callRepairQuick{
+  color:#062219!important;
+  background:var(--mint)!important;
+  border-color:var(--mint)!important;
+}
+.voiceHeadActions .btn{min-height:38px}
+#preCallTestBtn{color:var(--text)!important}
+
+@media(min-width:560px){
+  .callSettingsGrid>label:nth-of-type(-n+6){
+    min-width:0;
+  }
+}
+
+@media(max-width:760px){
+  body.mobileMode .callSettingsPanel{
+    left:8px!important;
+    right:8px!important;
+    bottom:calc(70px + env(safe-area-inset-bottom))!important;
+    width:calc(100% - 16px)!important;
+    max-height:calc(100dvh - 92px - env(safe-area-inset-bottom))!important;
+    border-radius:18px!important;
+    padding:12px!important;
+  }
+  body.mobileMode .callSettingsPanel>div:first-child{
+    top:-12px;
+    margin:-12px -12px 10px!important;
+    padding:13px 12px 10px;
+  }
+  body.mobileMode .callSettingsGrid{gap:7px!important}
+  body.mobileMode .callToggle{min-height:46px}
+  body.mobileMode .callEssentialActions{
+    grid-template-columns:1fr 1fr!important;
+  }
+  body.mobileMode .callEssentialActions .btn{
+    min-height:46px;
+    font-size:11px!important;
+  }
+  body.mobileMode .callPreviewVideo,
+  body.mobileMode .phoneCameraPreview{
+    max-height:145px!important;
+  }
+  body.mobileMode .phoneCameraHead{
+    grid-template-columns:1fr!important;
+  }
+  body.mobileMode #phoneCameraCreateBtn{
+    width:100%;
+    min-width:0;
+  }
+}
+
+@media(max-width:390px){
+  body.mobileMode .callEssentialActions{
+    grid-template-columns:1fr!important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -4696,7 +4895,7 @@ body.callMirrorSelf #v-local video{transform:scaleX(-1)}
           <button id="leaveVoiceBtn" class="control danger">Sair</button>
         </div>
         <div id="callSettingsPanel" class="callSettingsPanel hidden">
-          <div style="font-weight:900;margin-bottom:10px;">Áudio e vídeo</div>
+          <div class="callSettingsTitle" style="font-weight:900;margin-bottom:10px;">Configurações da call</div>
           <div class="callSettingsGrid">
             <label>Microfone<select id="micDeviceSelect"></select></label>
             <label>Câmera<select id="cameraDeviceSelect"></select></label>
