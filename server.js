@@ -691,7 +691,7 @@ function serializeServers() {
 function saveServersToDisk() {
   try {
     const payload=JSON.stringify({
-      version: 9,
+      version: 10,
       savedAt:Date.now(),
       servers: serializeServers(),
       profiles: serializeProfiles(),
@@ -1260,7 +1260,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v32-100plus';
+const CACHE='acord-app-stable-v33-auth-persist';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -4788,12 +4788,6 @@ const state = {
   labsWakeLock:null
 };
 
-if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'notifications')) state.labsPrefs.notifications=true;
-if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'sounds')) state.labsPrefs.sounds=true;
-if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'auto-scroll')) state.labsPrefs['auto-scroll']=true;
-saveLabsPrefs();
-applyLabsPreferences();
-
 const rtcConfig = {
   iceServers: [
     {urls:'stun:stun.l.google.com:19302'},
@@ -5140,7 +5134,11 @@ function submitAuthentication(){
   if(state.authMode==='register'){
     socket.emit('auth-register',{username,password});
   }else{
-    socket.emit('auth-login',{username,password});
+    socket.emit('auth-login',{
+      username,
+      password,
+      recovery:readLocalRecoverySnapshot()
+    });
   }
 }
 function stopAuthKeepalive(){
@@ -5185,7 +5183,7 @@ function buildLocalRecoverySnapshot(){
   if(!state.userId || !state.username) return null;
 
   return {
-    version:1,
+    version:2,
     savedAt:Date.now(),
     userId:state.userId,
     username:state.username,
@@ -5194,8 +5192,16 @@ function buildLocalRecoverySnapshot(){
     avatar:state.avatar || '',
     banner:state.banner || '',
     status:state.status || 'online',
+    customStatus:state.customStatus || '',
+    pronouns:state.pronouns || '',
+    activity:state.activity || '',
+    links:state.links || {},
+    privacy:state.privacy || {},
     friends:readFriendCache(),
-    servers:getCachedServers()
+    servers:getCachedServers(),
+    lastServerId:state.serverId || null,
+    lastTextChannelId:state.textChannelId || null,
+    lastVoiceChannelId:state.voiceChannelId || null
   };
 }
 
@@ -5216,7 +5222,7 @@ function saveLocalRecoverySnapshot(){
 function readLocalRecoverySnapshot(){
   try{
     const value=JSON.parse(localStorage.getItem('acord-recovery-v1') || 'null');
-    if(!value || value.version!==1 || !value.userId || !value.username) return null;
+    if(!value || ![1,2].includes(Number(value.version)) || !value.userId || !value.username) return null;
     return value;
   }catch{
     return null;
@@ -6258,6 +6264,16 @@ async function runLabAction(action){
       }break;
   }
 }
+
+function initializeLabsAfterStartup(){
+  if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'notifications')) state.labsPrefs.notifications=true;
+  if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'sounds')) state.labsPrefs.sounds=true;
+  if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'auto-scroll')) state.labsPrefs['auto-scroll']=true;
+  saveLabsPrefs();
+  applyLabsPreferences();
+}
+
+initializeLabsAfterStartup();
 
 function openMegaView(page='profile',fromServer=false){
   state.megaFromServer=!!fromServer;
@@ -13162,6 +13178,19 @@ app.get('/invite/:token', (req,res) => {
   res.type('html').send(APP_HTML);
 });
 
+app.get('/api/persistence-status',(req,res)=>{
+  res.setHeader('Cache-Control','no-store');
+  res.json({
+    ok:true,
+    persistentDir:DEFAULT_PERSIST_DIR,
+    dataFileExists:fs.existsSync(DATA_FILE),
+    backupExists:fs.existsSync(DATA_BACKUP_FILE),
+    accounts:accounts.size,
+    servers:servers.size,
+    friendships:friendships.length
+  });
+});
+
 app.get('/api/rtc-config',(req,res)=>{
   const urls=String(process.env.TURN_URLS||'').split(',').map(v=>v.trim()).filter(Boolean);
   const username=String(process.env.TURN_USERNAME||'');
@@ -13335,7 +13364,7 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('auth-login',({username,password})=>{
+  socket.on('auth-login',({username,password,recovery})=>{
     try{
       if(!allowLoginAttempt()){
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
@@ -13358,13 +13387,19 @@ io.on('connection', socket => {
       const key=usernameKey(safeUsername);
       let account=[...accounts.values()].find(item=>item.usernameKey===key);
 
-      // Em hospedagens sem disco persistente (como um deploy novo no Render),
-      // o arquivo local de contas pode ser recriado. Nesse caso, o botão
-      // Entrar também reativa/cria a conta com o nome e a senha informados,
-      // evitando que o usuário fique preso fora do Acord após uma atualização.
+      // Em hospedagens sem disco persistente, recupera a MESMA identidade
+      // armazenada no navegador antes de criar um novo ID. Isso preserva
+      // a ligação com servidores e amizades já existentes no backup local.
       if(!account){
+        const recoveryUserId=String(recovery?.userId || '').slice(0,100);
+        const recoveryUsername=normalizeAccountUsername(recovery?.username);
+        const sameRecoveryUser=
+          recoveryUserId &&
+          recoveryUsername &&
+          usernameKey(recoveryUsername)===key;
+
         const legacy=legacyProfileForUsername(safeUsername);
-        const userId=legacy?.id || crypto.randomUUID();
+        const userId=legacy?.id || (sameRecoveryUser ? recoveryUserId : crypto.randomUUID());
         const salt=crypto.randomBytes(16).toString('hex');
 
         account={
@@ -13373,7 +13408,7 @@ io.on('connection', socket => {
           usernameKey:key,
           salt,
           passwordHash:passwordDigest(safePassword,salt),
-          createdAt:Number(legacy?.createdAt || Date.now())
+          createdAt:Number(legacy?.createdAt || recovery?.savedAt || Date.now())
         };
 
         accounts.set(userId,account);
@@ -13381,18 +13416,91 @@ io.on('connection', socket => {
         const restoredProfile=legacy || {
           id:userId,
           username:safeUsername,
-          displayName:safeUsername,
-          bio:'',
-          avatar:'',
-          banner:'',
-          status:'online',
-          createdAt:Date.now()
+          displayName:String(recovery?.displayName || safeUsername).slice(0,40),
+          bio:String(recovery?.bio || '').slice(0,300),
+          avatar:String(recovery?.avatar || '').slice(0,350000),
+          banner:String(recovery?.banner || '').slice(0,350000),
+          status:['online','away','busy','invisible'].includes(recovery?.status)
+            ? recovery.status
+            : 'online',
+          customStatus:String(recovery?.customStatus || '').slice(0,80),
+          pronouns:String(recovery?.pronouns || '').slice(0,40),
+          activity:String(recovery?.activity || '').slice(0,80),
+          links:recovery?.links && typeof recovery.links==='object' ? recovery.links : {},
+          privacy:recovery?.privacy && typeof recovery.privacy==='object'
+            ? recovery.privacy
+            : {dm:'friends',calls:'friends',friendRequests:'everyone'},
+          createdAt:Number(recovery?.savedAt || Date.now())
         };
 
         restoredProfile.username=safeUsername;
         restoredProfile.displayName=restoredProfile.displayName || safeUsername;
         restoredProfile.status=restoredProfile.status || 'online';
         profiles.set(userId,restoredProfile);
+
+        // Recupera servidores do próprio usuário preservando seus IDs.
+        if(sameRecoveryUser && Array.isArray(recovery?.servers)){
+          for(const raw of recovery.servers.slice(0,100)){
+            const serverId=String(raw?.id || '').slice(0,80);
+            const ownerId=String(raw?.ownerId || '').slice(0,100);
+            if(!serverId || ownerId!==userId) continue;
+
+            if(!servers.has(serverId)){
+              makeServer(cleanName(raw?.name,'Servidor'),{
+                id:serverId,
+                ownerId:userId,
+                members:Array.isArray(raw?.members)
+                  ? [...new Set([userId,...raw.members.map(v=>String(v||'').slice(0,100))])]
+                  : [userId],
+                inviteToken:String(raw?.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
+                icon:String(raw?.icon || '').slice(0,350000),
+                accent:raw?.accent,
+                description:raw?.description,
+                tags:raw?.tags,
+                textChannels:raw?.textChannels,
+                voiceChannels:raw?.voiceChannels,
+                categories:raw?.categories,
+                roles:raw?.roles,
+                rules:raw?.rules,
+                banner:raw?.banner,
+                inviteExpiresAt:raw?.inviteExpiresAt,
+                bans:raw?.bans,
+                mutes:raw?.mutes,
+                channelPolicies:raw?.channelPolicies,
+                pinned:raw?.pinned,
+                events:raw?.events,
+                polls:raw?.polls,
+                watchParty:raw?.watchParty
+              });
+            }
+          }
+        }
+
+        // Recupera amizades públicas salvas no navegador.
+        if(sameRecoveryUser && Array.isArray(recovery?.friends)){
+          for(const rawFriend of recovery.friends.slice(0,500)){
+            const friendId=String(rawFriend?.id || '').slice(0,100);
+            if(!friendId || friendId===userId) continue;
+
+            if(!profiles.has(friendId)){
+              const friendUsername=cleanName(rawFriend?.username,'Usuário');
+              profiles.set(friendId,{
+                id:friendId,
+                username:friendUsername,
+                displayName:friendUsername,
+                bio:String(rawFriend?.bio || '').slice(0,160),
+                avatar:String(rawFriend?.avatar || '').slice(0,350000),
+                banner:'',
+                status:'offline',
+                createdAt:Date.now()
+              });
+            }
+
+            if(!areFriends(userId,friendId)){
+              friendships.push({a:userId,b:friendId,at:Date.now()});
+            }
+          }
+        }
 
         socket.data.userId=userId;
         socket.data.username=safeUsername;
@@ -13403,7 +13511,8 @@ io.on('connection', socket => {
         socket.emit('auth-success',{
           token,
           profile:publicProfile(restoredProfile),
-          accountRecovered:true
+          accountRecovered:true,
+          recoveredIdentity:sameRecoveryUser
         });
 
         sendServerList(socket);
@@ -13508,6 +13617,13 @@ io.on('connection', socket => {
             status:['online','away','busy','invisible'].includes(recovery.status)
               ? recovery.status
               : 'online',
+            customStatus:String(recovery.customStatus || '').slice(0,80),
+            pronouns:String(recovery.pronouns || '').slice(0,40),
+            activity:String(recovery.activity || '').slice(0,80),
+            links:recovery.links && typeof recovery.links==='object' ? recovery.links : {},
+            privacy:recovery.privacy && typeof recovery.privacy==='object'
+              ? recovery.privacy
+              : {dm:'friends',calls:'friends',friendRequests:'everyone'},
             createdAt:Number(recovery.savedAt || Date.now())
           };
 
@@ -13550,7 +13666,17 @@ io.on('connection', socket => {
                 textChannels:raw?.textChannels,
                 voiceChannels:raw?.voiceChannels,
                 categories:raw?.categories,
-                roles:raw?.roles
+                roles:raw?.roles,
+                rules:raw?.rules,
+                banner:raw?.banner,
+                inviteExpiresAt:raw?.inviteExpiresAt,
+                bans:raw?.bans,
+                mutes:raw?.mutes,
+                channelPolicies:raw?.channelPolicies,
+                pinned:raw?.pinned,
+                events:raw?.events,
+                polls:raw?.polls,
+                watchParty:raw?.watchParty
               }
             );
           }
