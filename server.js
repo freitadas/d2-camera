@@ -83,7 +83,7 @@ app.use((req,res,next)=>{
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: blob:; " +
     "media-src 'self' blob: https:; " +
-    "connect-src 'self' ws: wss:; " +
+    "connect-src 'self' ws: wss: https://tenor.googleapis.com; " +
     "font-src 'self' data:; " +
     "object-src 'none'; " +
     "base-uri 'self'; " +
@@ -118,6 +118,13 @@ function publicProfile(profile) {
     avatar:profile.avatar||'',
     banner:profile.banner||'',
     status:profile.status||'online',
+    customStatus:String(profile.customStatus||'').slice(0,80),
+    pronouns:String(profile.pronouns||'').slice(0,40),
+    activity:String(profile.activity||'').slice(0,80),
+    links:profile.links && typeof profile.links==='object' ? profile.links : {},
+    privacy:profile.privacy && typeof profile.privacy==='object'
+      ? profile.privacy
+      : {dm:'friends',calls:'friends',friendRequests:'everyone'},
     createdAt:Number(profile.createdAt||Date.now())
   };
 }
@@ -135,6 +142,14 @@ function findProfileByUsername(username) {
   return null;
 }
 
+
+function privacyAllows(targetId,sourceId,kind){
+  const profile=profiles.get(String(targetId||''));if(!profile)return false;
+  const setting=profile.privacy?.[kind]||'friends';
+  if(setting==='everyone')return true;
+  if(setting==='nobody')return false;
+  return areFriends(targetId,sourceId);
+}
 
 function areFriends(userA,userB) {
   const a = String(userA || '');
@@ -552,7 +567,22 @@ function makeServer(name = 'Acord', options = {}) {
     voiceChannels,
     categories,
     roles,
-    messages
+    messages,
+    rules:String(options.rules||'').slice(0,4000),
+    banner:String(options.banner||'').slice(0,350000),
+    inviteExpiresAt:Number(options.inviteExpiresAt||0),
+    bans:Array.isArray(options.bans)?options.bans.map(String).slice(0,500):[],
+    mutes:Array.isArray(options.mutes)?options.mutes.map(String).slice(0,500):[],
+    channelPolicies:options.channelPolicies && typeof options.channelPolicies==='object'
+      ? options.channelPolicies
+      : {},
+    pinned:Array.isArray(options.pinned)?options.pinned.slice(-200):[],
+    events:Array.isArray(options.events)?options.events.slice(-200):[],
+    polls:Array.isArray(options.polls)?options.polls.slice(-200):[],
+    watchParty:options.watchParty && typeof options.watchParty==='object'
+      ? options.watchParty
+      : {url:'',position:0,playing:false,updatedAt:0},
+    whiteboard:Array.isArray(options.whiteboard)?options.whiteboard.slice(-2000):[]
   };
 
   servers.set(serverId, data);
@@ -568,6 +598,13 @@ function serializeProfiles() {
     avatar:String(profile.avatar||'').slice(0,350000),
     banner:String(profile.banner||'').slice(0,350000),
     status:['online','away','busy','invisible'].includes(profile.status)?profile.status:'online',
+    customStatus:String(profile.customStatus||'').slice(0,80),
+    pronouns:String(profile.pronouns||'').slice(0,40),
+    activity:String(profile.activity||'').slice(0,80),
+    links:profile.links && typeof profile.links==='object'?profile.links:{},
+    privacy:profile.privacy && typeof profile.privacy==='object'
+      ? profile.privacy
+      : {dm:'friends',calls:'friends',friendRequests:'everyone'},
     createdAt:Number(profile.createdAt||Date.now())
   }));
 }
@@ -636,7 +673,18 @@ function serializeServers() {
     voiceChannels: serverData.voiceChannels,
     categories: serverData.categories,
     roles: serverData.roles,
-    messages: Object.fromEntries(serverData.messages)
+    messages: Object.fromEntries(serverData.messages),
+    rules:serverData.rules||'',
+    banner:serverData.banner||'',
+    inviteExpiresAt:Number(serverData.inviteExpiresAt||0),
+    bans:serverData.bans||[],
+    mutes:serverData.mutes||[],
+    channelPolicies:serverData.channelPolicies||{},
+    pinned:serverData.pinned||[],
+    events:serverData.events||[],
+    polls:serverData.polls||[],
+    watchParty:serverData.watchParty||{url:'',position:0,playing:false,updatedAt:0},
+    whiteboard:serverData.whiteboard||[]
   }));
 }
 
@@ -845,6 +893,13 @@ function loadServersFromDisk() {
         avatar:String(raw?.avatar||'').slice(0,350000),
         banner:String(raw?.banner||'').slice(0,350000),
         status:['online','away','busy','invisible'].includes(raw?.status)?raw.status:'online',
+        customStatus:String(raw?.customStatus||'').slice(0,80),
+        pronouns:String(raw?.pronouns||'').slice(0,40),
+        activity:String(raw?.activity||'').slice(0,80),
+        links:raw?.links && typeof raw.links==='object'?raw.links:{},
+        privacy:raw?.privacy && typeof raw.privacy==='object'
+          ? raw.privacy
+          : {dm:'friends',calls:'friends',friendRequests:'everyone'},
         createdAt:Number(raw?.createdAt||Date.now())
       });
     }
@@ -863,7 +918,18 @@ function loadServersFromDisk() {
         voiceChannels: item.voiceChannels,
         categories: item.categories,
         roles: item.roles,
-        messages: item.messages
+        messages: item.messages,
+        rules:item.rules,
+        banner:item.banner,
+        inviteExpiresAt:item.inviteExpiresAt,
+        bans:item.bans,
+        mutes:item.mutes,
+        channelPolicies:item.channelPolicies,
+        pinned:item.pinned,
+        events:item.events,
+        polls:item.polls,
+        watchParty:item.watchParty,
+        whiteboard:item.whiteboard
       });
     }
 
@@ -1040,7 +1106,17 @@ function publicServer(serverData) {
     textChannels: serverData.textChannels,
     voiceChannels: serverData.voiceChannels,
     categories: serverData.categories,
-    roles: serverData.roles
+    roles: serverData.roles,
+    rules:serverData.rules||'',
+    banner:serverData.banner||'',
+    inviteExpiresAt:Number(serverData.inviteExpiresAt||0),
+    bans:serverData.bans||[],
+    mutes:serverData.mutes||[],
+    channelPolicies:serverData.channelPolicies||{},
+    pinned:serverData.pinned||[],
+    events:serverData.events||[],
+    polls:serverData.polls||[],
+    watchParty:serverData.watchParty||{url:'',position:0,playing:false,updatedAt:0}
   };
 }
 
@@ -1184,7 +1260,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v26';
+const CACHE='acord-app-stable-v30-mega';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3405,6 +3481,34 @@ html,body{
 .phoneCameraPreviewWrap{margin-top:12px;width:min(320px,100%);border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#020403}
 .phoneCameraPreview{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#020403}
 
+
+.megaShell{height:100%;display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}
+.megaNav{border-right:1px solid var(--line);background:var(--bg1);padding:16px;overflow:auto}
+.megaNav strong{display:block;margin-bottom:14px}
+.megaNavBtn{width:100%;text-align:left;border:0;background:transparent;color:var(--muted);padding:10px;border-radius:9px;margin-bottom:4px}
+.megaNavBtn.active,.megaNavBtn:hover{background:var(--bg3);color:var(--text)}
+.megaBody{padding:22px;overflow:auto}
+.megaPage{display:none}.megaPage.active{display:block}
+.megaPage h2{margin-top:0}
+.megaGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px}
+.megaGrid label{display:grid;gap:7px;color:var(--muted);font-size:12px}
+.megaGrid textarea,.megaGrid select{width:100%;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:11px}
+.megaActions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.megaList{display:grid;gap:8px;margin-top:12px}
+.megaItem{padding:12px;border:1px solid var(--line);background:var(--bg2);border-radius:10px}
+.megaNote{color:var(--muted);font-size:12px;line-height:1.5}
+.megaLink{display:inline-block;text-decoration:none;margin-top:12px}
+#megaWhiteboard{width:100%;max-width:900px;aspect-ratio:9/5;background:white;border-radius:12px;touch-action:none}
+.megaMediaPreview{width:min(520px,100%);aspect-ratio:16/9;background:#020403;border-radius:12px;object-fit:cover}
+.megaCaptionBox{margin-top:10px;padding:12px;border:1px solid var(--line);background:var(--bg2);border-radius:10px;min-height:44px}
+.megaTimer{font-size:30px;font-weight:900;color:var(--coral)}
+.unreadBadge{margin-left:auto;min-width:18px;height:18px;border-radius:999px;background:var(--coral);color:#281009;font-size:10px;font-weight:900;display:grid;place-items:center;padding:0 5px}
+.message.mentioned{outline:1px solid var(--coral);background:rgba(255,107,74,.10)}
+.messageLinkPreview{margin-top:8px;padding:8px;border-left:3px solid var(--coral);background:var(--bg1);border-radius:8px;font-size:11px;color:var(--muted)}
+.messageMetaActions{display:flex;gap:6px;margin-top:7px;opacity:.75}
+.messageMetaActions button{border:0;background:var(--bg3);color:var(--text);border-radius:7px;padding:4px 7px;font-size:10px}
+@media(max-width:760px){.megaShell{grid-template-columns:1fr}.megaNav{border-right:0;border-bottom:1px solid var(--line);display:flex;gap:5px;overflow:auto}.megaNav strong{display:none}.megaNavBtn{white-space:nowrap;width:auto}.megaBody{padding:14px}}
+
 </style>
 </head>
 <body>
@@ -3596,6 +3700,7 @@ html,body{
             <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
             <button id="createPrivateGroupBtn" class="friendTab" type="button">Criar grupo</button>
             <button id="friendsProfileBtn" class="friendTab" type="button">Perfil</button>
+            <button id="concordePlusBtn" class="friendTab" type="button">✦ Concorde+</button>
             <button id="addFriendBtn" class="friendTab add" type="button">Adicionar amigo</button>
           </div>
 
@@ -3619,6 +3724,132 @@ html,body{
         </div>
       </section>
 
+
+
+      <section id="megaView" class="view hidden">
+        <div class="megaShell">
+          <aside class="megaNav">
+            <strong>Concorde v3</strong>
+            <button class="megaNavBtn active" data-mega-page="profile">Perfil e privacidade</button>
+            <button class="megaNavBtn" data-mega-page="chat">Chat</button>
+            <button class="megaNavBtn" data-mega-page="server">Servidor</button>
+            <button class="megaNavBtn" data-mega-page="community">Eventos e enquetes</button>
+            <button class="megaNavBtn" data-mega-page="watch">Assistir junto</button>
+            <button class="megaNavBtn" data-mega-page="whiteboard">Quadro branco</button>
+            <button class="megaNavBtn" data-mega-page="call">Áudio e vídeo</button>
+            <button class="megaNavBtn" data-mega-page="tools">Ferramentas e bots</button>
+          </aside>
+          <div class="megaBody">
+            <section id="megaPageProfile" class="megaPage active">
+              <h2>Perfil e privacidade</h2>
+              <div class="megaGrid">
+                <label>Status personalizado<input id="megaCustomStatus" maxlength="80" placeholder="Ex.: Estudando"></label>
+                <label>Pronomes<input id="megaPronouns" maxlength="40"></label>
+                <label>Atividade atual<input id="megaActivity" maxlength="80" placeholder="Ex.: Jogando, estudando..."></label>
+                <label>Steam<input id="megaSteam" placeholder="https://steamcommunity.com/..."></label>
+                <label>Spotify<input id="megaSpotify" placeholder="https://open.spotify.com/..."></label>
+                <label>YouTube<input id="megaYoutube" placeholder="https://youtube.com/..."></label>
+                <label>Quem pode mandar DM<select id="megaPrivacyDm"><option value="everyone">Todos</option><option value="friends">Amigos</option><option value="nobody">Ninguém</option></select></label>
+                <label>Quem pode ligar<select id="megaPrivacyCalls"><option value="everyone">Todos</option><option value="friends">Amigos</option><option value="nobody">Ninguém</option></select></label>
+              </div>
+              <button id="megaSaveProfile" class="btn primary">Salvar perfil</button>
+            </section>
+
+            <section id="megaPageChat" class="megaPage">
+              <h2>Chat avançado</h2>
+              <div class="megaGrid">
+                <button id="megaEmojiBtn" class="btn secondary">😀 Inserir emoji</button>
+                <button id="megaGifBtn" class="btn secondary">GIF por URL</button>
+                <button id="megaPinsBtn" class="btn secondary">📌 Ver fixadas</button>
+                <button id="megaUnreadClearBtn" class="btn secondary">Marcar tudo como lido</button>
+              </div>
+              <p class="megaNote">Menções @usuário, respostas, edição, exclusão, anexos, links e contadores de não lidas ficam integrados ao chat público.</p>
+            </section>
+
+            <section id="megaPageServer" class="megaPage">
+              <h2>Servidor e moderação</h2>
+              <div class="megaGrid">
+                <label>Regras<textarea id="megaServerRules" maxlength="4000" rows="6"></textarea></label>
+                <label>Banner do servidor<input id="megaServerBanner" type="file" accept="image/*"></label>
+                <label>Validade do convite<select id="megaInviteExpiry"><option value="0">Sem expiração</option><option value="3600000">1 hora</option><option value="86400000">24 horas</option><option value="604800000">7 dias</option></select></label>
+                <label>Canal atual<select id="megaChannelMode"><option value="normal">Normal</option><option value="readonly">Somente leitura</option><option value="announcement">Anúncios</option></select></label>
+                <label>Cargo permitido no canal<select id="megaChannelRole"><option value="">Todos os membros</option></select></label>
+                <label>Membro para moderar<select id="megaModerationMember"></select></label>
+              </div>
+              <div class="megaActions">
+                <button id="megaSaveServer" class="btn primary">Salvar servidor</button>
+                <button id="megaMuteMember" class="btn secondary">Silenciar</button>
+                <button id="megaKickMember" class="btn secondary">Expulsar</button>
+                <button id="megaBanMember" class="btn danger">Banir</button>
+                <button id="megaAuditBtn" class="btn secondary">Ver log de moderação</button>
+              </div>
+              <div id="megaAuditList" class="megaList"></div>
+            </section>
+
+            <section id="megaPageCommunity" class="megaPage">
+              <h2>Eventos e enquetes</h2>
+              <div class="megaGrid">
+                <label>Evento<input id="megaEventTitle" maxlength="80" placeholder="Nome do evento"></label>
+                <label>Data e hora<input id="megaEventDate" type="datetime-local"></label>
+                <button id="megaCreateEvent" class="btn primary">Criar evento</button>
+                <label>Pergunta da enquete<input id="megaPollQuestion" maxlength="160"></label>
+                <label>Opções (separe por |)<input id="megaPollOptions" placeholder="Sim | Não | Talvez"></label>
+                <button id="megaCreatePoll" class="btn primary">Criar enquete</button>
+              </div>
+              <div id="megaCommunityList" class="megaList"></div>
+            </section>
+
+            <section id="megaPageWatch" class="megaPage">
+              <h2>Assistir junto</h2>
+              <label>Link do vídeo<input id="megaWatchUrl" placeholder="Cole um link do YouTube ou outro vídeo"></label>
+              <div class="megaActions">
+                <button id="megaWatchLoad" class="btn primary">Compartilhar link</button>
+                <button id="megaWatchPlay" class="btn secondary">▶ Sincronizar play</button>
+                <button id="megaWatchPause" class="btn secondary">⏸ Sincronizar pausa</button>
+              </div>
+              <a id="megaWatchOpen" class="btn secondary megaLink hidden" target="_blank" rel="noopener">Abrir vídeo</a>
+              <div id="megaWatchStatus" class="megaNote"></div>
+            </section>
+
+            <section id="megaPageWhiteboard" class="megaPage">
+              <h2>Quadro branco compartilhado</h2>
+              <canvas id="megaWhiteboard" width="900" height="500"></canvas>
+              <div class="megaActions">
+                <button id="megaWhiteboardClear" class="btn secondary">Limpar quadro</button>
+              </div>
+            </section>
+
+            <section id="megaPageCall" class="megaPage">
+              <h2>Áudio e vídeo</h2>
+              <div class="megaGrid">
+                <label>Qualidade da câmera<select id="megaCameraQuality"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+                <label><span>Desfoque visual local</span><input id="megaBlurPreview" type="checkbox"></label>
+                <button id="megaMediaTest" class="btn secondary">Testar câmera e microfone</button>
+                <button id="megaCaptionsBtn" class="btn secondary">Legendas ao vivo</button>
+                <button id="megaRecordBtn" class="btn secondary">⏺ Gravar minha mídia</button>
+                <label>Compartilhar arquivo na call<input id="megaCallFile" type="file"></label>
+              </div>
+              <video id="megaMediaPreview" autoplay muted playsinline class="megaMediaPreview"></video>
+              <div id="megaCaptionBox" class="megaCaptionBox">Legendas desativadas.</div>
+              <div id="megaConnectionInfo" class="megaNote"></div>
+              <p class="megaNote">TURN é usado automaticamente quando configurado no servidor por variáveis de ambiente.</p>
+            </section>
+
+            <section id="megaPageTools" class="megaPage">
+              <h2>Ferramentas e bots</h2>
+              <div class="megaGrid">
+                <label>Pomodoro (minutos)<input id="megaPomodoroMinutes" type="number" min="1" max="180" value="25"></label>
+                <button id="megaPomodoroStart" class="btn primary">Iniciar Pomodoro</button>
+                <div id="megaPomodoroDisplay" class="megaTimer">25:00</div>
+                <label>Comando do bot<input id="megaBotCommand" placeholder="/roll, /coin, /8ball pergunta"></label>
+                <button id="megaBotRun" class="btn secondary">Executar bot</button>
+                <label>Chave Tenor (opcional)<input id="megaTenorKey" placeholder="Para busca de GIFs"></label>
+              </div>
+              <div id="megaBotOutput" class="megaList"></div>
+            </section>
+          </div>
+        </div>
+      </section>
 
 
       <section id="dmView" class="view hidden">
@@ -3811,9 +4042,11 @@ html,body{
           <span id="replyBarText">Respondendo...</span>
           <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
         </div>
-        <input id="chatImageInput" class="hidden" type="file" accept="image/*">
-        <div id="chatComposeForm" class="compose" style="grid-template-columns:auto 1fr auto;">
+        <input id="chatImageInput" class="hidden" type="file" accept="image/*,.pdf,.zip,.doc,.docx,.txt,.mp3,.wav,.mp4">
+        <div id="chatComposeForm" class="compose" style="grid-template-columns:auto auto auto 1fr auto;">
           <button id="chatImageBtn" class="btn secondary" type="button">📎</button>
+          <button id="chatEmojiBtn" class="btn secondary" type="button">😀</button>
+          <button id="chatGifBtn" class="btn secondary" type="button">GIF</button>
           <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
           <button id="sendBtn" class="btn primary" type="button">Enviar</button>
         </div>
@@ -4357,6 +4590,9 @@ const state = {
   cameraTrack: null,
   screenTrack: null,
   screenStream: null,
+  screenAudioTrack:null,
+  mixedAudioTrack:null,
+  screenAudioContext:null,
   screenShareQuality: localStorage.getItem('ecord-screen-quality') || '1080p',
   pendingShareKind: null,
   localMusicQueue: [],
@@ -4409,6 +4645,15 @@ const state = {
   phoneCameraPc:null,
   phoneCameraTrack:null,
   phoneCameraLink:'',
+  unreadCounts:(()=>{
+    try{return JSON.parse(localStorage.getItem('acord-unread-counts')||'{}')||{}}catch{return {}}
+  })(),
+  cameraQuality:localStorage.getItem('acord-camera-quality')||'1080p',
+  megaServerBannerData:null,
+  captionRecognition:null,
+  localRecorder:null,
+  localRecordChunks:[],
+  pomodoroTimer:null,
   micHotkey:localStorage.getItem('acord-hotkey-mic')||'',
   deafenHotkey:localStorage.getItem('acord-hotkey-deafen')||'',
   capturingHotkey:null,
@@ -4441,7 +4686,12 @@ const state = {
     : 'friends',
   appInitialized: false,
   restoringReload: PAGE_WAS_RELOADED,
-  profileReady: false
+  profileReady: false,
+  customStatus:'',
+  pronouns:'',
+  activity:'',
+  links:{},
+  privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'}
 };
 
 const rtcConfig = {
@@ -4452,6 +4702,16 @@ const rtcConfig = {
   ],
   iceCandidatePoolSize: 10
 };
+
+fetch('/api/rtc-config',{cache:'no-store'})
+  .then(response=>response.ok?response.json():null)
+  .then(data=>{
+    if(Array.isArray(data?.iceServers) && data.iceServers.length){
+      rtcConfig.iceServers.push(...data.iceServers);
+    }
+  })
+  .catch(()=>{});
+
 
 
 // Música pessoal: este <audio> é local ao navegador e nunca é adicionado ao WebRTC.
@@ -4868,6 +5128,11 @@ function applyAuthProfile(profile,token){
   state.authToken=token;state.userId=profile.id;state.username=profile.username||'';
   state.displayName=profile.displayName||profile.username||'';state.bio=profile.bio||'';
   state.avatar=profile.avatar||'';state.banner=profile.banner||'';state.status=profile.status||'online';
+  state.customStatus=profile.customStatus||'';
+  state.pronouns=profile.pronouns||'';
+  state.activity=profile.activity||'';
+  state.links=profile.links||{};
+  state.privacy=profile.privacy||{};
   state.profileReady=true;
   localStorage.setItem('acord-auth-token',token);
   localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);
@@ -5613,6 +5878,379 @@ function handleCallHotkey(event){
 }
 
 
+function openMegaView(page='profile'){
+  setView('mega');
+  setAppMode('hub');
+  $('#topTitle').textContent='✦ Concorde+';
+  $('#topSub').textContent='recursos avançados';
+  selectMegaPage(page);
+  loadMegaData();
+}
+
+function selectMegaPage(page){
+  document.querySelectorAll('.megaNavBtn').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.megaPage===page);
+  });
+  document.querySelectorAll('.megaPage').forEach(panel=>panel.classList.remove('active'));
+  const target=document.getElementById(
+    'megaPage'+page.charAt(0).toUpperCase()+page.slice(1)
+  );
+  target?.classList.add('active');
+  if(page==='community') renderMegaCommunity();
+  if(page==='server') renderMegaServerControls();
+  if(page==='call') updateMegaConnectionInfo();
+  if(page==='whiteboard' && state.serverId){
+    initMegaWhiteboard();
+    socket.emit('mega-whiteboard-get',{serverId:state.serverId});
+  }
+}
+
+function loadMegaData(){
+  $('#megaCustomStatus').value=state.customStatus||'';
+  $('#megaPronouns').value=state.pronouns||'';
+  $('#megaActivity').value=state.activity||'';
+  $('#megaSteam').value=state.links?.steam||'';
+  $('#megaSpotify').value=state.links?.spotify||'';
+  $('#megaYoutube').value=state.links?.youtube||'';
+  $('#megaPrivacyDm').value=state.privacy?.dm||'friends';
+  $('#megaPrivacyCalls').value=state.privacy?.calls||'friends';
+  $('#megaCameraQuality').value=state.cameraQuality||'1080p';
+  $('#megaTenorKey').value=localStorage.getItem('acord-tenor-key')||'';
+  renderMegaServerControls();
+  renderMegaCommunity();
+  updateWatchPartyUI(currentServer()?.watchParty);
+}
+
+function saveMegaProfile(){
+  socket.emit('profile-extra-update',{
+    customStatus:$('#megaCustomStatus').value,
+    pronouns:$('#megaPronouns').value,
+    activity:$('#megaActivity').value,
+    links:{
+      steam:$('#megaSteam').value,
+      spotify:$('#megaSpotify').value,
+      youtube:$('#megaYoutube').value
+    },
+    privacy:{
+      dm:$('#megaPrivacyDm').value,
+      calls:$('#megaPrivacyCalls').value,
+      friendRequests:'everyone'
+    }
+  });
+}
+
+function unreadKey(serverId,channelId){
+  return String(serverId)+':'+String(channelId);
+}
+function saveUnreadCounts(){
+  localStorage.setItem('acord-unread-counts',JSON.stringify(state.unreadCounts||{}));
+}
+function addUnread(serverId,channelId){
+  const key=unreadKey(serverId,channelId);
+  state.unreadCounts[key]=Math.min(99,Number(state.unreadCounts[key]||0)+1);
+  saveUnreadCounts();
+  renderSidebar();
+}
+function clearUnread(serverId,channelId){
+  const key=unreadKey(serverId,channelId);
+  if(state.unreadCounts[key]){
+    delete state.unreadCounts[key];
+    saveUnreadCounts();
+    renderSidebar();
+  }
+}
+function clearAllUnread(){
+  state.unreadCounts={};
+  saveUnreadCounts();
+  renderSidebar();
+  toast('Tudo marcado como lido');
+}
+
+function renderMegaServerControls(){
+  const server=currentServer();
+  if(!server) return;
+  $('#megaServerRules').value=server.rules||'';
+  $('#megaInviteExpiry').value=String(
+    server.inviteExpiresAt && server.inviteExpiresAt>Date.now()
+      ? Math.max(0,server.inviteExpiresAt-Date.now())
+      : 0
+  );
+
+  const policy=server.channelPolicies?.[state.textChannelId]||{};
+  $('#megaChannelMode').value=policy.mode||'normal';
+  const roleSelect=$('#megaChannelRole');
+  roleSelect.innerHTML='<option value="">Todos os membros</option>';
+  (server.roles||[]).forEach(role=>{const o=document.createElement('option');o.value=role.id;o.textContent=role.name;roleSelect.appendChild(o)});
+  roleSelect.value=policy.roleId||'';
+
+  const select=$('#megaModerationMember');
+  select.innerHTML='';
+  (server.memberProfiles||[]).forEach(profile=>{
+    if(String(profile.id)===String(state.userId)) return;
+    const option=document.createElement('option');
+    option.value=profile.id;
+    option.textContent=profile.username;
+    select.appendChild(option);
+  });
+}
+
+function saveMegaServer(){
+  if(!state.serverId) return;
+  socket.emit('mega-server-settings',{
+    serverId:state.serverId,
+    rules:$('#megaServerRules').value,
+    banner:state.megaServerBannerData,
+    inviteExpiryMs:Number($('#megaInviteExpiry').value||0),
+    channelId:state.textChannelId,
+    channelMode:$('#megaChannelMode').value,
+    channelRoleId:$('#megaChannelRole').value
+  });
+}
+
+function moderateMember(action){
+  const userId=$('#megaModerationMember').value;
+  if(!userId||!state.serverId) return;
+  socket.emit('mega-moderate',{
+    serverId:state.serverId,
+    userId,
+    action
+  });
+}
+
+function renderMegaAudit(items){
+  const box=$('#megaAuditList');
+  box.innerHTML='';
+  (items||[]).slice().reverse().forEach(item=>{
+    const div=document.createElement('div');
+    div.className='megaItem';
+    div.textContent=new Date(item.at||Date.now()).toLocaleString()+
+      ' · '+(item.actor||'Sistema')+' · '+(item.action||'ação')+
+      (item.target?' · '+item.target:'');
+    box.appendChild(div);
+  });
+}
+
+function renderMegaCommunity(){
+  const server=currentServer();
+  const box=$('#megaCommunityList');
+  if(!box||!server) return;
+  box.innerHTML='';
+  (server.events||[]).slice().reverse().forEach(event=>{
+    const div=document.createElement('div');div.className='megaItem';
+    div.textContent='📅 '+event.title+' · '+new Date(event.when).toLocaleString();
+    box.appendChild(div);
+  });
+  (server.polls||[]).slice().reverse().forEach(poll=>{
+    const div=document.createElement('div');div.className='megaItem';
+    const title=document.createElement('strong');title.textContent='📊 '+poll.question;
+    div.appendChild(title);
+    (poll.options||[]).forEach((opt,index)=>{
+      const btn=document.createElement('button');
+      btn.className='btn secondary small';
+      btn.style.margin='6px 6px 0 0';
+      btn.textContent=opt.text+' ('+(opt.votes||[]).length+')';
+      btn.addEventListener('click',()=>socket.emit('mega-poll-vote',{
+        serverId:state.serverId,pollId:poll.id,index
+      }));
+      div.appendChild(btn);
+    });
+    box.appendChild(div);
+  });
+}
+
+function updateWatchPartyUI(watch){
+  const data=watch||{url:'',playing:false};
+  $('#megaWatchUrl').value=data.url||'';
+  $('#megaWatchStatus').textContent=data.url
+    ? (data.playing?'▶ Reproduzindo junto':'⏸ Pausado')+' · atualizado '+new Date(data.updatedAt||Date.now()).toLocaleTimeString()
+    : 'Nenhum vídeo compartilhado.';
+  const link=$('#megaWatchOpen');
+  if(data.url){
+    link.href=data.url;link.classList.remove('hidden');
+  }else{
+    link.classList.add('hidden');
+  }
+}
+
+function emitWatchParty(playing){
+  if(!state.serverId) return;
+  socket.emit('mega-watch',{
+    serverId:state.serverId,
+    url:$('#megaWatchUrl').value,
+    playing:!!playing,
+    position:0
+  });
+}
+
+function initMegaWhiteboard(){
+  const canvas=$('#megaWhiteboard');
+  if(!canvas||canvas.dataset.ready==='1') return;
+  canvas.dataset.ready='1';
+  const ctx=canvas.getContext('2d');
+  let drawing=false,last=null;
+  const point=event=>{
+    const rect=canvas.getBoundingClientRect();
+    const source=event.touches?.[0]||event;
+    return {
+      x:(source.clientX-rect.left)/rect.width,
+      y:(source.clientY-rect.top)/rect.height
+    };
+  };
+  const start=e=>{drawing=true;last=point(e);e.preventDefault()};
+  const move=e=>{
+    if(!drawing||!last)return;
+    const next=point(e);
+    drawWhiteboardStroke({from:last,to:next});
+    socket.emit('mega-whiteboard-stroke',{
+      serverId:state.serverId,stroke:{from:last,to:next}
+    });
+    last=next;e.preventDefault();
+  };
+  const stop=()=>{drawing=false;last=null};
+  canvas.addEventListener('pointerdown',start);
+  canvas.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',stop);
+}
+function drawWhiteboardStroke(stroke){
+  const canvas=$('#megaWhiteboard');if(!canvas||!stroke)return;
+  const ctx=canvas.getContext('2d');
+  ctx.strokeStyle='#111';ctx.lineWidth=3;ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(stroke.from.x*canvas.width,stroke.from.y*canvas.height);
+  ctx.lineTo(stroke.to.x*canvas.width,stroke.to.y*canvas.height);
+  ctx.stroke();
+}
+function clearWhiteboardLocal(){
+  const canvas=$('#megaWhiteboard');if(!canvas)return;
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+}
+
+async function testMedia(){
+  try{
+    const quality=state.cameraQuality==='720p'
+      ? {width:{ideal:1280},height:{ideal:720}}
+      : {width:{ideal:1920},height:{ideal:1080}};
+    const stream=await navigator.mediaDevices.getUserMedia({
+      audio:true,video:{...quality,frameRate:{ideal:30,max:30}}
+    });
+    const preview=$('#megaMediaPreview');
+    preview.srcObject=stream;
+    preview.style.filter=$('#megaBlurPreview').checked?'blur(8px)':'none';
+    setTimeout(()=>stream.getTracks().forEach(t=>t.stop()),15000);
+    toast('Teste de mídia iniciado');
+  }catch{toast('Não foi possível acessar câmera/microfone')}
+}
+
+function toggleLiveCaptions(){
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    toast('Legendas não disponíveis neste navegador');
+    return;
+  }
+  if(state.captionRecognition){
+    try{state.captionRecognition.stop()}catch{}
+    state.captionRecognition=null;
+    $('#megaCaptionBox').textContent='Legendas desativadas.';
+    return;
+  }
+  const rec=new SpeechRecognition();
+  rec.continuous=true;rec.interimResults=true;rec.lang='pt-BR';
+  rec.onresult=event=>{
+    let text='';
+    for(let i=event.resultIndex;i<event.results.length;i++) text+=event.results[i][0].transcript+' ';
+    $('#megaCaptionBox').textContent=text.trim()||'Ouvindo...';
+  };
+  rec.onend=()=>{if(state.captionRecognition===rec){try{rec.start()}catch{}}};
+  rec.start();
+  state.captionRecognition=rec;
+  $('#megaCaptionBox').textContent='Ouvindo...';
+}
+
+function toggleLocalRecording(){
+  if(state.localRecorder && state.localRecorder.state!=='inactive'){
+    state.localRecorder.stop();return;
+  }
+  if(!state.localStream){toast('Entre em uma call primeiro');return}
+  try{
+    const recorder=new MediaRecorder(state.localStream);
+    state.localRecordChunks=[];
+    recorder.ondataavailable=e=>{if(e.data?.size)state.localRecordChunks.push(e.data)};
+    recorder.onstop=()=>{
+      const blob=new Blob(state.localRecordChunks,{type:recorder.mimeType||'video/webm'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download='concorde-gravacao-'+Date.now()+'.webm';a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      $('#megaRecordBtn').textContent='⏺ Gravar minha mídia';
+    };
+    recorder.start(1000);
+    state.localRecorder=recorder;
+    $('#megaRecordBtn').textContent='⏹ Parar gravação';
+    socket.emit('mega-recording-notice',{serverId:state.activeVoiceServerId||state.serverId});
+  }catch{toast('Gravação indisponível')}
+}
+
+async function updateMegaConnectionInfo(){
+  const pcs=[...state.peers.values()];
+  if(!pcs.length){
+    $('#megaConnectionInfo').textContent='Sem conexão WebRTC ativa.';
+    return;
+  }
+
+  const rows=[];
+  for(const pc of pcs){
+    let rtt=null,candidate='';
+    try{
+      const stats=await pc.getStats();
+      stats.forEach(report=>{
+        if(report.type==='candidate-pair' && report.state==='succeeded' && report.nominated){
+          if(Number.isFinite(report.currentRoundTripTime)) rtt=Math.round(report.currentRoundTripTime*1000);
+        }
+        if(report.type==='local-candidate' && !candidate){
+          candidate=report.candidateType||'';
+        }
+      });
+    }catch{}
+    const stateText=pc.connectionState||pc.iceConnectionState||'desconhecido';
+    rows.push(stateText+(rtt!==null?' · '+rtt+' ms':'')+(candidate?' · '+candidate:''));
+  }
+  $('#megaConnectionInfo').textContent='Conexão: '+rows.join(' | ');
+}
+
+function startPomodoro(){
+  clearInterval(state.pomodoroTimer);
+  let seconds=Math.max(60,Math.min(10800,Number($('#megaPomodoroMinutes').value||25)*60));
+  const render=()=>{
+    const m=Math.floor(seconds/60).toString().padStart(2,'0');
+    const s=(seconds%60).toString().padStart(2,'0');
+    $('#megaPomodoroDisplay').textContent=m+':'+s;
+  };
+  render();
+  state.pomodoroTimer=setInterval(()=>{
+    seconds--;render();
+    if(seconds<=0){
+      clearInterval(state.pomodoroTimer);state.pomodoroTimer=null;
+      playCallCue('join');toast('Pomodoro concluído');
+    }
+  },1000);
+}
+
+function runLocalBot(){
+  const input=$('#megaBotCommand');
+  const cmd=String(input.value||'').trim();
+  let out='';
+  if(cmd==='/roll') out='🎲 '+(1+Math.floor(Math.random()*6));
+  else if(cmd==='/coin') out=Math.random()<.5?'🪙 Cara':'🪙 Coroa';
+  else if(cmd==='/welcome') out='👋 Bem-vindo ao servidor!';
+  else if(cmd.startsWith('/8ball')) {
+    const answers=['Sim','Não','Provavelmente','Melhor perguntar depois','Com certeza','Pouco provável'];
+    out='🎱 '+answers[Math.floor(Math.random()*answers.length)];
+  } else if(cmd.startsWith('/say ')){
+    out='🤖 '+cmd.slice(5,300);
+  } else out='Comandos: /roll, /coin, /8ball pergunta, /welcome, /say texto';
+  $('#megaBotOutput').innerHTML='<div class="megaItem"></div>';
+  $('#megaBotOutput').firstElementChild.textContent=out;
+}
+
 function openProfileModal(){
   if(!state.profileReady || !state.userId){
     toast('Entre na sua conta primeiro');
@@ -5673,6 +6311,9 @@ function fileToAvatar(file){
     if(!file){
       resolve('');
       return;
+    }
+    if(file.type==='image/gif' && file.size<=340000){
+      const reader=new FileReader();reader.onerror=()=>reject(new Error('Não foi possível ler o GIF'));reader.onload=()=>resolve(String(reader.result||''));reader.readAsDataURL(file);return;
     }
 
     const reader = new FileReader();
@@ -5805,7 +6446,17 @@ function safeServerSnapshot(serverData){
             manageRoles:!!role.permissions?.manageRoles
           }
         }))
-      : []
+      : [],
+    rules:String(serverData.rules||'').slice(0,4000),
+    banner:String(serverData.banner||'').slice(0,350000),
+    inviteExpiresAt:Number(serverData.inviteExpiresAt||0),
+    bans:Array.isArray(serverData.bans)?serverData.bans.map(String).slice(0,500):[],
+    mutes:Array.isArray(serverData.mutes)?serverData.mutes.map(String).slice(0,500):[],
+    channelPolicies:serverData.channelPolicies&&typeof serverData.channelPolicies==='object'?serverData.channelPolicies:{},
+    pinned:Array.isArray(serverData.pinned)?serverData.pinned.slice(-200):[],
+    events:Array.isArray(serverData.events)?serverData.events.slice(-200):[],
+    polls:Array.isArray(serverData.polls)?serverData.polls.slice(-200):[],
+    watchParty:serverData.watchParty&&typeof serverData.watchParty==='object'?serverData.watchParty:{url:'',position:0,playing:false,updatedAt:0}
   };
 }
 
@@ -6087,7 +6738,7 @@ function setView(name){
   state.currentView = name;
   localStorage.setItem('ecord-last-view',name);
 
-  const hubView = name==='friends' || name==='dm';
+  const hubView = name==='friends' || name==='dm' || name==='mega';
   const privateCallView = name==='voice' && !!state.privateCallId;
 
   if(privateCallView){
@@ -6101,6 +6752,7 @@ function setView(name){
   $('#homeView').classList.toggle('hidden', name!=='home');
   $('#friendsView').classList.toggle('hidden', name!=='friends');
   $('#dmView').classList.toggle('hidden', name!=='dm');
+  $('#megaView').classList.toggle('hidden', name!=='mega');
   $('#rolesView').classList.toggle('hidden', name!=='roles');
   $('#serverSettingsView').classList.toggle('hidden', name!=='settings');
   $('#chatView').classList.toggle('hidden', name!=='chat');
@@ -6114,6 +6766,7 @@ function setView(name){
 
   $('#hubFriendsBtn')?.classList.toggle('active', name==='friends');
   $('#hubMessagesBtn')?.classList.toggle('active', name==='dm');
+  $('#concordePlusBtn')?.classList.toggle('active', name==='mega');
   $('#serverRolesBtn')?.classList.toggle('active', name==='roles');
 
   if(name==='home'){
@@ -6312,7 +6965,14 @@ function renderServers(){
   });
 }
 
+function updateServerBanner(){
+  const server=currentServer();const side=document.querySelector('.sidebar');if(!side)return;
+  if(server?.banner){side.style.backgroundImage='linear-gradient(rgba(7,17,14,.82),rgba(7,17,14,.96)),url("'+String(server.banner).replace(/"/g,'')+'")';side.style.backgroundSize='cover';side.style.backgroundPosition='center top'}
+  else side.style.backgroundImage='';
+}
+
 function renderSidebar(){
+  updateServerBanner();
   const s = currentServer();
 
   if(!s){
@@ -6425,6 +7085,14 @@ function renderSidebar(){
       label.textContent = channel.name;
       label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
       b.append(grip,icon,label);
+
+      if(type==='text'){
+        const unread=Number(state.unreadCounts?.[unreadKey(state.serverId,channel.id)]||0);
+        if(unread>0){
+          const badge=document.createElement('span');badge.className='unreadBadge';badge.textContent=unread>99?'99+':String(unread);
+          b.appendChild(badge);
+        }
+      }
     }
 
     if(canManageChannelsLocally()){
@@ -7313,6 +7981,7 @@ function selectText(channelId){
   setAppMode('server');
 
   state.textChannelId=channelId;
+  clearUnread(state.serverId,channelId);
 
   localStorage.setItem('ecord-last-text-channel-id',channelId);
 
@@ -7582,45 +8251,69 @@ function resolvePendingChatMessage(clientNonce){
 
 function appendPublicChatMessage(message){
   if(!message) return;
-
-  const box=$('#messages');
-  if(!box) return;
-
-  if(
-    message.id &&
-    box.querySelector(
-      '.message[data-message-id="' +
-      String(message.id).replace(/"/g,'') +
-      '"]'
-    )
-  ){
-    return;
-  }
+  const box=$('#messages');if(!box)return;
+  if(message.id && box.querySelector('.message[data-message-id="'+String(message.id).replace(/"/g,'')+'"]')) return;
 
   const mine=String(message.userId)===String(state.userId);
+  const mentioned=(message.mentions||[]).some(name=>String(name).toLowerCase()===String(state.username||'').toLowerCase());
 
   const row=document.createElement('div');
-  row.className='message' + (mine ? ' mine' : '');
-  row.dataset.messageId=message.id || '';
+  row.className='message'+(mine?' mine':'')+(mentioned?' mentioned':'');
+  row.dataset.messageId=message.id||'';
+
+  if(message.replyTo){
+    const reply=document.createElement('div');reply.className='messageReply';
+    reply.textContent='↪ resposta a uma mensagem';row.appendChild(reply);
+  }
 
   const strong=document.createElement('strong');
-  strong.textContent=message.username || 'Usuário';
+  strong.textContent=message.username||'Usuário';
 
   const span=document.createElement('span');
-  span.textContent=message.text || '';
-
+  span.textContent=message.text||'';
   row.append(strong,span);
 
   if(message.attachment?.data){
-    const image=document.createElement('img');
-    image.className='messageAttachment';
-    image.src=message.attachment.data;
-    image.alt=message.attachment.name || 'Imagem';
-    row.appendChild(image);
+    if(String(message.attachment.type||'').startsWith('image/')){
+      const img=document.createElement('img');img.className='messageAttachment';
+      img.src=message.attachment.data;img.alt=message.attachment.name||'Imagem';row.appendChild(img);
+    }else{
+      const a=document.createElement('a');a.className='btn secondary small megaLink';
+      a.href=message.attachment.data;a.download=message.attachment.name||'arquivo';
+      a.textContent='📎 '+(message.attachment.name||'Arquivo');row.appendChild(a);
+    }
   }
 
-  box.appendChild(row);
-  box.scrollTop=box.scrollHeight;
+  const urlMatch=String(message.text||'').match(/https?:\/\/[^\s]+/i);
+  if(urlMatch){
+    try{
+      const u=new URL(urlMatch[0]);
+      const preview=document.createElement('div');preview.className='messageLinkPreview';
+      preview.textContent='🔗 '+u.hostname+' · '+u.pathname.slice(0,80);
+      row.appendChild(preview);
+    }catch{}
+  }
+
+  const actions=document.createElement('div');actions.className='messageMetaActions';
+  const replyBtn=document.createElement('button');replyBtn.textContent='↩ Responder';
+  replyBtn.onclick=()=>{state.replyToMessageId=message.id;$('#replyBarText').textContent='Respondendo a '+(message.username||'Usuário');$('#replyBar').classList.remove('hidden');$('#messageInput').focus()};
+  const pinBtn=document.createElement('button');pinBtn.textContent='📌 Fixar';
+  pinBtn.onclick=()=>socket.emit('mega-pin-message',{serverId:state.serverId,channelId:state.textChannelId,messageId:message.id});
+  actions.append(replyBtn,pinBtn);
+  if(mine){
+    const edit=document.createElement('button');edit.textContent='✎ Editar';
+    edit.onclick=()=>{const value=prompt('Editar mensagem:',message.text||'');if(value!==null)socket.emit('mega-edit-public',{serverId:state.serverId,channelId:state.textChannelId,messageId:message.id,text:value})};
+    const del=document.createElement('button');del.textContent='🗑 Excluir';
+    del.onclick=()=>socket.emit('mega-delete-public',{serverId:state.serverId,channelId:state.textChannelId,messageId:message.id});
+    actions.append(edit,del);
+  }
+  row.appendChild(actions);
+  box.appendChild(row);box.scrollTop=box.scrollHeight;
+
+  if(mentioned && !mine){
+    playCallCue('join');
+    maybeNotify('Você foi mencionado',message.username+' mencionou você');
+  }
 }
 
 function sendPublicChat(){
@@ -7636,7 +8329,8 @@ function sendPublicChat(){
     serverId:state.serverId,
     channelId:state.textChannelId,
     text,
-    attachment:state.pendingChatAttachment
+    attachment:state.pendingChatAttachment,
+    replyTo:state.replyToMessageId
   });
 
   input.value='';
@@ -9753,12 +10447,12 @@ async function toggleCamera(){
     const cam = await navigator.mediaDevices.getUserMedia({
       video:{
         deviceId:state.preferredCameraId?{exact:state.preferredCameraId}:undefined,
-        width:{ideal:1920},
-        height:{ideal:1080},
+        width:{ideal:state.cameraQuality==='720p'?1280:1920},
+        height:{ideal:state.cameraQuality==='720p'?720:1080},
         frameRate:{ideal:30,max:30},
         aspectRatio:{ideal:16/9}
       },
-      audio:false
+      audio:true
     });
 
     state.cameraTrack = cam.getVideoTracks()[0];
@@ -9769,8 +10463,8 @@ async function toggleCamera(){
 
     try{
       await state.cameraTrack.applyConstraints({
-        width:{ideal:1920},
-        height:{ideal:1080},
+        width:{ideal:state.cameraQuality==='720p'?1280:1920},
+        height:{ideal:state.cameraQuality==='720p'?720:1080},
         frameRate:{ideal:30,max:30},
         aspectRatio:{ideal:16/9}
       });
@@ -9797,6 +10491,29 @@ async function toggleCamera(){
   }
 }
 
+async function applyOutgoingAudioTrack(track){
+  const tasks=[];for(const pc of state.peers.values()){let sender=getSenderByKind(pc,'audio');if(!sender){sender=pc.addTransceiver('audio',{direction:'sendrecv'}).sender}tasks.push(sender.replaceTrack(track||null))}await Promise.allSettled(tasks);
+}
+async function startScreenAudioMix(){
+  const mic=state.localStream?.getAudioTracks()?.[0]||null;const screen=state.screenAudioTrack;
+  if(!screen){await applyOutgoingAudioTrack(mic);return}
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)throw new Error('AudioContext indisponível');
+    if(state.screenAudioContext){try{state.screenAudioContext.close()}catch{}}
+    const ctx=new AudioCtx();const dest=ctx.createMediaStreamDestination();
+    if(mic)ctx.createMediaStreamSource(new MediaStream([mic])).connect(dest);
+    ctx.createMediaStreamSource(new MediaStream([screen])).connect(dest);
+    state.screenAudioContext=ctx;state.mixedAudioTrack=dest.stream.getAudioTracks()[0]||null;
+    await applyOutgoingAudioTrack(state.mixedAudioTrack||mic);
+  }catch{await applyOutgoingAudioTrack(mic)}
+}
+async function stopScreenAudioMix(){
+  const mic=state.localStream?.getAudioTracks()?.[0]||null;
+  if(state.mixedAudioTrack){try{state.mixedAudioTrack.stop()}catch{}}
+  state.mixedAudioTrack=null;if(state.screenAudioContext){try{await state.screenAudioContext.close()}catch{}}
+  state.screenAudioContext=null;state.screenAudioTrack=null;await applyOutgoingAudioTrack(mic);
+}
+
 async function stopScreen(){
   const oldTrack = state.screenTrack;
   state.screenTrack = null;
@@ -9812,6 +10529,7 @@ async function stopScreen(){
   }
 
   state.screenStream = null;
+  await stopScreenAudioMix();
 
   const replacement =
     state.cameraTrack &&
@@ -9934,12 +10652,13 @@ async function startScreenShare(displaySurface){
 
     state.screenStream = await navigator.mediaDevices.getDisplayMedia({
       video:videoOptions,
-      audio:false,
+      audio:true,
       selfBrowserSurface:'exclude',
       surfaceSwitching:'include'
     });
 
     state.screenTrack = state.screenStream.getVideoTracks()[0];
+    state.screenAudioTrack = state.screenStream.getAudioTracks()[0] || null;
 
     if(!state.screenTrack){
       throw new Error('Nenhuma faixa de tela foi selecionada.');
@@ -9951,6 +10670,7 @@ async function startScreenShare(displaySurface){
 
     await replaceVideoForAll(state.screenTrack);
     await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality);
+    await startScreenAudioMix();
 
     const preview = new MediaStream([state.screenTrack]);
     ensureCard(
@@ -10178,6 +10898,58 @@ $('#modalWrap').addEventListener('click',e=>{if(e.target===$('#modalWrap'))close
 
 $('#profileBtn').addEventListener('click',openProfileModal);
 $('#friendsProfileBtn').addEventListener('click',openProfileModal);
+$('#concordePlusBtn').addEventListener('click',()=>openMegaView('profile'));
+document.querySelectorAll('.megaNavBtn').forEach(btn=>btn.addEventListener('click',()=>selectMegaPage(btn.dataset.megaPage)));
+$('#megaSaveProfile').addEventListener('click',saveMegaProfile);
+$('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
+$('#megaSaveServer').addEventListener('click',saveMegaServer);
+$('#megaServerBanner').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];if(!file)return;
+  try{state.megaServerBannerData=await readImageFile(file,1600,.72);toast('Banner pronto para salvar')}catch{toast('Não foi possível ler o banner')}
+});
+$('#megaMuteMember').addEventListener('click',()=>moderateMember('mute'));
+$('#megaKickMember').addEventListener('click',()=>moderateMember('kick'));
+$('#megaBanMember').addEventListener('click',()=>moderateMember('ban'));
+$('#megaAuditBtn').addEventListener('click',()=>socket.emit('mega-get-audit',{serverId:state.serverId}));
+$('#megaCreateEvent').addEventListener('click',()=>{
+  socket.emit('mega-create-event',{serverId:state.serverId,title:$('#megaEventTitle').value,when:new Date($('#megaEventDate').value).getTime()});
+});
+$('#megaCreatePoll').addEventListener('click',()=>{
+  socket.emit('mega-create-poll',{serverId:state.serverId,question:$('#megaPollQuestion').value,options:$('#megaPollOptions').value.split('|')});
+});
+$('#megaWatchLoad').addEventListener('click',()=>emitWatchParty(false));
+$('#megaWatchPlay').addEventListener('click',()=>emitWatchParty(true));
+$('#megaWatchPause').addEventListener('click',()=>emitWatchParty(false));
+$('#megaWhiteboardClear').addEventListener('click',()=>socket.emit('mega-whiteboard-clear',{serverId:state.serverId}));
+$('#megaMediaTest').addEventListener('click',testMedia);
+$('#megaCaptionsBtn').addEventListener('click',toggleLiveCaptions);
+$('#megaRecordBtn').addEventListener('click',toggleLocalRecording);
+$('#megaCallFile').addEventListener('change',event=>{
+  const file=event.target.files?.[0];if(!file)return;if(file.size>450000){toast('Arquivo máximo: 450 KB');event.target.value='';return}
+  const reader=new FileReader();reader.onload=()=>socket.emit('mega-call-file',{serverId:state.activeVoiceServerId||state.serverId,name:file.name,type:file.type||'application/octet-stream',data:String(reader.result||'')});
+  reader.readAsDataURL(file);event.target.value='';
+});
+$('#megaCameraQuality').addEventListener('change',event=>{state.cameraQuality=event.target.value;localStorage.setItem('acord-camera-quality',state.cameraQuality);toast('Qualidade salva')});
+$('#megaBlurPreview').addEventListener('change',event=>{$('#megaMediaPreview').style.filter=event.target.checked?'blur(8px)':'none'});
+$('#megaPomodoroStart').addEventListener('click',startPomodoro);
+$('#megaBotRun').addEventListener('click',runLocalBot);
+$('#megaTenorKey').addEventListener('change',event=>localStorage.setItem('acord-tenor-key',event.target.value.trim()));
+$('#megaEmojiBtn').addEventListener('click',()=>{$('#messageInput').value+='😀';toast('Emoji inserido no chat atual')});
+$('#megaGifBtn').addEventListener('click',async()=>{
+  const query=prompt('Buscar GIF:','');if(!query)return;
+  const key=localStorage.getItem('acord-tenor-key')||'';if(!key){toast('Informe sua chave Tenor em Ferramentas e bots');return}
+  try{
+    const response=await fetch('https://tenor.googleapis.com/v2/search?q='+encodeURIComponent(query)+'&key='+encodeURIComponent(key)+'&limit=8&media_filter=gif');
+    const data=await response.json();const urls=(data.results||[]).map(item=>item.media_formats?.gif?.url).filter(Boolean);
+    const chosen=prompt('Escolha 1-'+urls.length+'\n'+urls.map((u,i)=>(i+1)+' - '+u).join('\n'),'1');
+    const url=urls[Math.max(0,Number(chosen||1)-1)];if(url){$('#messageInput').value+=($('#messageInput').value?' ':'')+url;toast('GIF inserido no chat')}
+  }catch{toast('Não foi possível buscar GIFs')}
+});
+$('#megaPinsBtn').addEventListener('click',()=>{
+  const server=currentServer();const pins=server?.pinned||[];alert(pins.length?pins.map(p=>p.channelId+' · '+p.messageId).join('\n'):'Nenhuma mensagem fixada');
+});
+initMegaWhiteboard();
+
 $('#friendsAccountBar').addEventListener('click',openProfileModal);
 $('#profileCancelBtn').addEventListener('click',closeProfileModal);
 $('#profileSaveBtn').addEventListener('click',saveProfile);
@@ -10524,14 +11296,32 @@ window.addEventListener('blur',closeMessageContextMenu);
 window.addEventListener('resize',closeMessageContextMenu);
 
 $('#chatImageBtn').addEventListener('click',()=>$('#chatImageInput').click());
+$('#chatEmojiBtn').addEventListener('click',()=>{
+  const value=prompt('Emoji:','😀');
+  if(value){$('#messageInput').value+=value;$('#messageInput').focus()}
+});
+$('#chatGifBtn').addEventListener('click',()=>{
+  const url=prompt('Cole a URL HTTPS de um GIF:','');
+  if(url && /^https:\/\//i.test(url)){
+    $('#messageInput').value+=($('#messageInput').value?' ':'')+url;
+    $('#messageInput').focus();
+  }
+});
 $('#chatImageInput').addEventListener('change',async event=>{
   const file=event.target.files?.[0];if(!file)return;
-  if(!String(file.type||'').startsWith('image/')){toast('Escolha uma imagem');return}
   try{
-    const data=await readImageFile(file,1200,.78);
-    state.pendingChatAttachment={name:file.name,type:file.type,data};
-    toast('Imagem pronta para enviar');
-  }catch{toast('Não foi possível anexar a imagem')}
+    let data='';
+    if(String(file.type||'').startsWith('image/')){
+      data=await readImageFile(file,1200,.78);
+    }else{
+      if(file.size>450000){toast('Arquivo máximo: 450 KB');event.target.value='';return}
+      data=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=reject;reader.readAsDataURL(file);
+      });
+    }
+    state.pendingChatAttachment={name:file.name,type:file.type||'application/octet-stream',data};
+    toast('Arquivo pronto para enviar');
+  }catch{toast('Não foi possível anexar o arquivo')}
   event.target.value='';
 });
 $('#messageInput').addEventListener('keydown',event=>{
@@ -11065,15 +11855,54 @@ socket.on('public-chat-history',payload=>{
 
 socket.on('public-chat-message',message=>{
   if(!message) return;
+  const isCurrent=
+    String(message.serverId)===String(state.serverId) &&
+    String(message.channelId)===String(state.textChannelId) &&
+    state.currentView==='chat';
 
-  if(
-    String(message.serverId)!==String(state.serverId) ||
-    String(message.channelId)!==String(state.textChannelId)
-  ){
+  if(!isCurrent){
+    if(String(message.userId)!==String(state.userId)){
+      addUnread(message.serverId,message.channelId);
+      playCallCue('join');
+      maybeNotify('Nova mensagem em servidor',(message.username||'Alguém')+': '+String(message.text||'').slice(0,80));
+    }
     return;
   }
 
   appendPublicChatMessage(message);
+});
+
+
+socket.on('public-chat-message-edited',message=>{
+  if(String(message.serverId)!==String(state.serverId)||String(message.channelId)!==String(state.textChannelId))return;
+  socket.emit('public-chat-history',{serverId:state.serverId,channelId:state.textChannelId});
+});
+socket.on('public-chat-message-deleted',payload=>{
+  if(String(payload.serverId)!==String(state.serverId)||String(payload.channelId)!==String(state.textChannelId))return;
+  socket.emit('public-chat-history',{serverId:state.serverId,channelId:state.textChannelId});
+});
+socket.on('mega-server-state',server=>{
+  if(!server?.id)return;
+  const index=state.servers.findIndex(s=>s.id===server.id);
+  if(index>=0)state.servers[index]=server;else state.servers.push(server);
+  renderSidebar();renderMegaServerControls();renderMegaCommunity();updateWatchPartyUI(server.watchParty);
+});
+socket.on('mega-audit',renderMegaAudit);
+socket.on('mega-whiteboard-state',payload=>{
+  if(String(payload.serverId)!==String(state.serverId))return;
+  clearWhiteboardLocal();(payload.strokes||[]).forEach(drawWhiteboardStroke);
+});
+socket.on('mega-whiteboard-stroke',payload=>{
+  if(String(payload.serverId)===String(state.serverId))drawWhiteboardStroke(payload.stroke);
+});
+socket.on('mega-watch-state',payload=>{
+  if(String(payload.serverId)===String(state.serverId))updateWatchPartyUI(payload.watchParty);
+});
+socket.on('mega-recording-notice',payload=>{
+  toast((payload.username||'Alguém')+' iniciou uma gravação local');
+});
+socket.on('mega-call-file',payload=>{
+  if(!payload?.data)return;const a=document.createElement('a');a.href=payload.data;a.download=payload.name||'arquivo';a.textContent='📎 '+(payload.username||'Alguém')+' enviou '+(payload.name||'arquivo');a.className='btn secondary small';a.style.position='fixed';a.style.right='16px';a.style.bottom='90px';a.style.zIndex='9999';document.body.appendChild(a);setTimeout(()=>a.remove(),15000);
 });
 
 
@@ -11099,6 +11928,17 @@ socket.on('dm-message',message=>{
   if(involvesCurrent && targetId && otherId===targetId){
     appendDmMessage(message);
   }
+});
+
+socket.on('profile-extra-updated',profile=>{
+  if(!profile)return;
+  state.customStatus=profile.customStatus||'';
+  state.pronouns=profile.pronouns||'';
+  state.activity=profile.activity||'';
+  state.links=profile.links||{};
+  state.privacy=profile.privacy||{};
+  toast('Perfil atualizado');
+  loadMegaData();
 });
 
 socket.on('server-updated',updatedServer=>{
@@ -11887,6 +12727,18 @@ app.get('/invite/:token', (req,res) => {
   // Esta rota não cria nem clona servidor.
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   res.type('html').send(APP_HTML);
+});
+
+app.get('/api/rtc-config',(req,res)=>{
+  const urls=String(process.env.TURN_URLS||'').split(',').map(v=>v.trim()).filter(Boolean);
+  const username=String(process.env.TURN_USERNAME||'');
+  const credential=String(process.env.TURN_CREDENTIAL||'');
+  res.setHeader('Cache-Control','no-store');
+  res.json({
+    iceServers:urls.length
+      ? [{urls,username,credential}]
+      : []
+  });
 });
 
 app.get('/health', (req,res) => {
@@ -12898,7 +13750,17 @@ io.on('connection', socket => {
           voiceChannels:raw?.voiceChannels,
           categories:raw?.categories,
           roles:raw?.roles,
-          messages:raw?.messages
+          messages:raw?.messages,
+          rules:raw?.rules,
+          banner:raw?.banner,
+          inviteExpiresAt:raw?.inviteExpiresAt,
+          bans:raw?.bans,
+          mutes:raw?.mutes,
+          channelPolicies:raw?.channelPolicies,
+          pinned:raw?.pinned,
+          events:raw?.events,
+          polls:raw?.polls,
+          watchParty:raw?.watchParty
         }
       );
 
@@ -12987,8 +13849,13 @@ io.on('connection', socket => {
       item.inviteToken===safeToken
     );
 
-    if(!serverData){
+    if(!serverData || (serverData.inviteExpiresAt && serverData.inviteExpiresAt<=Date.now())){
       socket.emit('permission-error',{error:'Convite inválido ou expirado'});
+      return;
+    }
+
+    if((serverData.bans||[]).includes(socket.data.userId)){
+      socket.emit('permission-error',{error:'Você foi banido deste servidor'});
       return;
     }
 
@@ -13656,6 +14523,7 @@ io.on('connection', socket => {
     if(
       !serverData ||
       !requireServerAccess(serverData,socket) ||
+      !canUseTextChannel(serverData,socket,safeChannelId) ||
       !serverData.textChannels.some(channel=>channel.id===safeChannelId)
     ){
       return;
@@ -13668,65 +14536,99 @@ io.on('connection', socket => {
     });
   });
 
-  socket.on('public-chat-message', ({ serverId, channelId, text, attachment }) => {
+  function canUseTextChannel(serverData,socket,channelId){
+    const policy=serverData?.channelPolicies?.[channelId]||{};
+    if(!policy.roleId) return true;
+    if(serverData.ownerId===socket.data.userId) return true;
+    return userRoles(serverData,socket).some(role=>role.id===policy.roleId);
+  }
+
+  socket.on('public-chat-message', ({ serverId, channelId, text, attachment, replyTo }) => {
     if(!socket.data.userId) return;
 
-    const safeServerId=String(serverId || '').slice(0,80);
-    const safeChannelId=String(channelId || '').slice(0,80);
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
     const serverData=servers.get(safeServerId);
+    if(!serverData || !requireServerAccess(serverData,socket)) return;
+    if(!canUseTextChannel(serverData,socket,safeChannelId)){socket.emit('permission-error',{error:'Você não tem o cargo necessário para este canal'});return;}
+    if((serverData.bans||[]).includes(socket.data.userId)) return;
+    if((serverData.mutes||[]).includes(socket.data.userId)){
+      socket.emit('permission-error',{error:'Você está silenciado neste servidor'});
+      return;
+    }
+    if(!serverData.textChannels.some(channel=>channel.id===safeChannelId)) return;
 
-    if(
-      !serverData ||
-      !requireServerAccess(serverData,socket) ||
-      !serverData.textChannels.some(channel=>channel.id===safeChannelId)
-    ){
+    const policy=serverData.channelPolicies?.[safeChannelId]||{};
+    if(policy.mode==='readonly' && !hasServerPermission(serverData,socket,'manageChannels')){
+      socket.emit('permission-error',{error:'Este canal é somente leitura'});
       return;
     }
 
-    const safeText=String(text || '').trim().slice(0,2000);
-
+    const safeText=String(text||'').trim().slice(0,2000);
+    const data=String(attachment?.data||'');
     const safeAttachment=
-      attachment &&
-      String(attachment.type || '').startsWith('image/') &&
-      String(attachment.data || '').startsWith('data:image/') &&
-      String(attachment.data || '').length<=900000
+      attachment && /^data:[^;]+;base64,/i.test(data) && data.length<=600000
         ? {
-            name:String(attachment.name || 'imagem').slice(0,80),
-            type:String(attachment.type || '').slice(0,80),
-            data:String(attachment.data || '')
+            name:String(attachment.name||'arquivo').slice(0,100),
+            type:String(attachment.type||'application/octet-stream').slice(0,100),
+            data
           }
         : null;
+    if(!safeText&&!safeAttachment)return;
 
-    if(!safeText && !safeAttachment) return;
+    const mentions=[...safeText.matchAll(/@([\\wÀ-ÿ._-]{2,30})/g)].map(match=>match[1]).slice(0,20);
 
     const message={
-      id:id(),
-      serverId:safeServerId,
-      channelId:safeChannelId,
-      userId:socket.data.userId,
-      username:socket.data.username || 'Usuário',
-      text:safeText,
-      attachment:safeAttachment,
-      at:Date.now()
+      id:id(),serverId:safeServerId,channelId:safeChannelId,
+      userId:socket.data.userId,username:socket.data.username||'Usuário',
+      text:safeText,attachment:safeAttachment,
+      replyTo:String(replyTo||'').slice(0,80)||null,
+      mentions,at:Date.now(),edited:false
     };
 
-    const history=serverData.messages.get(safeChannelId) || [];
+    const history=serverData.messages.get(safeChannelId)||[];
     history.push(message);
-
-    if(history.length>500){
-      history.splice(0,history.length-500);
-    }
-
+    if(history.length>500)history.splice(0,history.length-500);
     serverData.messages.set(safeChannelId,history);
     saveServersToDisk();
 
-    // Igual ao DM, mas público dentro do servidor:
-    // envia para todo socket autenticado que seja membro deste servidor.
     for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(serverData,client)){
-        client.emit('public-chat-message',message);
-      }
+      if(requireServerAccess(serverData,client)) client.emit('public-chat-message',message);
     }
+  });
+
+  socket.on('mega-edit-public',({serverId,channelId,messageId,text})=>{
+    const s=servers.get(String(serverId||''));
+    if(!s||!requireServerAccess(s,socket))return;
+    const history=s.messages.get(String(channelId||''))||[];
+    const message=history.find(m=>m.id===String(messageId||''));
+    if(!message||message.userId!==socket.data.userId)return;
+    message.text=String(text||'').trim().slice(0,2000);message.edited=true;
+    saveServersToDisk();
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client)) client.emit('public-chat-message-edited',message);
+    }
+  });
+
+  socket.on('mega-delete-public',({serverId,channelId,messageId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const history=s.messages.get(String(channelId||''))||[];
+    const index=history.findIndex(m=>m.id===String(messageId||''));
+    if(index<0)return;
+    const message=history[index];
+    if(message.userId!==socket.data.userId&&!hasServerPermission(s,socket,'manageServer'))return;
+    history.splice(index,1);saveServersToDisk();
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client)) client.emit('public-chat-message-deleted',{serverId,channelId,messageId});
+    }
+  });
+
+  socket.on('mega-pin-message',({serverId,channelId,messageId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const ref={channelId:String(channelId||''),messageId:String(messageId||'')};
+    const exists=(s.pinned||[]).some(p=>p.channelId===ref.channelId&&p.messageId===ref.messageId);
+    if(!exists)s.pinned=[...(s.pinned||[]),ref].slice(-200);
+    saveServersToDisk();broadcastServerUpdate(s);
   });
 
 
@@ -13966,6 +14868,151 @@ io.on('connection', socket => {
     socket.data.voiceServerId = null;
     socket.data.voiceChannelId = null;
   }
+
+  socket.on('profile-extra-update',payload=>{
+    if(!socket.data.userId)return;
+    const profile=profiles.get(socket.data.userId);if(!profile)return;
+    profile.customStatus=String(payload?.customStatus||'').slice(0,80);
+    profile.pronouns=String(payload?.pronouns||'').slice(0,40);
+    profile.activity=String(payload?.activity||'').slice(0,80);
+    const safeUrl=value=>{
+      const v=String(value||'').trim().slice(0,300);
+      return /^https:\/\//i.test(v)?v:'';
+    };
+    profile.links={
+      steam:safeUrl(payload?.links?.steam),
+      spotify:safeUrl(payload?.links?.spotify),
+      youtube:safeUrl(payload?.links?.youtube)
+    };
+    const allowed=new Set(['everyone','friends','nobody']);
+    profile.privacy={
+      dm:allowed.has(payload?.privacy?.dm)?payload.privacy.dm:'friends',
+      calls:allowed.has(payload?.privacy?.calls)?payload.privacy.calls:'friends',
+      friendRequests:'everyone'
+    };
+    saveServersToDisk();
+    socket.emit('profile-extra-updated',publicProfile(profile));
+    broadcastOnlineUsers();
+  });
+
+  socket.on('mega-server-settings',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    if(!hasServerPermission(s,socket,'manageServer')){permissionDenied(socket);return}
+    s.rules=String(payload?.rules||'').slice(0,4000);
+    if(typeof payload?.banner==='string'&&payload.banner.length<=350000)s.banner=payload.banner;
+    const expiry=Math.max(0,Math.min(1000*60*60*24*30,Number(payload?.inviteExpiryMs||0)));
+    s.inviteExpiresAt=expiry?Date.now()+expiry:0;
+    const channelId=String(payload?.channelId||'');
+    if(channelId && s.textChannels.some(c=>c.id===channelId)){
+      s.channelPolicies=s.channelPolicies||{};
+      const mode=['normal','readonly','announcement'].includes(payload?.channelMode)?payload.channelMode:'normal';
+      const roleId=String(payload?.channelRoleId||'').slice(0,80);
+      s.channelPolicies[channelId]={...(s.channelPolicies[channelId]||{}),mode,roleId:s.roles.some(role=>role.id===roleId)?roleId:''};
+    }
+    recordAudit(s.id,'mega-settings',socket.data.username||'Usuário',channelId||s.id);
+    saveServersToDisk();broadcastServerUpdate(s);
+  });
+
+  socket.on('mega-moderate',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    if(!hasServerPermission(s,socket,'manageServer')){permissionDenied(socket);return}
+    const userId=String(payload?.userId||'').slice(0,100);
+    if(!userId||userId===s.ownerId)return;
+    const action=String(payload?.action||'');
+    if(action==='mute'){
+      s.mutes=[...new Set([...(s.mutes||[]),userId])].slice(0,500);
+    }else if(action==='kick'){
+      s.members=(s.members||[]).filter(id=>id!==userId);
+    }else if(action==='ban'){
+      s.members=(s.members||[]).filter(id=>id!==userId);
+      s.bans=[...new Set([...(s.bans||[]),userId])].slice(0,500);
+    }else return;
+    recordAudit(s.id,action,socket.data.username||'Usuário',userId);
+    saveServersToDisk();broadcastServerLists();broadcastServerUpdate(s);
+  });
+
+  socket.on('mega-get-audit',({serverId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    socket.emit('mega-audit',auditLog.filter(item=>String(item.serverId)===String(serverId)).slice(-200));
+  });
+
+  socket.on('mega-create-event',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const title=String(payload?.title||'').trim().slice(0,80);
+    const when=Number(payload?.when||0);if(!title||!when)return;
+    s.events=[...(s.events||[]),{id:id(),title,when,createdBy:socket.data.userId}].slice(-200);
+    saveServersToDisk();broadcastServerUpdate(s);
+  });
+
+  socket.on('mega-create-poll',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const question=String(payload?.question||'').trim().slice(0,160);
+    const options=(Array.isArray(payload?.options)?payload.options:[]).map(v=>String(v||'').trim().slice(0,80)).filter(Boolean).slice(0,8);
+    if(!question||options.length<2)return;
+    s.polls=[...(s.polls||[]),{id:id(),question,options:options.map(text=>({text,votes:[]})),createdBy:socket.data.userId}].slice(-200);
+    saveServersToDisk();broadcastServerUpdate(s);
+  });
+
+  socket.on('mega-poll-vote',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const poll=(s.polls||[]).find(p=>p.id===String(payload?.pollId||''));if(!poll)return;
+    const index=Number(payload?.index);if(!poll.options?.[index])return;
+    poll.options.forEach(opt=>{opt.votes=(opt.votes||[]).filter(id=>id!==socket.data.userId)});
+    poll.options[index].votes.push(socket.data.userId);
+    saveServersToDisk();broadcastServerUpdate(s);
+  });
+
+  socket.on('mega-watch',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const url=String(payload?.url||'').trim().slice(0,500);
+    if(url&&!/^https:\/\//i.test(url))return;
+    s.watchParty={url,position:Number(payload?.position||0),playing:!!payload?.playing,updatedAt:Date.now(),by:socket.data.userId};
+    saveServersToDisk();
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client))client.emit('mega-watch-state',{serverId:s.id,watchParty:s.watchParty});
+    }
+  });
+
+  socket.on('mega-whiteboard-stroke',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const stroke=payload?.stroke;
+    if(!stroke?.from||!stroke?.to)return;
+    const safe={from:{x:Number(stroke.from.x),y:Number(stroke.from.y)},to:{x:Number(stroke.to.x),y:Number(stroke.to.y)}};
+    if(![safe.from.x,safe.from.y,safe.to.x,safe.to.y].every(Number.isFinite))return;
+    s.whiteboard=[...(s.whiteboard||[]),safe].slice(-2000);
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-whiteboard-stroke',{serverId:s.id,stroke:safe});
+    }
+  });
+
+  socket.on('mega-whiteboard-get',({serverId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    socket.emit('mega-whiteboard-state',{serverId:s.id,strokes:s.whiteboard||[]});
+  });
+
+  socket.on('mega-whiteboard-clear',({serverId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    s.whiteboard=[];saveServersToDisk();
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client))client.emit('mega-whiteboard-state',{serverId:s.id,strokes:[]});
+    }
+  });
+
+  socket.on('mega-recording-notice',({serverId})=>{
+    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    for(const client of io.sockets.sockets.values()){
+      if(requireServerAccess(s,client)&&client.id!==socket.id){
+        client.emit('mega-recording-notice',{serverId:s.id,username:socket.data.username||'Usuário'});
+      }
+    }
+  });
+
+  socket.on('mega-call-file',payload=>{
+    const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
+    const data=String(payload?.data||'');if(!/^data:[^;]+;base64,/i.test(data)||data.length>600000)return;
+    const message={serverId:s.id,username:socket.data.username||'Usuário',name:String(payload?.name||'arquivo').slice(0,100),type:String(payload?.type||'application/octet-stream').slice(0,100),data};
+    for(const client of io.sockets.sockets.values()){if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-call-file',message)}
+  });
 
   socket.on('phone-camera-create', () => {
     if(!socket.data.userId || !accounts.has(socket.data.userId)) return;
