@@ -1389,7 +1389,7 @@ app.get('/icon-512.png', (req,res) => {
 app.get('/sw.js', (req,res) => {
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v37-essential-fixed';
+const CACHE='acord-app-stable-v38-call-core';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3903,6 +3903,29 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
 }
 .essentialActionStatus.ok{color:var(--mint)}
 .essentialActionStatus.error{color:var(--danger)}
+
+.callRepairQuick{border-color:rgba(65,217,154,.45)!important;background:var(--mintbg)!important;color:var(--mint)!important}
+.callMeterWrap{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);color:var(--muted);font-size:10px}
+.callMeter{height:8px;border-radius:999px;background:var(--bg0);overflow:hidden}
+#callMicMeterBar{height:100%;width:0;background:var(--mint);transition:width .08s linear}
+.callEssentialActions{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+.callHealthPanel{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg0);color:var(--muted);font-size:10px;line-height:1.45;white-space:pre-wrap}
+body.callAudioOnly .videoCard:not(#v-local) video{visibility:hidden}
+body.callHideSelf #v-local{display:none!important}
+body.callMirrorSelf #v-local video{transform:scaleX(-1)}
+.videoCard.speaking{outline:2px solid var(--mint);outline-offset:-2px}
+@media(max-width:760px){
+  body.mobileMode .callSettingsPanel{position:fixed;left:0;right:0;bottom:calc(62px + env(safe-area-inset-bottom));width:100%;max-height:72dvh;overflow:auto;border-radius:18px 18px 0 0}
+  body.mobileMode .callEssentialActions{grid-template-columns:1fr 1fr}
+}
+
+.voiceHeadActions{display:flex;gap:7px;align-items:center}
+.callPreviewVideo{width:100%;max-height:190px;object-fit:cover;border-radius:10px;background:#000;border:1px solid var(--line)}
+.memberVolume .peerMuteBtn{min-width:30px;width:30px}
+@media(max-width:760px){
+  body.mobileMode .voiceHeadActions{gap:5px}
+  body.mobileMode #preCallTestBtn{font-size:10px;padding:8px}
+}
 </style>
 </head>
 <body>
@@ -4221,6 +4244,8 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
                 <label>Qualidade da câmera<select id="megaCameraQuality"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
                 <label><span>Desfoque visual local</span><input id="megaBlurPreview" type="checkbox"></label>
                 <button id="megaMediaTest" class="btn secondary">Testar câmera e microfone</button>
+                <button id="megaCallRepairBtn" class="btn primary">Corrigir minha call</button>
+                <button id="megaCallDiagBtn" class="btn secondary">Diagnóstico completo</button>
                 <button id="megaCaptionsBtn" class="btn secondary">Legendas ao vivo</button>
                 <button id="megaRecordBtn" class="btn secondary">⏺ Gravar minha mídia</button>
                 <label>Compartilhar arquivo na call<input id="megaCallFile" type="file"></label>
@@ -4597,7 +4622,10 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
             <strong>)) <span id="voiceTitle">Geral</span></strong>
             <span id="voiceStatus">Fora da chamada</span>
           </div>
-          <button id="joinVoiceBtn" class="btn primary small">Entrar na voz</button>
+          <div class="voiceHeadActions">
+            <button id="preCallTestBtn" class="btn secondary small" type="button">Testar áudio/vídeo</button>
+            <button id="joinVoiceBtn" class="btn primary small">Entrar na voz</button>
+          </div>
         </div>
 
         <div id="localMusicPanel" class="localMusicPanel hidden">
@@ -4663,6 +4691,7 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
           <button id="cameraBtn" class="control off">Câmera</button>
           <button id="screenBtn" class="control">Compartilhar</button>
           <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
+          <button id="callRepairQuickBtn" class="control callRepairQuick">Reparar call</button>
           <button id="callSettingsBtn" class="control">Dispositivos</button>
           <button id="leaveVoiceBtn" class="control danger">Sair</button>
         </div>
@@ -4671,8 +4700,34 @@ body.mobileMode .settingsBody{padding:14px 10px 90px}
           <div class="callSettingsGrid">
             <label>Microfone<select id="micDeviceSelect"></select></label>
             <label>Câmera<select id="cameraDeviceSelect"></select></label>
+            <label>Saída de áudio<select id="speakerDeviceSelect"><option value="">Padrão do sistema</option></select></label>
+            <label>Qualidade da câmera<select id="callCameraQualitySelect"><option value="360p">360p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+            <label>FPS da tela<select id="callScreenFpsSelect"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+            <label>Perfil da call<select id="callQualityMode"><option value="auto">Automático</option><option value="quality">Priorizar qualidade</option><option value="balanced">Equilibrado</option><option value="weak">Conexão fraca</option></select></label>
+            <div class="callMeterWrap"><span>Nível do microfone</span><div class="callMeter"><div id="callMicMeterBar"></div></div><small id="callMicMeterText">0%</small></div>
             <div class="callToggle"><span>Supressão de ruído</span><input id="noiseSuppressionToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Cancelamento de eco</span><input id="echoCancellationToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Ganho automático</span><input id="autoGainToggle" type="checkbox" checked style="width:auto;"></div>
             <div class="callToggle"><span>Push-to-talk (segure Espaço)</span><input id="pushToTalkToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Reconexão automática</span><input id="callAutoReconnectToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Retomar call após recarregar</span><input id="callAutoRejoinToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Qualidade adaptativa</span><input id="callAdaptiveToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Entrar mutado</span><input id="callMuteOnJoinToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Confirmar antes de sair</span><input id="callConfirmLeaveToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Sons da call</span><input id="callSoundsToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Modo áudio apenas</span><input id="callAudioOnlyToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Espelhar minha câmera</span><input id="callMirrorSelfToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Ocultar minha prévia</span><input id="callHideSelfToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Manter tela ligada</span><input id="callWakeLockToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callEssentialActions">
+              <button id="callRepairBtn" class="btn primary small" type="button">Corrigir minha call</button>
+              <button id="callDiagnosticsBtn" class="btn secondary small" type="button">Diagnóstico</button>
+              <button id="callSpeakerTestBtn" class="btn secondary small" type="button">Testar som</button>
+              <button id="callPipBtn" class="btn secondary small" type="button">Picture-in-Picture</button>
+              <button id="callFlipCameraBtn" class="btn secondary small" type="button">Trocar câmera</button>
+            </div>
+            <video id="callPreviewVideo" class="callPreviewVideo hidden" autoplay muted playsinline></video>
+            <div id="callHealthPanel" class="callHealthPanel">Call sem diagnóstico ainda.</div>
 
             <div class="phoneCameraBox">
               <div class="phoneCameraHead">
@@ -5267,7 +5322,32 @@ const state = {
   creativeWordFilter:[],
   interfaceMode:localStorage.getItem('concorde-interface-mode')||'auto',
   dataSaver:localStorage.getItem('concorde-data-saver')==='1',
-  mobileDrawerOpen:false
+  mobileDrawerOpen:false,
+  callPrefs:{
+    echoCancellation:localStorage.getItem('acord-echo-cancellation')!=='0',
+    autoGain:localStorage.getItem('acord-auto-gain')!=='0',
+    autoReconnect:localStorage.getItem('acord-call-auto-reconnect')!=='0',
+    autoRejoin:localStorage.getItem('acord-call-auto-rejoin')==='1',
+    adaptiveQuality:localStorage.getItem('acord-call-adaptive')!=='0',
+    muteOnJoin:localStorage.getItem('acord-call-mute-on-join')==='1',
+    confirmLeave:localStorage.getItem('acord-call-confirm-leave')!=='0',
+    sounds:localStorage.getItem('acord-call-sounds')!=='0',
+    audioOnly:localStorage.getItem('acord-call-audio-only')==='1',
+    mirrorSelf:localStorage.getItem('acord-call-mirror-self')==='1',
+    hideSelf:localStorage.getItem('acord-call-hide-self')==='1',
+    wakeLock:localStorage.getItem('acord-call-wake-lock')==='1',
+    qualityMode:localStorage.getItem('acord-call-quality-mode')||'auto',
+    screenFps:Number(localStorage.getItem('acord-call-screen-fps')||30),
+    speakerId:localStorage.getItem('acord-speaker-device')||''
+  },
+  callHealthTimer:null,
+  callMicMeterTimer:null,
+  callMicAnalyser:null,
+  callMicSource:null,
+  callWakeLockHandle:null,
+  callRepairing:false,
+  callLastGoodAt:0,
+  callPreviewStream:null
 };
 
 const rtcConfig = {
@@ -5989,19 +6069,16 @@ async function receivePhoneCameraOffer(data){
   });
 }
 
-function toggleCallSettings(){ $('#callSettingsPanel').classList.toggle('hidden'); refreshMediaDevices(); }
-function syncStageHandButton(){const c=currentVoice();$('#stageHandBtn').classList.toggle('hidden',c?.mode!=='stage')}
-
-function togglePasswordVisibility(inputSelector,buttonSelector){
-  const input=$(inputSelector);
-  const button=$(buttonSelector);
-  if(!input || !button) return;
-
-  const showing=input.type==='text';
-  input.type=showing?'password':'text';
-  button.textContent=showing?'◉':'◎';
-  button.title=showing?'Mostrar senha':'Ocultar senha';
-  button.setAttribute('aria-label',button.title);
+function toggleCallSettings(){
+  const panel=$('#callSettingsPanel');
+  const opening=panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  if(opening){
+    refreshCallDevices().catch(()=>{});
+    syncCallPrefsUI();
+    if(state.joinedVoiceId)startMicLevelMeter();
+    callDiagnostics().catch(()=>{});
+  }
 }
 
 let messageContextTarget=null;
@@ -11209,6 +11286,8 @@ function callCurrentPrivateGroup(){
 async function enterPrivateGroupCall(callId,groupName){
   try{
     await ensureMic();
+    const micTrack=state.localStream?.getAudioTracks()?.[0];
+    if(micTrack&&state.callPrefs.muteOnJoin)micTrack.enabled=false;
 
     if(state.joinedVoiceId){
       socket.emit('leave-voice');
@@ -11237,6 +11316,10 @@ async function enterPrivateGroupCall(callId,groupName){
     clearPrivateJoinRetry();
     requestPrivateCallJoin(callId);
     updateCallDock();
+    syncCallPrefsUI();
+    startMicLevelMeter();
+    startCallHealthMonitor();
+    updateCallWakeLock();
   }catch(error){
     console.error(error);
     toast('Permita o microfone para entrar na chamada');
@@ -11710,7 +11793,12 @@ async function ensureMic(){
   }
 
   const mic=await navigator.mediaDevices.getUserMedia({
-    audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+    audio:{
+      deviceId:state.preferredMicId?{exact:state.preferredMicId}:undefined,
+      echoCancellation:state.callPrefs.echoCancellation,
+      noiseSuppression:state.noiseSuppression,
+      autoGainControl:state.callPrefs.autoGain
+    },
     video:false
   });
 
@@ -11805,8 +11893,9 @@ async function attachLocalTracks(pc){
     try{
       const params = videoTx.sender.getParameters();
       params.encodings = params.encodings?.length ? params.encodings : [{}];
-      params.encodings[0].maxBitrate = 5000000;
-      params.encodings[0].maxFramerate = 30;
+      const preset=cameraPreset();
+      params.encodings[0].maxBitrate = preset.bitrate;
+      params.encodings[0].maxFramerate = preset.frameRate;
       await videoTx.sender.setParameters(params);
     }catch{}
   }
@@ -11866,8 +11955,18 @@ function ensureCard(peerId,name,stream,isLocal=false){
 
 
 function getPeerVolume(peerId){
-  const current = Number(state.peerVolumes.get(peerId));
-  return Number.isFinite(current) ? Math.max(0,Math.min(2,current)) : 1;
+  const current=Number(state.peerVolumes.get(peerId));
+  if(Number.isFinite(current))return Math.max(0,Math.min(2,current));
+  const username=state.peerNames.get(peerId)||'';
+  if(username){
+    const saved=Number(localStorage.getItem('acord-peer-volume-'+username.toLowerCase()));
+    if(Number.isFinite(saved)){
+      const value=Math.max(0,Math.min(2,saved));
+      state.peerVolumes.set(peerId,value);
+      return value;
+    }
+  }
+  return 1;
 }
 
 function getSharedAudioContext(){
@@ -11946,6 +12045,8 @@ async function setupPeerAudioGain(peerId,stream){
 function setPeerVolume(peerId,value){
   const volume = Math.max(0,Math.min(2,Number(value) || 0));
   state.peerVolumes.set(peerId,volume);
+  const username=state.peerNames.get(peerId)||'';
+  if(username)localStorage.setItem('acord-peer-volume-'+username.toLowerCase(),String(volume));
 
   const node = state.peerAudioNodes.get(peerId);
   if(node?.gain){
@@ -11999,6 +12100,9 @@ function ensureRemoteAudio(peerId, track, sourceStream = null){
     audio.style.pointerEvents = 'none';
     document.body.appendChild(audio);
     state.remoteAudio.set(peerId, audio);
+    if(typeof audio.setSinkId==='function'&&state.callPrefs.speakerId){
+      audio.setSinkId(state.callPrefs.speakerId).catch(()=>{});
+    }
   }
 
   const stream =
@@ -12094,6 +12198,395 @@ function getRemoteStream(peerId){
   return state.remoteStreams.get(peerId);
 }
 
+
+function cameraPreset(){
+  if(state.cameraQuality==='360p')return {width:640,height:360,bitrate:700000,frameRate:24};
+  if(state.cameraQuality==='720p')return {width:1280,height:720,bitrate:2200000,frameRate:30};
+  return {width:1920,height:1080,bitrate:5000000,frameRate:30};
+}
+
+function saveCallPrefs(){
+  localStorage.setItem('acord-echo-cancellation',state.callPrefs.echoCancellation?'1':'0');
+  localStorage.setItem('acord-auto-gain',state.callPrefs.autoGain?'1':'0');
+  localStorage.setItem('acord-call-auto-reconnect',state.callPrefs.autoReconnect?'1':'0');
+  localStorage.setItem('acord-call-auto-rejoin',state.callPrefs.autoRejoin?'1':'0');
+  localStorage.setItem('acord-call-adaptive',state.callPrefs.adaptiveQuality?'1':'0');
+  localStorage.setItem('acord-call-mute-on-join',state.callPrefs.muteOnJoin?'1':'0');
+  localStorage.setItem('acord-call-confirm-leave',state.callPrefs.confirmLeave?'1':'0');
+  localStorage.setItem('acord-call-sounds',state.callPrefs.sounds?'1':'0');
+  localStorage.setItem('acord-call-audio-only',state.callPrefs.audioOnly?'1':'0');
+  localStorage.setItem('acord-call-mirror-self',state.callPrefs.mirrorSelf?'1':'0');
+  localStorage.setItem('acord-call-hide-self',state.callPrefs.hideSelf?'1':'0');
+  localStorage.setItem('acord-call-wake-lock',state.callPrefs.wakeLock?'1':'0');
+  localStorage.setItem('acord-call-quality-mode',state.callPrefs.qualityMode||'auto');
+  localStorage.setItem('acord-call-screen-fps',String(state.callPrefs.screenFps||30));
+  localStorage.setItem('acord-speaker-device',state.callPrefs.speakerId||'');
+}
+
+function applyCallVisualPrefs(){
+  document.body.classList.toggle('callAudioOnly',!!state.callPrefs.audioOnly);
+  document.body.classList.toggle('callMirrorSelf',!!state.callPrefs.mirrorSelf);
+  document.body.classList.toggle('callHideSelf',!!state.callPrefs.hideSelf);
+}
+
+function syncCallPrefsUI(){
+  const map={
+    echoCancellationToggle:state.callPrefs.echoCancellation,
+    autoGainToggle:state.callPrefs.autoGain,
+    callAutoReconnectToggle:state.callPrefs.autoReconnect,
+    callAutoRejoinToggle:state.callPrefs.autoRejoin,
+    callAdaptiveToggle:state.callPrefs.adaptiveQuality,
+    callMuteOnJoinToggle:state.callPrefs.muteOnJoin,
+    callConfirmLeaveToggle:state.callPrefs.confirmLeave,
+    callSoundsToggle:state.callPrefs.sounds,
+    callAudioOnlyToggle:state.callPrefs.audioOnly,
+    callMirrorSelfToggle:state.callPrefs.mirrorSelf,
+    callHideSelfToggle:state.callPrefs.hideSelf,
+    callWakeLockToggle:state.callPrefs.wakeLock
+  };
+  for(const [id,value] of Object.entries(map)){
+    const el=document.getElementById(id);
+    if(el)el.checked=!!value;
+  }
+  if($('#callQualityMode'))$('#callQualityMode').value=state.callPrefs.qualityMode||'auto';
+  if($('#callScreenFpsSelect'))$('#callScreenFpsSelect').value=String(state.callPrefs.screenFps||30);
+  if($('#callCameraQualitySelect'))$('#callCameraQualitySelect').value=state.cameraQuality||'1080p';
+  if($('#speakerDeviceSelect'))$('#speakerDeviceSelect').value=state.callPrefs.speakerId||'';
+  applyCallVisualPrefs();
+}
+
+async function refreshCallDevices(){
+  await refreshMediaDevices();
+  const speaker=$('#speakerDeviceSelect');
+  if(!speaker)return;
+  const wanted=state.callPrefs.speakerId||'';
+  speaker.innerHTML='<option value="">Padrão do sistema</option>';
+  try{
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    devices.filter(d=>d.kind==='audiooutput').forEach((d,i)=>{
+      const o=document.createElement('option');
+      o.value=d.deviceId;
+      o.textContent=d.label||('Saída '+(i+1));
+      speaker.appendChild(o);
+    });
+  }catch{}
+  if([...speaker.options].some(o=>o.value===wanted))speaker.value=wanted;
+  else state.callPrefs.speakerId='';
+  syncCallPrefsUI();
+}
+
+async function applySpeakerDevice(){
+  const sink=state.callPrefs.speakerId||'';
+  const elements=[...state.remoteAudio.values(),$('#localMusicAudio')].filter(Boolean);
+  for(const el of elements){
+    if(typeof el.setSinkId==='function'){
+      try{await el.setSinkId(sink)}catch{}
+    }
+  }
+}
+
+async function replaceMicrophoneDevice(){
+  const old=state.localStream?.getAudioTracks()?.[0]||null;
+  const stream=await navigator.mediaDevices.getUserMedia({
+    audio:{
+      deviceId:state.preferredMicId?{exact:state.preferredMicId}:undefined,
+      echoCancellation:state.callPrefs.echoCancellation,
+      noiseSuppression:state.noiseSuppression,
+      autoGainControl:state.callPrefs.autoGain
+    },
+    video:false
+  });
+  const track=stream.getAudioTracks()[0];
+  if(!track)throw new Error('Microfone indisponível');
+  if(!state.localStream)state.localStream=new MediaStream();
+  if(old)state.localStream.removeTrack(old);
+  state.localStream.addTrack(track);
+  if(old&&!old.enabled)track.enabled=false;
+  await applyOutgoingAudioTrack(track);
+  if(old){try{old.stop()}catch{}}
+  startMicLevelMeter();
+  return track;
+}
+
+async function replaceCameraDevice(){
+  if(!state.cameraTrack||state.cameraTrack.readyState!=='live')return;
+  const preset=cameraPreset();
+  const stream=await navigator.mediaDevices.getUserMedia({
+    video:{
+      deviceId:state.preferredCameraId?{exact:state.preferredCameraId}:undefined,
+      width:{ideal:preset.width},
+      height:{ideal:preset.height},
+      frameRate:{ideal:preset.frameRate,max:preset.frameRate},
+      facingMode:{ideal:state.creativeLocal?.mobileFacingMode||'user'}
+    },
+    audio:false
+  });
+  const track=stream.getVideoTracks()[0];
+  if(!track)throw new Error('Câmera indisponível');
+  const old=state.cameraTrack;
+  state.cameraTrack=track;
+  if(state.localStream){
+    if(old)state.localStream.removeTrack(old);
+    state.localStream.addTrack(track);
+  }
+  if(!state.screenTrack)await replaceVideoForAll(track);
+  await applyCameraSenderQuality();
+  if(old){try{old.stop()}catch{}}
+  ensureCard('local',state.username+' (você)',state.localStream,true);
+}
+
+function stopMicLevelMeter(){
+  if(state.callMicMeterTimer){
+    cancelAnimationFrame(state.callMicMeterTimer);
+    state.callMicMeterTimer=null;
+  }
+  try{state.callMicSource?.disconnect()}catch{}
+  state.callMicSource=null;
+  state.callMicAnalyser=null;
+}
+
+function startMicLevelMeter(){
+  stopMicLevelMeter();
+  const track=state.localStream?.getAudioTracks()?.[0];
+  if(!track)return;
+  const context=getSharedAudioContext();
+  if(!context)return;
+  try{
+    const source=context.createMediaStreamSource(new MediaStream([track]));
+    const analyser=context.createAnalyser();
+    analyser.fftSize=256;
+    analyser.smoothingTimeConstant=.72;
+    source.connect(analyser);
+    state.callMicSource=source;
+    state.callMicAnalyser=analyser;
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    const tick=()=>{
+      if(state.callMicAnalyser!==analyser)return;
+      analyser.getByteFrequencyData(data);
+      const avg=data.reduce((a,b)=>a+b,0)/Math.max(1,data.length);
+      const level=Math.max(0,Math.min(100,Math.round(avg/1.1)));
+      if($('#callMicMeterBar'))$('#callMicMeterBar').style.width=level+'%';
+      if($('#callMicMeterText'))$('#callMicMeterText').textContent=level+'%';
+      $('#v-local')?.classList.toggle('speaking',level>18&&track.enabled);
+      state.callMicMeterTimer=requestAnimationFrame(tick);
+    };
+    tick();
+  }catch{}
+}
+
+async function callDiagnostics(){
+  let maxRtt=0,maxJitter=0,totalLost=0,totalReceived=0,relay=false;
+  const rows=[];
+  let score=100;
+
+  for(const [peerId,pc] of state.peers){
+    let rtt=0,jitter=0,lost=0,received=0,candidate='';
+    try{
+      const stats=await pc.getStats();
+      stats.forEach(report=>{
+        if(report.type==='candidate-pair'&&report.state==='succeeded'&&(report.nominated||report.selected)){
+          if(Number.isFinite(report.currentRoundTripTime))rtt=Math.max(rtt,report.currentRoundTripTime*1000);
+        }
+        if(report.type==='local-candidate'||report.type==='remote-candidate'){
+          if(report.candidateType==='relay')relay=true;
+          if(!candidate&&report.candidateType)candidate=report.candidateType;
+        }
+        if(report.type==='inbound-rtp'&&!report.isRemote){
+          lost+=Number(report.packetsLost||0);
+          received+=Number(report.packetsReceived||0);
+          jitter=Math.max(jitter,Number(report.jitter||0)*1000);
+        }
+      });
+    }catch{}
+    const loss=(lost+received)>0?(lost/(lost+received))*100:0;
+    maxRtt=Math.max(maxRtt,rtt);maxJitter=Math.max(maxJitter,jitter);
+    totalLost+=lost;totalReceived+=received;
+    if(rtt>180)score-=10;if(rtt>350)score-=15;
+    if(jitter>30)score-=10;if(jitter>60)score-=15;
+    if(loss>2)score-=15;if(loss>6)score-=20;
+    rows.push((state.peerNames.get(peerId)||'Participante')+': '+Math.round(rtt)+' ms · jitter '+Math.round(jitter)+' ms · perda '+loss.toFixed(1)+'% · '+(candidate||'ICE'));
+  }
+
+  score=Math.max(0,Math.min(100,score));
+  const quality=score>=80?'Boa':score>=55?'Média':'Ruim';
+  const result={quality,score,rtt:Math.round(maxRtt),jitter:Math.round(maxJitter),lost:totalLost,received:totalReceived,relay,rows};
+
+  if($('#callHealthPanel')){
+    $('#callHealthPanel').textContent=[
+      'Qualidade: '+quality,
+      'Ping: '+result.rtt+' ms',
+      'Jitter: '+result.jitter+' ms',
+      'Pacotes perdidos: '+result.lost,
+      'Rota: '+(relay?'TURN/relay':'direta/STUN quando possível'),
+      '',
+      ...(rows.length?rows:['Sem participante remoto para medir.'])
+    ].join('\n');
+  }
+  return result;
+}
+
+async function applyAdaptiveCallQuality(diag){
+  if(!state.callPrefs.adaptiveQuality||!state.joinedVoiceId)return;
+  const mode=state.callPrefs.qualityMode;
+  const weak=mode==='weak'||diag.quality==='Ruim'||diag.rtt>350||diag.jitter>60;
+  const medium=!weak&&(diag.quality==='Média'||diag.rtt>180||diag.jitter>30);
+  const desired=mode==='quality'?'1080p':(weak?'360p':(medium?'720p':'1080p'));
+  if(state.cameraQuality!==desired){
+    state.cameraQuality=desired;
+    localStorage.setItem('acord-camera-quality',desired);
+    if($('#callCameraQualitySelect'))$('#callCameraQualitySelect').value=desired;
+    if(state.cameraTrack?.readyState==='live'){
+      const p=cameraPreset();
+      try{await state.cameraTrack.applyConstraints({width:{ideal:p.width},height:{ideal:p.height},frameRate:{ideal:p.frameRate,max:p.frameRate}})}catch{}
+      await applyCameraSenderQuality();
+    }
+  }
+}
+
+function stopCallHealthMonitor(){
+  if(state.callHealthTimer){clearInterval(state.callHealthTimer);state.callHealthTimer=null}
+}
+
+function startCallHealthMonitor(){
+  stopCallHealthMonitor();
+  const tick=async()=>{
+    if(!state.joinedVoiceId)return;
+    try{
+      const diag=await callDiagnostics();
+      if(diag.quality==='Boa')state.callLastGoodAt=Date.now();
+      await applyAdaptiveCallQuality(diag);
+      if(state.callPrefs.autoReconnect&&diag.quality==='Ruim'&&Date.now()-state.callLastGoodAt>12000){
+        const failed=[...state.peers.values()].some(pc=>['failed','disconnected'].includes(pc.connectionState)||pc.iceConnectionState==='failed');
+        if(failed)repairCall(true).catch(()=>{});
+      }
+    }catch{}
+  };
+  tick();
+  state.callHealthTimer=setInterval(tick,5000);
+}
+
+async function repairCall(silent=false){
+  if(state.callRepairing)return;
+  state.callRepairing=true;
+  try{
+    if(!silent)toast('Reparando a call...');
+    const mic=state.localStream?.getAudioTracks()?.[0];
+    if(!mic||mic.readyState==='ended')await ensureMic();
+    for(const [peerId,pc] of state.peers){
+      try{pc.restartIce()}catch{}
+      try{await attachLocalTracks(pc)}catch{}
+      if(['failed','closed'].includes(pc.connectionState)){
+        try{pc.close()}catch{}
+        state.peers.delete(peerId);
+        try{await makeOffer(peerId,state.peerNames.get(peerId)||'Usuário')}catch{}
+      }
+    }
+    if(state.privateCallId)requestPrivateCallJoin(state.privateCallId);
+    else if(state.activeVoiceServerId&&state.activeVoiceChannelId){
+      socket.emit('join-voice',{serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,username:state.username});
+    }
+    await unlockAllRemoteAudio();
+    startMicLevelMeter();
+    if(!silent)toast('Reparo concluído');
+  }catch(error){
+    console.error('Reparo da call:',error);
+    if(!silent)toast('Não foi possível reparar completamente a call');
+  }finally{
+    state.callRepairing=false;
+  }
+}
+
+async function testCallSpeaker(){
+  try{
+    const ctx=getSharedAudioContext();
+    if(!ctx)throw new Error();
+    if(ctx.state==='suspended')await ctx.resume();
+    const osc=ctx.createOscillator(),gain=ctx.createGain();
+    gain.gain.value=.08;osc.frequency.value=523.25;
+    osc.connect(gain).connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.35);
+    toast('Som de teste reproduzido');
+  }catch{toast('Não foi possível testar o som')}
+}
+
+async function callPictureInPicture(){
+  const video=document.querySelector('.videoCard.hasVideo:not(#v-local) video')||document.querySelector('#v-local video');
+  if(!video||!document.pictureInPictureEnabled){toast('Picture-in-Picture indisponível');return}
+  try{await video.requestPictureInPicture()}catch{toast('Não foi possível abrir Picture-in-Picture')}
+}
+
+async function flipMobileCamera(){
+  const next=(state.creativeLocal?.mobileFacingMode||'user')==='user'?'environment':'user';
+  state.creativeLocal.mobileFacingMode=next;saveCreativeLocal();
+  if(state.cameraTrack?.readyState==='live'){
+    try{await replaceCameraDevice();toast(next==='environment'?'Câmera traseira':'Câmera frontal')}catch{toast('Não foi possível trocar a câmera')}
+  }else toast(next==='environment'?'Próxima câmera: traseira':'Próxima câmera: frontal');
+}
+
+async function updateCallWakeLock(){
+  if(!state.callPrefs.wakeLock||!state.joinedVoiceId){
+    if(state.callWakeLockHandle){try{await state.callWakeLockHandle.release()}catch{}state.callWakeLockHandle=null}
+    return;
+  }
+  if(!('wakeLock' in navigator))return;
+  try{state.callWakeLockHandle=await navigator.wakeLock.request('screen')}catch{}
+}
+
+
+async function startPreCallPreview(){
+  const video=$('#callPreviewVideo');
+  if(!video)return;
+
+  if(state.callPreviewStream){
+    state.callPreviewStream.getTracks().forEach(t=>t.stop());
+    state.callPreviewStream=null;
+    video.srcObject=null;
+    video.classList.add('hidden');
+    $('#preCallTestBtn').textContent='Testar áudio/vídeo';
+    return;
+  }
+
+  try{
+    const p=cameraPreset();
+    const stream=await navigator.mediaDevices.getUserMedia({
+      audio:{
+        deviceId:state.preferredMicId?{exact:state.preferredMicId}:undefined,
+        echoCancellation:state.callPrefs.echoCancellation,
+        noiseSuppression:state.noiseSuppression,
+        autoGainControl:state.callPrefs.autoGain
+      },
+      video:{
+        deviceId:state.preferredCameraId?{exact:state.preferredCameraId}:undefined,
+        width:{ideal:p.width},
+        height:{ideal:p.height},
+        frameRate:{ideal:p.frameRate,max:p.frameRate},
+        facingMode:{ideal:state.creativeLocal?.mobileFacingMode||'user'}
+      }
+    });
+    state.callPreviewStream=stream;
+    video.srcObject=stream;
+    video.classList.remove('hidden');
+    $('#preCallTestBtn').textContent='Fechar teste';
+    await refreshCallDevices();
+    toast('Prévia ativa');
+  }catch(error){
+    toast('Permita câmera e microfone para testar');
+  }
+}
+
+function stopPreCallPreview(){
+  if(state.callPreviewStream){
+    state.callPreviewStream.getTracks().forEach(t=>t.stop());
+    state.callPreviewStream=null;
+  }
+  const video=$('#callPreviewVideo');
+  if(video){video.srcObject=null;video.classList.add('hidden')}
+  if($('#preCallTestBtn'))$('#preCallTestBtn').textContent='Testar áudio/vídeo';
+}
+
+function confirmCallLeave(){
+  return !state.callPrefs.confirmLeave||!state.joinedVoiceId||confirm('Sair da chamada?');
+}
+
 function createPeer(peerId, username, asOfferer = false){
   if(state.peers.has(peerId)) return state.peers.get(peerId);
 
@@ -12151,10 +12644,11 @@ function createPeer(peerId, username, asOfferer = false){
       unlockAllRemoteAudio();
     }else if(connection === 'connecting' || ice === 'checking'){
       $('#voiceStatus').textContent = 'Conectando mídia...';
-    }else if(connection==='failed' || ice==='failed'){
+    }else if(connection==='failed' || ice==='failed' || connection==='disconnected'){
       $('#voiceStatus').textContent='Reconectando mídia...';
 
       try{pc.restartIce()}catch{}
+      if(state.callPrefs.autoReconnect)setTimeout(()=>repairCall(true).catch(()=>{}),900);
 
       if(state.privateCallId){
         setTimeout(async()=>{
@@ -12307,6 +12801,9 @@ function requestPrivateCallJoin(callId){
 async function enterPrivateCall(callId,peerName){
   try{
     await ensureMic();
+    stopPreCallPreview();
+    const callMicTrack=state.localStream?.getAudioTracks()?.[0];
+    if(callMicTrack&&state.callPrefs.muteOnJoin)callMicTrack.enabled=false;
 
     if(state.joinedVoiceId){
       socket.emit('leave-voice');
@@ -12339,6 +12836,10 @@ async function enterPrivateCall(callId,peerName){
     requestPrivateCallJoin(callId);
 
     updateCallDock();
+    syncCallPrefsUI();
+    startMicLevelMeter();
+    startCallHealthMonitor();
+    updateCallWakeLock();
   }catch(error){
     console.error(error);
     toast('Permita o microfone para entrar na chamada');
@@ -12357,6 +12858,7 @@ function closeIncomingCall(){
 
 
 function playCallCue(kind){
+  if(state.callPrefs && state.callPrefs.sounds===false) return;
   if(state?.labsPrefs?.dnd || state?.labsPrefs?.sounds===false) return;
   try{
     const AudioCtx=window.AudioContext || window.webkitAudioContext;
@@ -12480,6 +12982,9 @@ async function joinVoice(){
     $('#joinVoiceBtn').disabled = true;
     $('#joinVoiceBtn').textContent = 'Entrando...';
     await ensureMic();
+    stopPreCallPreview();
+    const callMicTrack=state.localStream?.getAudioTracks()?.[0];
+    if(callMicTrack&&state.callPrefs.muteOnJoin)callMicTrack.enabled=false;
 
     if(
       state.phoneCameraTrack &&
@@ -12528,6 +13033,11 @@ async function joinVoice(){
     });
 
     updateCallDock();
+    syncCallPrefsUI();
+    startMicLevelMeter();
+    startCallHealthMonitor();
+    updateCallWakeLock();
+    localStorage.setItem('acord-last-active-call',JSON.stringify({serverId:state.activeVoiceServerId,channelId:state.activeVoiceChannelId,name:state.activeVoiceName,at:Date.now()}));
   }catch(err){
     console.error(err);
     toast('Permita o microfone para entrar na voz');
@@ -12564,6 +13074,11 @@ function leaveVoice(){
   }
 
   clearPrivateJoinRetry();
+  stopCallHealthMonitor();
+  stopMicLevelMeter();
+  stopPreCallPreview();
+  if(state.callWakeLockHandle){try{state.callWakeLockHandle.release()}catch{}state.callWakeLockHandle=null}
+  localStorage.removeItem('acord-last-active-call');
   if(state.phoneCameraToken){
     stopPhoneCameraConnection(true);
   }
@@ -12653,8 +13168,9 @@ async function applyCameraSenderQuality(){
     try{
       const params = sender.getParameters();
       params.encodings = params.encodings?.length ? params.encodings : [{}];
-      params.encodings[0].maxBitrate = 5000000;
-      params.encodings[0].maxFramerate = 30;
+      const preset=cameraPreset();
+      params.encodings[0].maxBitrate = preset.bitrate;
+      params.encodings[0].maxFramerate = preset.frameRate;
       await sender.setParameters(params);
     }catch(error){
       console.warn('Não foi possível aplicar o bitrate Full HD da câmera:',error);
@@ -12696,15 +13212,17 @@ async function toggleCamera(){
     $('#cameraBtn').disabled = true;
     $('#cameraBtn').textContent = 'Abrindo...';
 
+    const preset=cameraPreset();
     const cam = await navigator.mediaDevices.getUserMedia({
       video:{
         deviceId:state.preferredCameraId?{exact:state.preferredCameraId}:undefined,
-        width:{ideal:state.cameraQuality==='720p'?1280:1920},
-        height:{ideal:state.cameraQuality==='720p'?720:1080},
-        frameRate:{ideal:30,max:30},
-        aspectRatio:{ideal:16/9}
+        width:{ideal:preset.width},
+        height:{ideal:preset.height},
+        frameRate:{ideal:preset.frameRate,max:preset.frameRate},
+        aspectRatio:{ideal:16/9},
+        facingMode:{ideal:state.creativeLocal?.mobileFacingMode||'user'}
       },
-      audio:true
+      audio:false
     });
 
     state.cameraTrack = cam.getVideoTracks()[0];
@@ -12715,9 +13233,9 @@ async function toggleCamera(){
 
     try{
       await state.cameraTrack.applyConstraints({
-        width:{ideal:state.cameraQuality==='720p'?1280:1920},
-        height:{ideal:state.cameraQuality==='720p'?720:1080},
-        frameRate:{ideal:30,max:30},
+        width:{ideal:preset.width},
+        height:{ideal:preset.height},
+        frameRate:{ideal:preset.frameRate,max:preset.frameRate},
         aspectRatio:{ideal:16/9}
       });
     }catch(error){
@@ -12801,30 +13319,13 @@ async function stopScreen(){
 
 
 function screenSharePreset(quality){
-  if(quality === '720p'){
-    return {
-      width:{ideal:1280,max:1280},
-      height:{ideal:720,max:720},
-      frameRate:{ideal:30,max:30},
-      maxBitrate:2500000
-    };
+  const requested=[15,30,60].includes(Number(state.callPrefs.screenFps))?Number(state.callPrefs.screenFps):30;
+  if(quality==='720p'){
+    const fps=Math.min(requested,30);
+    return {width:{ideal:1280,max:1280},height:{ideal:720,max:720},frameRate:{ideal:fps,max:fps},maxBitrate:fps<=15?1400000:2500000};
   }
-
-  if(quality === '1080p60'){
-    return {
-      width:{ideal:1920,max:1920},
-      height:{ideal:1080,max:1080},
-      frameRate:{ideal:60,max:60},
-      maxBitrate:8000000
-    };
-  }
-
-  return {
-    width:{ideal:1920,max:1920},
-    height:{ideal:1080,max:1080},
-    frameRate:{ideal:30,max:30},
-    maxBitrate:5000000
-  };
+  const fps=quality==='1080p60'?Math.max(30,requested):Math.min(requested,30);
+  return {width:{ideal:1920,max:1920},height:{ideal:1080,max:1080},frameRate:{ideal:fps,max:fps},maxBitrate:fps>=60?8000000:(fps<=15?3000000:5000000)};
 }
 
 function updateShareQualityButtons(){
@@ -13051,7 +13552,24 @@ function renderMembers(list){
         changePeerVolume(u.id,0.25);
       });
 
-      controls.append(minus,value,plus);
+      const mute=document.createElement('button');
+      mute.type='button';
+      mute.className='peerMuteBtn';
+      mute.textContent=getPeerVolume(u.id)===0?'🔈':'🔇';
+      mute.title=getPeerVolume(u.id)===0?'Restaurar áudio':'Mutar só para mim';
+      mute.addEventListener('click',event=>{
+        event.stopPropagation();
+        const current=getPeerVolume(u.id);
+        if(current===0){
+          const saved=Number(localStorage.getItem('acord-peer-last-volume-'+String(u.username||'').toLowerCase()))||1;
+          setPeerVolume(u.id,saved);
+        }else{
+          localStorage.setItem('acord-peer-last-volume-'+String(u.username||'').toLowerCase(),String(current));
+          setPeerVolume(u.id,0);
+        }
+      });
+
+      controls.append(mute,minus,value,plus);
       row.appendChild(controls);
     }
 
@@ -13126,6 +13644,9 @@ $('#authPassword').addEventListener('keydown',event=>{
 });
 $('#authPasswordConfirm').addEventListener('keydown',event=>{if(event.key==='Enter')submitAuthentication()});
 setAuthMode('login');
+syncCallPrefsUI();
+applyCallVisualPrefs();
+refreshCallDevices().catch(()=>{});
 
 $('#showAuthPasswordBtn').addEventListener('click',()=>{
   togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
@@ -13227,6 +13748,11 @@ $('#megaWatchPlay').addEventListener('click',()=>emitWatchParty(true));
 $('#megaWatchPause').addEventListener('click',()=>emitWatchParty(false));
 $('#megaWhiteboardClear').addEventListener('click',()=>socket.emit('mega-whiteboard-clear',{serverId:state.serverId}));
 $('#megaMediaTest').addEventListener('click',testMedia);
+$('#megaCallRepairBtn').addEventListener('click',()=>repairCall());
+$('#megaCallDiagBtn').addEventListener('click',async()=>{
+  const d=await callDiagnostics();
+  $('#megaConnectionInfo').textContent='Qualidade: '+d.quality+' · Ping: '+d.rtt+' ms · Jitter: '+d.jitter+' ms · Perdidos: '+d.lost+' · '+(d.relay?'TURN/relay':'direta/STUN');
+});
 $('#megaCaptionsBtn').addEventListener('click',toggleLiveCaptions);
 $('#megaRecordBtn').addEventListener('click',toggleLocalRecording);
 $('#megaCallFile').addEventListener('change',event=>{
@@ -13648,10 +14174,17 @@ setInterval(()=>{
   }
 },1000);
 
+$('#preCallTestBtn').addEventListener('click',async()=>{
+  const panel=$('#callSettingsPanel');
+  if(panel.classList.contains('hidden'))panel.classList.remove('hidden');
+  await refreshCallDevices().catch(()=>{});
+  syncCallPrefsUI();
+  startPreCallPreview();
+});
 $('#joinVoiceBtn').addEventListener('click',joinVoice);
-$('#leaveVoiceBtn').addEventListener('click',leaveVoice);
+$('#leaveVoiceBtn').addEventListener('click',()=>{if(confirmCallLeave())leaveVoice()});
 $('#returnToCallBtn').addEventListener('click',returnToActiveCall);
-$('#dockLeaveCallBtn').addEventListener('click',leaveVoice);
+$('#dockLeaveCallBtn').addEventListener('click',()=>{if(confirmCallLeave())leaveVoice()});
 $('#micBtn').addEventListener('click',toggleMic);
 $('#deafenBtn').addEventListener('click',toggleDeafen);
 
@@ -13756,18 +14289,44 @@ $('#localMusicAudio').volume = savedLocalMusicVolume / 100;
 $('#cameraBtn').addEventListener('click',toggleCamera);
 $('#callSettingsBtn').addEventListener('click',toggleCallSettings);
 
-$('#micDeviceSelect').addEventListener('change',event=>{
+$('#micDeviceSelect').addEventListener('change',async event=>{
   state.preferredMicId=event.target.value;localStorage.setItem('acord-mic-device',state.preferredMicId);
-  toast('Microfone selecionado. Reconecte a call para aplicar.');
+  if(state.joinedVoiceId){try{await replaceMicrophoneDevice();toast('Microfone alterado')}catch{toast('Não foi possível trocar o microfone')}}
 });
-$('#cameraDeviceSelect').addEventListener('change',event=>{
+$('#cameraDeviceSelect').addEventListener('change',async event=>{
   state.preferredCameraId=event.target.value;localStorage.setItem('acord-camera-device',state.preferredCameraId);
+  if(state.cameraTrack?.readyState==='live'){try{await replaceCameraDevice();toast('Câmera alterada')}catch{toast('Não foi possível trocar a câmera')}}
+});
+$('#speakerDeviceSelect').addEventListener('change',async event=>{
+  state.callPrefs.speakerId=event.target.value;saveCallPrefs();await applySpeakerDevice();toast('Saída de áudio alterada');
 });
 $('#phoneCameraCreateBtn').addEventListener('click',createPhoneCameraLink);
 $('#phoneCameraStopBtn').addEventListener('click',()=>stopPhoneCameraConnection(true));
 $('#noiseSuppressionToggle').checked=state.noiseSuppression;
-$('#noiseSuppressionToggle').addEventListener('change',event=>{
+$('#noiseSuppressionToggle').addEventListener('change',async event=>{
   state.noiseSuppression=event.target.checked;localStorage.setItem('acord-noise-suppression',state.noiseSuppression?'1':'0');
+  if(state.joinedVoiceId){try{await replaceMicrophoneDevice()}catch{}}
+});
+$('#echoCancellationToggle').addEventListener('change',async event=>{state.callPrefs.echoCancellation=event.target.checked;saveCallPrefs();if(state.joinedVoiceId){try{await replaceMicrophoneDevice()}catch{}}});
+$('#autoGainToggle').addEventListener('change',async event=>{state.callPrefs.autoGain=event.target.checked;saveCallPrefs();if(state.joinedVoiceId){try{await replaceMicrophoneDevice()}catch{}}});
+$('#callAutoReconnectToggle').addEventListener('change',event=>{state.callPrefs.autoReconnect=event.target.checked;saveCallPrefs()});
+$('#callAutoRejoinToggle').addEventListener('change',event=>{state.callPrefs.autoRejoin=event.target.checked;saveCallPrefs()});
+$('#callAdaptiveToggle').addEventListener('change',event=>{state.callPrefs.adaptiveQuality=event.target.checked;saveCallPrefs()});
+$('#callMuteOnJoinToggle').addEventListener('change',event=>{state.callPrefs.muteOnJoin=event.target.checked;saveCallPrefs()});
+$('#callConfirmLeaveToggle').addEventListener('change',event=>{state.callPrefs.confirmLeave=event.target.checked;saveCallPrefs()});
+$('#callSoundsToggle').addEventListener('change',event=>{state.callPrefs.sounds=event.target.checked;saveCallPrefs()});
+$('#callAudioOnlyToggle').addEventListener('change',event=>{state.callPrefs.audioOnly=event.target.checked;saveCallPrefs();applyCallVisualPrefs()});
+$('#callMirrorSelfToggle').addEventListener('change',event=>{state.callPrefs.mirrorSelf=event.target.checked;saveCallPrefs();applyCallVisualPrefs()});
+$('#callHideSelfToggle').addEventListener('change',event=>{state.callPrefs.hideSelf=event.target.checked;saveCallPrefs();applyCallVisualPrefs()});
+$('#callWakeLockToggle').addEventListener('change',event=>{state.callPrefs.wakeLock=event.target.checked;saveCallPrefs();updateCallWakeLock()});
+$('#callQualityMode').addEventListener('change',event=>{state.callPrefs.qualityMode=event.target.value;saveCallPrefs()});
+$('#callScreenFpsSelect').addEventListener('change',event=>{state.callPrefs.screenFps=Number(event.target.value||30);saveCallPrefs()});
+$('#callCameraQualitySelect').addEventListener('change',async event=>{
+  state.cameraQuality=event.target.value;localStorage.setItem('acord-camera-quality',state.cameraQuality);
+  if(state.cameraTrack?.readyState==='live'){
+    const p=cameraPreset();try{await state.cameraTrack.applyConstraints({width:{ideal:p.width},height:{ideal:p.height},frameRate:{ideal:p.frameRate,max:p.frameRate}})}catch{}
+    await applyCameraSenderQuality();
+  }
 });
 $('#pushToTalkToggle').checked=state.pushToTalk;
 $('#pushToTalkToggle').addEventListener('change',event=>{
@@ -13786,6 +14345,25 @@ document.addEventListener('keyup',event=>{
   const t=state.localStream?.getAudioTracks?.()[0];if(t)t.enabled=false;
 });
 $('#screenBtn').addEventListener('click',toggleScreen);
+$('#callRepairQuickBtn').addEventListener('click',()=>repairCall());
+$('#callRepairBtn').addEventListener('click',()=>repairCall());
+$('#callDiagnosticsBtn').addEventListener('click',callDiagnostics);
+$('#callSpeakerTestBtn').addEventListener('click',testCallSpeaker);
+$('#callPipBtn').addEventListener('click',callPictureInPicture);
+$('#callFlipCameraBtn').addEventListener('click',flipMobileCamera);
+navigator.mediaDevices?.addEventListener?.('devicechange',async()=>{
+  const wantedMic=state.preferredMicId,wantedCam=state.preferredCameraId;
+  await refreshCallDevices();
+  const devices=await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
+  if(wantedMic&&!devices.some(d=>d.kind==='audioinput'&&d.deviceId===wantedMic)){
+    state.preferredMicId='';localStorage.removeItem('acord-mic-device');
+    if(state.joinedVoiceId)replaceMicrophoneDevice().then(()=>toast('Microfone alterado automaticamente')).catch(()=>{});
+  }
+  if(wantedCam&&!devices.some(d=>d.kind==='videoinput'&&d.deviceId===wantedCam)){
+    state.preferredCameraId='';localStorage.removeItem('acord-camera-device');
+    if(state.cameraTrack?.readyState==='live')replaceCameraDevice().then(()=>toast('Câmera alterada automaticamente')).catch(()=>{});
+  }
+});
 
 $('#sharePickerClose').addEventListener('click',closeSharePicker);
 $('#sharePickerWrap').addEventListener('click',event=>{
@@ -14403,6 +14981,25 @@ socket.on('server-list',list=>{
   state.currentView=previousView;
   state.appInitialized=true;
   restoreCurrentView();
+
+  if(state.callPrefs.autoRejoin&&!state.joinedVoiceId){
+    try{
+      const saved=JSON.parse(localStorage.getItem('acord-last-active-call')||'null');
+      const recent=saved&&Date.now()-Number(saved.at||0)<1000*60*30;
+      const server=recent?state.servers.find(s=>s.id===saved.serverId):null;
+      const channel=server?.voiceChannels?.find(c=>c.id===saved.channelId);
+      if(server&&channel){
+        state.serverId=server.id;
+        state.voiceChannelId=channel.id;
+        localStorage.setItem('ecord-last-server-id',server.id);
+        localStorage.setItem('ecord-last-voice-channel-id',channel.id);
+        setTimeout(()=>{
+          setView('voice');
+          joinVoice().catch(()=>{});
+        },700);
+      }
+    }catch{}
+  }
 });
 
 socket.on('owned-servers-synced',payload=>{
