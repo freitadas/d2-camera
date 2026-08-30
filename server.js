@@ -1260,7 +1260,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v31-server-mega';
+const CACHE='acord-app-stable-v32-100plus';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3526,6 +3526,51 @@ html,body{
   letter-spacing:.06em;
 }
 
+
+.labsNavBtn{border:1px solid color-mix(in srgb,var(--coral) 35%,var(--line))}
+.labsHead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}
+.labsHead h2{margin:0 0 5px}.labsHead p{margin:0;color:var(--muted);font-size:12px;max-width:700px}
+.labsCount{min-width:120px;text-align:center;padding:10px;border:1px solid var(--line);background:var(--bg2);border-radius:12px}
+.labsCount strong{display:block;font-size:24px;color:var(--coral)}.labsCount span{font-size:10px;color:var(--muted)}
+.labsToolbar{display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:14px}
+.labsFeatureGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.labsCard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid var(--line);background:var(--bg2);border-radius:12px;padding:12px;min-height:82px}
+.labsCard strong{display:block;font-size:12px;margin-bottom:4px}.labsCard p{margin:0;color:var(--muted);font-size:10px;line-height:1.35}
+.labsCard button{border:1px solid var(--line);background:var(--bg3);color:var(--text);border-radius:9px;padding:8px 10px;font-size:10px;font-weight:900}
+.labsCard button.active{background:var(--coral);color:#241009;border-color:transparent}
+.labsOutput{margin-top:14px;padding:12px;border:1px solid var(--line);background:var(--bg1);border-radius:12px;white-space:pre-wrap;font-size:12px;max-height:280px;overflow:auto}
+body[data-lab-compact="1"] .message{padding-top:6px;padding-bottom:6px}
+body[data-lab-large-text="1"]{font-size:18px}
+body[data-lab-small-text="1"]{font-size:12px}
+body[data-lab-high-contrast="1"]{--text:#fff;--muted:#d8e4de;--line:#6d8f80}
+body[data-lab-reduced-motion="1"] *,body[data-lab-reduced-motion="1"] *::before,body[data-lab-reduced-motion="1"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+body[data-lab-grayscale="1"]{filter:grayscale(1)}
+body[data-lab-warm="1"]{filter:sepia(.18) saturate(1.08)}
+body[data-lab-blur-panels="1"] .sidebar,body[data-lab-blur-panels="1"] .rightbar,body[data-lab-blur-panels="1"] .topbar{backdrop-filter:blur(14px)}
+body[data-lab-hide-sidebar="1"] .sidebar{display:none}
+body[data-lab-hide-rightbar="1"] .rightbar{display:none}
+body[data-lab-focus-chat="1"] .rail,body[data-lab-focus-chat="1"] .sidebar,body[data-lab-focus-chat="1"] .rightbar{display:none}
+body[data-lab-wide-chat="1"] .main{max-width:none}
+body[data-lab-narrow-chat="1"] .main{max-width:900px;margin-inline:auto}
+body[data-lab-square="1"] *{border-radius:2px!important}
+body[data-lab-round="1"] .message,body[data-lab-round="1"] .btn{border-radius:18px!important}
+body[data-lab-focus-outline="1"] :focus{outline:3px solid var(--coral)!important;outline-offset:2px}
+body[data-lab-letter-spacing="1"]{letter-spacing:.045em}
+body[data-lab-line-height="1"]{line-height:1.7}
+body[data-lab-dyslexia-spacing="1"]{word-spacing:.12em;letter-spacing:.06em;line-height:1.8}
+body[data-lab-protanopia="1"]{filter:saturate(.78) hue-rotate(8deg)}
+body[data-lab-deuteranopia="1"]{filter:saturate(.72) hue-rotate(-8deg)}
+body[data-lab-tritanopia="1"]{filter:saturate(.8) hue-rotate(18deg)}
+body[data-lab-mirror-video="1"] video{transform:scaleX(-1)}
+body[data-lab-video-gray="1"] video{filter:grayscale(1)}
+body[data-lab-video-warm="1"] video{filter:sepia(.3) saturate(1.2)}
+body[data-lab-video-contain="1"] video{object-fit:contain!important}
+body[data-lab-video-fill="1"] video{object-fit:cover!important}
+body[data-lab-hide-remote-video="1"] .videoCard:not(#v-local) video{visibility:hidden}
+body[data-lab-sticky-composer="1"] .compose{position:sticky;bottom:0;z-index:5}
+body[data-lab-show-ids="1"] [data-channel-id]::after{content:' · ' attr(data-channel-id);font-size:8px;color:var(--low)}
+@media(max-width:760px){.labsToolbar{grid-template-columns:1fr}.labsHead{flex-direction:column}.labsCount{width:100%}}
+
 </style>
 </head>
 <body>
@@ -3756,6 +3801,7 @@ html,body{
             <button class="megaNavBtn" data-mega-page="whiteboard">Quadro branco</button>
             <button class="megaNavBtn" data-mega-page="call">Áudio e vídeo</button>
             <button class="megaNavBtn" data-mega-page="tools">Ferramentas e bots</button>
+            <button class="megaNavBtn labsNavBtn" data-mega-page="labs">✦ Concorde 100+</button>
           </aside>
           <div class="megaBody">
             <section id="megaPageProfile" class="megaPage active">
@@ -3864,6 +3910,28 @@ html,body{
                 <label>Chave Tenor (opcional)<input id="megaTenorKey" placeholder="Para busca de GIFs"></label>
               </div>
               <div id="megaBotOutput" class="megaList"></div>
+            </section>
+            <section id="megaPageLabs" class="megaPage">
+              <div class="labsHead">
+                <div>
+                  <h2>✦ Concorde 100+</h2>
+                  <p>100 recursos extras para personalização, chat, servidores, produtividade, acessibilidade, mídia e diagnóstico.</p>
+                </div>
+                <div class="labsCount"><strong id="labsEnabledCount">0</strong><span>preferências ativas</span></div>
+              </div>
+              <div class="labsToolbar">
+                <input id="labsSearch" placeholder="Buscar entre os 100 recursos">
+                <select id="labsCategory">
+                  <option value="all">Todas as categorias</option>
+                  <option value="visual">Visual</option>
+                  <option value="chat">Chat</option>
+                  <option value="tools">Produtividade</option>
+                  <option value="server">Servidor</option>
+                  <option value="system">Sistema e acessibilidade</option>
+                </select>
+              </div>
+              <div id="labsFeatureGrid" class="labsFeatureGrid"></div>
+              <div id="labsOutput" class="labsOutput hidden"></div>
             </section>
           </div>
         </div>
@@ -4710,8 +4778,21 @@ const state = {
   activity:'',
   links:{},
   privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
-  megaFromServer:false
+  megaFromServer:false,
+  labsPrefs:(()=>{
+    try{return JSON.parse(localStorage.getItem('concorde-labs-prefs')||'{}')||{}}catch{return {}}
+  })(),
+  labsNotes:localStorage.getItem('concorde-labs-notes')||'',
+  labsStopwatchStarted:0,
+  labsStopwatchTimer:null,
+  labsWakeLock:null
 };
+
+if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'notifications')) state.labsPrefs.notifications=true;
+if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'sounds')) state.labsPrefs.sounds=true;
+if(!Object.prototype.hasOwnProperty.call(state.labsPrefs,'auto-scroll')) state.labsPrefs['auto-scroll']=true;
+saveLabsPrefs();
+applyLabsPreferences();
 
 const rtcConfig = {
   iceServers: [
@@ -5186,6 +5267,7 @@ async function readImageFile(file,maxSize=1100,quality=.82){
   });
 }
 function maybeNotify(title,body){
+  if(state?.labsPrefs?.dnd || state?.labsPrefs?.notifications===false) return;
   if(document.visibilityState==='visible') return;
   if('Notification' in window && Notification.permission==='granted') new Notification(title,{body});
 }
@@ -5897,6 +5979,286 @@ function handleCallHotkey(event){
 }
 
 
+
+const LAB_FEATURES = [{"n": 1, "id": "compact", "name": "Layout compacto", "desc": "Reduz o espaço vertical das mensagens.", "category": "visual", "type": "toggle", "key": "compact"}, {"n": 2, "id": "largeText", "name": "Texto maior", "desc": "Aumenta o tamanho geral dos textos.", "category": "visual", "type": "toggle", "key": "large-text"}, {"n": 3, "id": "smallText", "name": "Texto menor", "desc": "Deixa a interface mais compacta visualmente.", "category": "visual", "type": "toggle", "key": "small-text"}, {"n": 4, "id": "highContrast", "name": "Alto contraste", "desc": "Aumenta contraste de texto e bordas.", "category": "visual", "type": "toggle", "key": "high-contrast"}, {"n": 5, "id": "reducedMotion", "name": "Reduzir animações", "desc": "Desativa transições e animações.", "category": "visual", "type": "toggle", "key": "reduced-motion"}, {"n": 6, "id": "grayscale", "name": "Modo cinza", "desc": "Exibe a interface em escala de cinza.", "category": "visual", "type": "toggle", "key": "grayscale"}, {"n": 7, "id": "warm", "name": "Filtro quente", "desc": "Aplica um filtro visual mais quente.", "category": "visual", "type": "toggle", "key": "warm"}, {"n": 8, "id": "blurPanels", "name": "Painéis translúcidos", "desc": "Ativa desfoque nos painéis principais.", "category": "visual", "type": "toggle", "key": "blur-panels"}, {"n": 9, "id": "hideSidebar", "name": "Ocultar barra de canais", "desc": "Esconde temporariamente a barra lateral.", "category": "visual", "type": "toggle", "key": "hide-sidebar"}, {"n": 10, "id": "hideRightbar", "name": "Ocultar membros", "desc": "Esconde a barra de membros.", "category": "visual", "type": "toggle", "key": "hide-rightbar"}, {"n": 11, "id": "fullscreen", "name": "Tela cheia", "desc": "Ativa ou sai do modo tela cheia.", "category": "visual", "type": "action", "key": "fullscreen"}, {"n": 12, "id": "focusChat", "name": "Modo foco", "desc": "Mostra apenas a área principal do chat.", "category": "visual", "type": "toggle", "key": "focus-chat"}, {"n": 13, "id": "zenCall", "name": "Modo call limpa", "desc": "Oculta painéis durante chamadas.", "category": "visual", "type": "action", "key": "zenCall"}, {"n": 14, "id": "timestamps", "name": "Hora detalhada", "desc": "Mostra a hora completa das mensagens via tooltip.", "category": "visual", "type": "action", "key": "timestamps"}, {"n": 15, "id": "showIds", "name": "Mostrar IDs", "desc": "Exibe IDs técnicos de canais.", "category": "visual", "type": "toggle", "key": "show-ids"}, {"n": 16, "id": "stickyComposer", "name": "Caixa fixa", "desc": "Mantém o compositor fixo no rodapé.", "category": "visual", "type": "toggle", "key": "sticky-composer"}, {"n": 17, "id": "wideChat", "name": "Chat largo", "desc": "Expande a área principal.", "category": "visual", "type": "toggle", "key": "wide-chat"}, {"n": 18, "id": "narrowChat", "name": "Chat estreito", "desc": "Centraliza o chat em uma largura menor.", "category": "visual", "type": "toggle", "key": "narrow-chat"}, {"n": 19, "id": "roundUi", "name": "Bordas arredondadas", "desc": "Aumenta o arredondamento dos componentes.", "category": "visual", "type": "toggle", "key": "round"}, {"n": 20, "id": "squareUi", "name": "Bordas retas", "desc": "Reduz o arredondamento da interface.", "category": "visual", "type": "toggle", "key": "square"}, {"n": 21, "id": "copyChannelId", "name": "Copiar ID do canal", "desc": "Copia o ID do canal atual.", "category": "chat", "type": "action", "key": "copyChannelId"}, {"n": 22, "id": "copyServerId", "name": "Copiar ID do servidor", "desc": "Copia o ID do servidor atual.", "category": "chat", "type": "action", "key": "copyServerId"}, {"n": 23, "id": "copyUsername", "name": "Copiar usuário", "desc": "Copia seu nome de usuário.", "category": "chat", "type": "action", "key": "copyUsername"}, {"n": 24, "id": "clearUnread", "name": "Limpar não lidas", "desc": "Marca todas as mensagens como lidas.", "category": "chat", "type": "action", "key": "clearUnread"}, {"n": 25, "id": "exportChat", "name": "Exportar chat visível", "desc": "Baixa o texto das mensagens exibidas.", "category": "chat", "type": "action", "key": "exportChat"}, {"n": 26, "id": "searchMessages", "name": "Buscar mensagens", "desc": "Procura texto nas mensagens visíveis.", "category": "chat", "type": "action", "key": "searchMessages"}, {"n": 27, "id": "jumpBottom", "name": "Ir ao fim", "desc": "Vai para a mensagem mais recente.", "category": "chat", "type": "action", "key": "jumpBottom"}, {"n": 28, "id": "jumpTop", "name": "Ir ao início", "desc": "Vai para o começo do histórico carregado.", "category": "chat", "type": "action", "key": "jumpTop"}, {"n": 29, "id": "randomEmoji", "name": "Emoji aleatório", "desc": "Insere um emoji aleatório no chat.", "category": "chat", "type": "action", "key": "randomEmoji"}, {"n": 30, "id": "quickMention", "name": "Menção rápida", "desc": "Insere @usuario no campo de mensagem.", "category": "chat", "type": "action", "key": "quickMention"}, {"n": 31, "id": "codeBlock", "name": "Bloco de código", "desc": "Cria um bloco de código no rascunho.", "category": "chat", "type": "action", "key": "codeBlock"}, {"n": 32, "id": "spoiler", "name": "Spoiler", "desc": "Envolve o texto do rascunho com ||spoiler||.", "category": "chat", "type": "action", "key": "spoiler"}, {"n": 33, "id": "upperDraft", "name": "Rascunho MAIÚSCULO", "desc": "Converte o rascunho para maiúsculas.", "category": "chat", "type": "action", "key": "upperDraft"}, {"n": 34, "id": "lowerDraft", "name": "Rascunho minúsculo", "desc": "Converte o rascunho para minúsculas.", "category": "chat", "type": "action", "key": "lowerDraft"}, {"n": 35, "id": "titleDraft", "name": "Capitalizar rascunho", "desc": "Capitaliza palavras do rascunho.", "category": "chat", "type": "action", "key": "titleDraft"}, {"n": 36, "id": "clearDraft", "name": "Limpar rascunho", "desc": "Apaga o texto não enviado.", "category": "chat", "type": "action", "key": "clearDraft"}, {"n": 37, "id": "saveDraft", "name": "Salvar rascunho", "desc": "Salva o rascunho deste canal no navegador.", "category": "chat", "type": "action", "key": "saveDraft"}, {"n": 38, "id": "restoreDraft", "name": "Restaurar rascunho", "desc": "Recupera o rascunho salvo deste canal.", "category": "chat", "type": "action", "key": "restoreDraft"}, {"n": 39, "id": "wordCount", "name": "Contar palavras", "desc": "Conta as palavras do rascunho.", "category": "chat", "type": "action", "key": "wordCount"}, {"n": 40, "id": "charCount", "name": "Contar caracteres", "desc": "Conta os caracteres do rascunho.", "category": "chat", "type": "action", "key": "charCount"}, {"n": 41, "id": "timer5", "name": "Timer 5 min", "desc": "Inicia um timer de cinco minutos.", "category": "tools", "type": "action", "key": "timer5"}, {"n": 42, "id": "timer10", "name": "Timer 10 min", "desc": "Inicia um timer de dez minutos.", "category": "tools", "type": "action", "key": "timer10"}, {"n": 43, "id": "timer25", "name": "Timer 25 min", "desc": "Inicia um timer de vinte e cinco minutos.", "category": "tools", "type": "action", "key": "timer25"}, {"n": 44, "id": "stopwatch", "name": "Cronômetro", "desc": "Inicia/para um cronômetro simples.", "category": "tools", "type": "action", "key": "stopwatch"}, {"n": 45, "id": "notes", "name": "Bloco de notas", "desc": "Abre um bloco de notas persistente.", "category": "tools", "type": "action", "key": "notes"}, {"n": 46, "id": "saveNotes", "name": "Salvar notas", "desc": "Salva as notas locais do Concorde.", "category": "tools", "type": "action", "key": "saveNotes"}, {"n": 47, "id": "exportNotes", "name": "Exportar notas", "desc": "Baixa suas notas em TXT.", "category": "tools", "type": "action", "key": "exportNotes"}, {"n": 48, "id": "randomPicker", "name": "Sorteador", "desc": "Sorteia um item de uma lista.", "category": "tools", "type": "action", "key": "randomPicker"}, {"n": 49, "id": "dice", "name": "Dado", "desc": "Rola um dado de seis lados.", "category": "tools", "type": "action", "key": "dice"}, {"n": 50, "id": "coin", "name": "Cara ou coroa", "desc": "Faz um sorteio entre cara e coroa.", "category": "tools", "type": "action", "key": "coin"}, {"n": 51, "id": "serverStats", "name": "Resumo do servidor", "desc": "Mostra números básicos do servidor.", "category": "server", "type": "action", "key": "serverStats"}, {"n": 52, "id": "memberCount", "name": "Contar membros", "desc": "Mostra o número de membros.", "category": "server", "type": "action", "key": "memberCount"}, {"n": 53, "id": "channelCount", "name": "Contar canais", "desc": "Conta canais de texto e voz.", "category": "server", "type": "action", "key": "channelCount"}, {"n": 54, "id": "roleCount", "name": "Contar cargos", "desc": "Mostra quantos cargos existem.", "category": "server", "type": "action", "key": "roleCount"}, {"n": 55, "id": "copyInvite", "name": "Copiar convite", "desc": "Copia o convite atual do servidor.", "category": "server", "type": "action", "key": "copyInvite"}, {"n": 56, "id": "copyRules", "name": "Copiar regras", "desc": "Copia as regras configuradas.", "category": "server", "type": "action", "key": "copyRules"}, {"n": 57, "id": "exportServer", "name": "Exportar resumo", "desc": "Baixa um resumo JSON do servidor.", "category": "server", "type": "action", "key": "exportServer"}, {"n": 58, "id": "findChannel", "name": "Localizar canal", "desc": "Busca um canal pelo nome.", "category": "server", "type": "action", "key": "findChannel"}, {"n": 59, "id": "collapseChannels", "name": "Recolher canais", "desc": "Oculta a árvore de canais temporariamente.", "category": "server", "type": "action", "key": "collapseChannels"}, {"n": 60, "id": "expandChannels", "name": "Expandir canais", "desc": "Mostra novamente a árvore de canais.", "category": "server", "type": "action", "key": "expandChannels"}, {"n": 61, "id": "notifyToggle", "name": "Notificações", "desc": "Liga/desliga notificações do Concorde.", "category": "system", "type": "toggle", "key": "notifications"}, {"n": 62, "id": "soundToggle", "name": "Sons", "desc": "Liga/desliga sons de avisos Labs.", "category": "system", "type": "toggle", "key": "sounds"}, {"n": 63, "id": "requestNotify", "name": "Permitir notificações", "desc": "Solicita permissão de notificação ao navegador.", "category": "system", "type": "action", "key": "requestNotify"}, {"n": 64, "id": "dnd", "name": "Não perturbe", "desc": "Silencia notificações e sons locais.", "category": "system", "type": "toggle", "key": "dnd"}, {"n": 65, "id": "autoScroll", "name": "Rolagem automática", "desc": "Mantém o chat no fim ao receber mensagens.", "category": "system", "type": "toggle", "key": "auto-scroll"}, {"n": 66, "id": "wakeLock", "name": "Manter tela ligada", "desc": "Solicita Wake Lock enquanto a aba estiver aberta.", "category": "system", "type": "action", "key": "wakeLock"}, {"n": 67, "id": "wakeRelease", "name": "Liberar tela", "desc": "Libera o Wake Lock ativo.", "category": "system", "type": "action", "key": "wakeRelease"}, {"n": 68, "id": "micStatus", "name": "Status do microfone", "desc": "Mostra o estado atual do microfone.", "category": "system", "type": "action", "key": "micStatus"}, {"n": 69, "id": "cameraStatus", "name": "Status da câmera", "desc": "Mostra o estado atual da câmera.", "category": "system", "type": "action", "key": "cameraStatus"}, {"n": 70, "id": "networkStatus", "name": "Status da internet", "desc": "Mostra informações básicas da conexão.", "category": "system", "type": "action", "key": "networkStatus"}, {"n": 71, "id": "deviceList", "name": "Listar dispositivos", "desc": "Lista microfones, câmeras e saídas disponíveis.", "category": "system", "type": "action", "key": "deviceList"}, {"n": 72, "id": "rtcStats", "name": "Estatísticas da call", "desc": "Mostra estados das conexões WebRTC.", "category": "system", "type": "action", "key": "rtcStats"}, {"n": 73, "id": "speakerTest", "name": "Testar som", "desc": "Reproduz um tom curto de teste.", "category": "system", "type": "action", "key": "speakerTest"}, {"n": 74, "id": "micTest", "name": "Testar microfone", "desc": "Abre o teste de mídia existente.", "category": "system", "type": "action", "key": "micTest"}, {"n": 75, "id": "mirrorVideo", "name": "Espelhar vídeo", "desc": "Espelha os vídeos visualmente.", "category": "system", "type": "toggle", "key": "mirror-video"}, {"n": 76, "id": "videoFill", "name": "Vídeo preencher", "desc": "Usa corte preenchendo o card.", "category": "system", "type": "toggle", "key": "video-fill"}, {"n": 77, "id": "videoContain", "name": "Vídeo inteiro", "desc": "Mostra o vídeo inteiro dentro do card.", "category": "system", "type": "toggle", "key": "video-contain"}, {"n": 78, "id": "videoGray", "name": "Vídeo em cinza", "desc": "Aplica escala de cinza aos vídeos.", "category": "system", "type": "toggle", "key": "video-gray"}, {"n": 79, "id": "videoWarm", "name": "Vídeo quente", "desc": "Aplica filtro quente aos vídeos.", "category": "system", "type": "toggle", "key": "video-warm"}, {"n": 80, "id": "hideRemoteVideo", "name": "Ocultar vídeo remoto", "desc": "Oculta visualmente vídeos de outros participantes.", "category": "system", "type": "toggle", "key": "hide-remote-video"}, {"n": 81, "id": "keyboardHints", "name": "Atalhos principais", "desc": "Mostra um resumo dos atalhos de teclado.", "category": "system", "type": "action", "key": "keyboardHints"}, {"n": 82, "id": "focusOutline", "name": "Foco visível", "desc": "Realça o elemento selecionado pelo teclado.", "category": "system", "type": "toggle", "key": "focus-outline"}, {"n": 83, "id": "letterSpacing", "name": "Espaçamento de letras", "desc": "Aumenta levemente o espaço entre letras.", "category": "system", "type": "toggle", "key": "letter-spacing"}, {"n": 84, "id": "lineHeight", "name": "Linhas espaçadas", "desc": "Aumenta a altura entre linhas.", "category": "system", "type": "toggle", "key": "line-height"}, {"n": 85, "id": "dyslexiaSpacing", "name": "Leitura espaçada", "desc": "Amplia letra, palavra e linha para facilitar leitura.", "category": "system", "type": "toggle", "key": "dyslexia-spacing"}, {"n": 86, "id": "protanopia", "name": "Filtro protanopia", "desc": "Ajuste visual aproximado de cores.", "category": "system", "type": "toggle", "key": "protanopia"}, {"n": 87, "id": "deuteranopia", "name": "Filtro deuteranopia", "desc": "Ajuste visual aproximado de cores.", "category": "system", "type": "toggle", "key": "deuteranopia"}, {"n": 88, "id": "tritanopia", "name": "Filtro tritanopia", "desc": "Ajuste visual aproximado de cores.", "category": "system", "type": "toggle", "key": "tritanopia"}, {"n": 89, "id": "resetAccess", "name": "Reset acessibilidade", "desc": "Desliga ajustes de acessibilidade do Labs.", "category": "system", "type": "action", "key": "resetAccess"}, {"n": 90, "id": "resetVisual", "name": "Reset visual", "desc": "Desliga todas as alterações visuais do Labs.", "category": "system", "type": "action", "key": "resetVisual"}, {"n": 91, "id": "backupPrefs", "name": "Backup das preferências", "desc": "Baixa as preferências Labs em JSON.", "category": "system", "type": "action", "key": "backupPrefs"}, {"n": 92, "id": "importPrefs", "name": "Importar preferências", "desc": "Importa um JSON de preferências Labs.", "category": "system", "type": "action", "key": "importPrefs"}, {"n": 93, "id": "clearCaches", "name": "Limpar caches locais", "desc": "Limpa rascunhos, notas e contadores locais.", "category": "system", "type": "action", "key": "clearCaches"}, {"n": 94, "id": "diagnostics", "name": "Diagnóstico rápido", "desc": "Mostra navegador, estado e recursos disponíveis.", "category": "system", "type": "action", "key": "diagnostics"}, {"n": 95, "id": "copyDiagnostics", "name": "Copiar diagnóstico", "desc": "Copia o diagnóstico rápido.", "category": "system", "type": "action", "key": "copyDiagnostics"}, {"n": 96, "id": "performance", "name": "Desempenho", "desc": "Mostra memória e tempo de carregamento quando disponíveis.", "category": "system", "type": "action", "key": "performance"}, {"n": 97, "id": "ping", "name": "Ping do servidor", "desc": "Mede o tempo de resposta do Socket.IO.", "category": "system", "type": "action", "key": "ping"}, {"n": 98, "id": "serverClock", "name": "Hora do servidor", "desc": "Consulta a hora do backend.", "category": "system", "type": "action", "key": "serverClock"}, {"n": 99, "id": "localClock", "name": "Hora local", "desc": "Mostra a hora local atual.", "category": "system", "type": "action", "key": "localClock"}, {"n": 100, "id": "resetLabs", "name": "Reset Concorde 100+", "desc": "Restaura todas as preferências dos 100 recursos.", "category": "system", "type": "action", "key": "resetLabs"}];
+
+function labsPrefKey(feature){
+  return feature.key || feature.id;
+}
+
+function saveLabsPrefs(){
+  localStorage.setItem('concorde-labs-prefs',JSON.stringify(state.labsPrefs||{}));
+  updateLabsEnabledCount();
+}
+
+function labsToggleValue(feature){
+  return !!state.labsPrefs[labsPrefKey(feature)];
+}
+
+function applyLabsPreferences(){
+  for(const feature of LAB_FEATURES){
+    if(feature.type!=='toggle') continue;
+    const key=labsPrefKey(feature);
+    document.body.dataset['lab'+key.split('-').map((part,index)=>index?part.charAt(0).toUpperCase()+part.slice(1):part).join('')]=
+      state.labsPrefs[key] ? '1' : '0';
+  }
+  updateLabsEnabledCount();
+}
+
+function updateLabsEnabledCount(){
+  const count=Object.values(state.labsPrefs||{}).filter(Boolean).length;
+  const el=$('#labsEnabledCount');if(el)el.textContent=String(count);
+}
+
+function renderLabsFeatures(){
+  const grid=$('#labsFeatureGrid');if(!grid)return;
+  const query=String($('#labsSearch')?.value||'').trim().toLowerCase();
+  const category=$('#labsCategory')?.value||'all';
+  grid.innerHTML='';
+
+  LAB_FEATURES
+    .filter(feature=>(category==='all'||feature.category===category))
+    .filter(feature=>!query || (feature.name+' '+feature.desc+' '+feature.n).toLowerCase().includes(query))
+    .forEach(feature=>{
+      const card=document.createElement('div');card.className='labsCard';
+      const meta=document.createElement('div');
+      const title=document.createElement('strong');title.textContent=feature.n+'. '+feature.name;
+      const desc=document.createElement('p');desc.textContent=feature.desc;
+      meta.append(title,desc);
+
+      const button=document.createElement('button');
+      if(feature.type==='toggle'){
+        const active=labsToggleValue(feature);
+        button.textContent=active?'Ativo':'Ativar';
+        button.classList.toggle('active',active);
+        button.addEventListener('click',()=>{
+          const key=labsPrefKey(feature);
+          state.labsPrefs[key]=!state.labsPrefs[key];
+          saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();
+        });
+      }else{
+        button.textContent='Usar';
+        button.addEventListener('click',()=>runLabAction(feature.key||feature.id));
+      }
+
+      card.append(meta,button);grid.appendChild(card);
+    });
+
+  updateLabsEnabledCount();
+}
+
+function showLabsOutput(value){
+  const box=$('#labsOutput');if(!box)return;
+  box.textContent=String(value||'');
+  box.classList.remove('hidden');
+  box.scrollIntoView({block:'nearest'});
+}
+
+function downloadLabsText(filename,text,type='text/plain'){
+  const blob=new Blob([text],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),15000);
+}
+
+async function copyLabs(value){
+  try{await navigator.clipboard.writeText(String(value||''));toast('Copiado')}
+  catch{showLabsOutput(value)}
+}
+
+function currentChatText(){
+  return [...document.querySelectorAll('#messages .message')].map(row=>row.innerText.trim()).filter(Boolean).join('\n\n');
+}
+
+function draftKey(){
+  return 'concorde-draft-'+String(state.serverId||'hub')+'-'+String(state.textChannelId||'none');
+}
+
+function startLabTimer(minutes){
+  const end=Date.now()+minutes*60000;
+  localStorage.setItem('concorde-lab-timer-end',String(end));
+  toast('Timer de '+minutes+' min iniciado');
+  setTimeout(()=>{playCallCue('join');toast('Timer concluído')},minutes*60000);
+}
+
+function labsDiagnosticText(){
+  return [
+    'Concorde v3.2',
+    'Usuário: '+(state.username||''),
+    'Servidor: '+(currentServer()?.name||'nenhum'),
+    'Canal: '+(currentText()?.name||'nenhum'),
+    'Online: '+navigator.onLine,
+    'Socket: '+(socket.connected?'conectado':'desconectado'),
+    'Call: '+(state.joinedVoiceId?'ativa':'inativa'),
+    'Câmera: '+(state.cameraTrack?.readyState||'inativa'),
+    'Microfone: '+(state.localStream?.getAudioTracks()?.[0]?.readyState||'inativo'),
+    'WebRTC peers: '+state.peers.size,
+    'Service Worker: '+('serviceWorker' in navigator),
+    'Wake Lock: '+('wakeLock' in navigator),
+    'SpeechRecognition: '+!!(window.SpeechRecognition||window.webkitSpeechRecognition)
+  ].join('\n');
+}
+
+async function runLabAction(action){
+  const input=$('#messageInput');
+  const server=currentServer();
+  const channel=currentText();
+
+  switch(action){
+    case 'fullscreen':
+      if(!document.fullscreenElement){await document.documentElement.requestFullscreen?.()}else{await document.exitFullscreen?.()}
+      break;
+    case 'zenCall':
+      state.labsPrefs['hide-sidebar']=!state.labsPrefs['hide-sidebar'];
+      state.labsPrefs['hide-rightbar']=state.labsPrefs['hide-sidebar'];
+      saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();break;
+    case 'timestamps':
+      document.querySelectorAll('#messages .message').forEach(row=>{if(!row.title)row.title='Mensagem exibida no histórico atual'});
+      toast('Tooltips ativados nas mensagens visíveis');break;
+    case 'copyChannelId': copyLabs(state.textChannelId||'');break;
+    case 'copyServerId': copyLabs(state.serverId||'');break;
+    case 'copyUsername': copyLabs(state.username||'');break;
+    case 'clearUnread': clearAllUnread();break;
+    case 'exportChat': downloadLabsText('concorde-chat-'+Date.now()+'.txt',currentChatText());break;
+    case 'searchMessages':{
+      const q=prompt('Buscar nas mensagens visíveis:','');if(!q)break;
+      const rows=[...document.querySelectorAll('#messages .message')];
+      let count=0;rows.forEach(r=>{const hit=r.innerText.toLowerCase().includes(q.toLowerCase());r.style.outline=hit?'2px solid var(--coral)':'';if(hit)count++});
+      showLabsOutput(count+' resultado(s) para "'+q+'"');break;
+    }
+    case 'jumpBottom': $('#messages')?.scrollTo({top:$('#messages').scrollHeight,behavior:'smooth'});break;
+    case 'jumpTop': $('#messages')?.scrollTo({top:0,behavior:'smooth'});break;
+    case 'randomEmoji':{
+      const list=['😀','😂','🔥','❤️','🎉','👍','😎','🤝','🚀','💡','⚡','✅'];
+      if(input){input.value+=list[Math.floor(Math.random()*list.length)];input.focus()}break;
+    }
+    case 'quickMention':{
+      const name=prompt('Usuário para mencionar:','');if(name&&input){input.value+=' @'+name.replace(/^@/,'');input.focus()}break;
+    }
+    case 'codeBlock': if(input){input.value=String.fromCharCode(96,96,96)+'\\n'+input.value+'\\n'+String.fromCharCode(96,96,96);input.focus()}break;
+    case 'spoiler': if(input){input.value='||'+input.value+'||';input.focus()}break;
+    case 'upperDraft': if(input)input.value=input.value.toUpperCase();break;
+    case 'lowerDraft': if(input)input.value=input.value.toLowerCase();break;
+    case 'titleDraft': if(input)input.value=input.value.replace(/\b\w/g,c=>c.toUpperCase());break;
+    case 'clearDraft': if(input)input.value='';break;
+    case 'saveDraft': if(input){localStorage.setItem(draftKey(),input.value);toast('Rascunho salvo')}break;
+    case 'restoreDraft': if(input){input.value=localStorage.getItem(draftKey())||'';input.focus()}break;
+    case 'wordCount': showLabsOutput('Palavras: '+String(input?.value||'').trim().split(/\s+/).filter(Boolean).length);break;
+    case 'charCount': showLabsOutput('Caracteres: '+String(input?.value||'').length);break;
+    case 'timer5': startLabTimer(5);break;
+    case 'timer10': startLabTimer(10);break;
+    case 'timer25': startLabTimer(25);break;
+    case 'stopwatch':
+      if(!state.labsStopwatchStarted){
+        state.labsStopwatchStarted=Date.now();toast('Cronômetro iniciado');
+      }else{
+        const seconds=Math.round((Date.now()-state.labsStopwatchStarted)/1000);
+        state.labsStopwatchStarted=0;showLabsOutput('Cronômetro: '+seconds+' segundos');
+      }break;
+    case 'notes':{
+      const value=prompt('Bloco de notas:',state.labsNotes||'');
+      if(value!==null){state.labsNotes=value;localStorage.setItem('concorde-labs-notes',value);toast('Notas salvas')}break;
+    }
+    case 'saveNotes': localStorage.setItem('concorde-labs-notes',state.labsNotes||'');toast('Notas salvas');break;
+    case 'exportNotes': downloadLabsText('concorde-notas.txt',state.labsNotes||'');break;
+    case 'randomPicker':{
+      const raw=prompt('Itens separados por vírgula:','A, B, C');if(!raw)break;
+      const items=raw.split(',').map(v=>v.trim()).filter(Boolean);
+      showLabsOutput(items.length?'Sorteado: '+items[Math.floor(Math.random()*items.length)]:'Nenhum item');break;
+    }
+    case 'dice': showLabsOutput('🎲 '+(1+Math.floor(Math.random()*6)));break;
+    case 'coin': showLabsOutput(Math.random()<.5?'🪙 Cara':'🪙 Coroa');break;
+    case 'serverStats':
+      showLabsOutput(server?[
+        'Servidor: '+server.name,
+        'Membros: '+(server.memberProfiles||[]).length,
+        'Textos: '+(server.textChannels||[]).length,
+        'Voz: '+(server.voiceChannels||[]).length,
+        'Cargos: '+(server.roles||[]).length
+      ].join('\n'):'Nenhum servidor selecionado');break;
+    case 'memberCount': showLabsOutput('Membros: '+(server?.memberProfiles?.length||0));break;
+    case 'channelCount': showLabsOutput('Canais: '+((server?.textChannels?.length||0)+(server?.voiceChannels?.length||0)));break;
+    case 'roleCount': showLabsOutput('Cargos: '+(server?.roles?.length||0));break;
+    case 'copyInvite':
+      if(server?.inviteToken)copyLabs(location.origin+'/invite/'+server.inviteToken);else toast('Sem convite');break;
+    case 'copyRules': copyLabs(server?.rules||'');break;
+    case 'exportServer':
+      if(server)downloadLabsText('concorde-servidor-'+Date.now()+'.json',JSON.stringify(server,null,2),'application/json');break;
+    case 'findChannel':{
+      const q=prompt('Nome do canal:','');if(!q||!server)break;
+      const found=[...(server.textChannels||[]),...(server.voiceChannels||[])].filter(c=>c.name.toLowerCase().includes(q.toLowerCase()));
+      showLabsOutput(found.length?found.map(c=>c.name+' · '+c.id).join('\n'):'Nenhum canal encontrado');break;
+    }
+    case 'collapseChannels': if($('#channelTree'))$('#channelTree').style.display='none';break;
+    case 'expandChannels': if($('#channelTree'))$('#channelTree').style.display='';break;
+    case 'requestNotify': await requestNotifications();toast(Notification.permission==='granted'?'Notificações permitidas':'Permissão não concedida');break;
+    case 'wakeLock':
+      try{state.labsWakeLock=await navigator.wakeLock?.request('screen');toast(state.labsWakeLock?'Tela mantida ligada':'Wake Lock indisponível')}catch{toast('Wake Lock indisponível')}break;
+    case 'wakeRelease':
+      try{await state.labsWakeLock?.release();state.labsWakeLock=null;toast('Wake Lock liberado')}catch{}break;
+    case 'micStatus':{
+      const t=state.localStream?.getAudioTracks()?.[0];showLabsOutput(t?'Microfone: '+t.readyState+' · '+(t.enabled?'ativo':'mutado'):'Microfone inativo');break;
+    }
+    case 'cameraStatus':{
+      const t=state.cameraTrack;showLabsOutput(t?'Câmera: '+t.readyState+' · '+(t.enabled?'ativa':'desativada'):'Câmera inativa');break;
+    }
+    case 'networkStatus':{
+      const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+      showLabsOutput('Online: '+navigator.onLine+(c?'\nTipo: '+(c.effectiveType||c.type||'')+'\nDownlink: '+(c.downlink||'?')+' Mbps':''));
+      break;
+    }
+    case 'deviceList':{
+      try{
+        const devices=await navigator.mediaDevices.enumerateDevices();
+        showLabsOutput(devices.map((d,i)=>(i+1)+'. '+d.kind+' · '+(d.label||'sem nome')).join('\n')||'Nenhum dispositivo');
+      }catch{showLabsOutput('Não foi possível listar dispositivos')}break;
+    }
+    case 'rtcStats': await updateMegaConnectionInfo();showLabsOutput($('#megaConnectionInfo')?.textContent||'Sem dados');break;
+    case 'speakerTest': playCallCue('join');toast('Som de teste reproduzido');break;
+    case 'micTest': await testMedia();break;
+    case 'keyboardHints': showLabsOutput('Enter: enviar mensagem\nShift+Enter: não envia\nEsc: cancelar captura de atalho\nAtalhos de microfone/fone: configure em Perfil > Configurações');break;
+    case 'resetAccess':
+      ['focus-outline','letter-spacing','line-height','dyslexia-spacing','protanopia','deuteranopia','tritanopia'].forEach(k=>state.labsPrefs[k]=false);
+      saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();break;
+    case 'resetVisual':
+      ['compact','large-text','small-text','high-contrast','reduced-motion','grayscale','warm','blur-panels','hide-sidebar','hide-rightbar','focus-chat','sticky-composer','wide-chat','narrow-chat','round','square'].forEach(k=>state.labsPrefs[k]=false);
+      saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();break;
+    case 'backupPrefs': downloadLabsText('concorde-labs-backup.json',JSON.stringify(state.labsPrefs,null,2),'application/json');break;
+    case 'importPrefs':{
+      const raw=prompt('Cole o JSON das preferências Labs:','');if(!raw)break;
+      try{state.labsPrefs=JSON.parse(raw)||{};saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();toast('Preferências importadas')}catch{toast('JSON inválido')}break;
+    }
+    case 'clearCaches':
+      Object.keys(localStorage).filter(k=>k.startsWith('concorde-draft-')||k==='concorde-labs-notes'||k==='acord-unread-counts').forEach(k=>localStorage.removeItem(k));
+      state.labsNotes='';state.unreadCounts={};toast('Caches locais limpos');break;
+    case 'diagnostics': showLabsOutput(labsDiagnosticText());break;
+    case 'copyDiagnostics': copyLabs(labsDiagnosticText());break;
+    case 'performance':{
+      const nav=performance.getEntriesByType('navigation')?.[0];
+      const mem=performance.memory;
+      showLabsOutput([
+        'Carregamento: '+(nav?Math.round(nav.loadEventEnd-nav.startTime)+' ms':'indisponível'),
+        'Memória usada: '+(mem?Math.round(mem.usedJSHeapSize/1048576)+' MB':'indisponível'),
+        'DOM: '+document.getElementsByTagName('*').length+' elementos'
+      ].join('\n'));break;
+    }
+    case 'ping':{
+      const start=performance.now();
+      socket.timeout(3000).emit('labs-ping',{at:Date.now()},(err,response)=>{
+        showLabsOutput(err?'Ping falhou':'Ping: '+Math.round(performance.now()-start)+' ms\nServidor: '+new Date(response.serverTime).toLocaleTimeString());
+      });break;
+    }
+    case 'serverClock':
+      socket.timeout(3000).emit('labs-ping',{at:Date.now()},(err,response)=>showLabsOutput(err?'Servidor indisponível':'Hora do servidor: '+new Date(response.serverTime).toLocaleString()));break;
+    case 'localClock': showLabsOutput('Hora local: '+new Date().toLocaleString());break;
+    case 'resetLabs':
+      if(confirm('Resetar todas as preferências do Concorde 100+?')){
+        state.labsPrefs={};saveLabsPrefs();applyLabsPreferences();renderLabsFeatures();toast('Concorde 100+ resetado');
+      }break;
+  }
+}
+
 function openMegaView(page='profile',fromServer=false){
   state.megaFromServer=!!fromServer;
 
@@ -5937,6 +6299,7 @@ function selectMegaPage(page){
   if(page==='community') renderMegaCommunity();
   if(page==='server') renderMegaServerControls();
   if(page==='call') updateMegaConnectionInfo();
+  if(page==='labs') renderLabsFeatures();
   if(page==='whiteboard' && state.serverId){
     initMegaWhiteboard();
     socket.emit('mega-whiteboard-get',{serverId:state.serverId});
@@ -8373,7 +8736,8 @@ function appendPublicChatMessage(message){
     actions.append(edit,del);
   }
   row.appendChild(actions);
-  box.appendChild(row);box.scrollTop=box.scrollHeight;
+  box.appendChild(row);
+  if(state.labsPrefs?.['auto-scroll']!==false) box.scrollTop=box.scrollHeight;
 
   if(mentioned && !mine){
     playCallCue('join');
@@ -10171,6 +10535,7 @@ function closeIncomingCall(){
 
 
 function playCallCue(kind){
+  if(state?.labsPrefs?.dnd || state?.labsPrefs?.sounds===false) return;
   try{
     const AudioCtx=window.AudioContext || window.webkitAudioContext;
     if(!AudioCtx) return;
@@ -10966,6 +11331,8 @@ $('#friendsProfileBtn').addEventListener('click',openProfileModal);
 $('#concordePlusBtn').addEventListener('click',()=>openMegaView('profile',false));
 $('#serverConcordeBtn').addEventListener('click',()=>openMegaView('server',true));
 document.querySelectorAll('.megaNavBtn').forEach(btn=>btn.addEventListener('click',()=>selectMegaPage(btn.dataset.megaPage)));
+$('#labsSearch').addEventListener('input',renderLabsFeatures);
+$('#labsCategory').addEventListener('change',renderLabsFeatures);
 $('#megaSaveProfile').addEventListener('click',saveMegaProfile);
 $('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
 $('#megaSaveServer').addEventListener('click',saveMegaServer);
@@ -15078,6 +15445,10 @@ io.on('connection', socket => {
     const data=String(payload?.data||'');if(!/^data:[^;]+;base64,/i.test(data)||data.length>600000)return;
     const message={serverId:s.id,username:socket.data.username||'Usuário',name:String(payload?.name||'arquivo').slice(0,100),type:String(payload?.type||'application/octet-stream').slice(0,100),data};
     for(const client of io.sockets.sockets.values()){if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-call-file',message)}
+  });
+
+  socket.on('labs-ping',(payload,ack)=>{
+    if(typeof ack==='function') ack({ok:true,serverTime:Date.now(),echo:payload?.at||0});
   });
 
   socket.on('phone-camera-create', () => {
