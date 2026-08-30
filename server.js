@@ -810,7 +810,7 @@ function serializeServers() {
 function saveServersToDisk() {
   try {
     const payload=JSON.stringify({
-      version: 11,
+      version: 12,
       savedAt:Date.now(),
       servers: serializeServers(),
       profiles: serializeProfiles(),
@@ -1388,7 +1388,7 @@ app.get('/icon-512.png', (req,res) => {
 
 app.get('/sw.js', (req,res) => {
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v35-creative100';
+const CACHE='acord-app-stable-v36-essential-mobile';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -3732,6 +3732,156 @@ body[data-creative-cinema="1"]{background:#000}body[data-creative-cinema="1"] .s
 body[data-creative-focus="1"] .rail,body[data-creative-focus="1"] .sidebar,body[data-creative-focus="1"] .rightbar{display:none}
 @media(max-width:760px){.creativeToolbar{grid-template-columns:1fr}.creativeHead{flex-direction:column}.creativeBadge{width:100%}}
 
+
+.essentialNavBtn{border:1px solid color-mix(in srgb,var(--mint) 35%,var(--line))}
+.essentialHead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.essentialHead h2{margin:0 0 5px}.essentialHead p{margin:0;color:var(--muted);font-size:12px}
+.essentialBadge{border:1px solid var(--line);background:var(--bg2);padding:8px 10px;border-radius:999px;font-size:11px;color:var(--muted)}
+.essentialBadge.ok{color:var(--mint)}.essentialBadge.error{color:var(--danger)}
+.essentialGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.essentialCard{border:1px solid var(--line);background:var(--bg2);border-radius:14px;padding:15px;display:grid;gap:10px}
+.essentialCard h3{margin:0;font-size:14px}.essentialCard p{margin:0;color:var(--muted);font-size:11px;line-height:1.45}
+.essentialCard label{display:grid;gap:6px;color:var(--muted);font-size:11px}
+.essentialCard select,.essentialCard textarea{width:100%;border:1px solid var(--line);background:var(--bg1);color:var(--text);border-radius:10px;padding:10px}
+.essentialWide{grid-column:1/-1}
+.essentialActions{display:flex;gap:8px;flex-wrap:wrap}
+.essentialCheck{grid-template-columns:auto 1fr!important;align-items:center}.essentialCheck input{width:auto}
+.essentialFileBtn{position:relative;overflow:hidden;display:inline-flex!important;align-items:center;justify-content:center;cursor:pointer}
+.essentialFileBtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.essentialMini{padding:9px;border:1px solid var(--line);background:var(--bg1);border-radius:9px;font-size:11px;color:var(--muted);white-space:pre-wrap}
+.essentialSearchRow{display:grid;grid-template-columns:1fr auto;gap:8px}
+.essentialResults{display:grid;gap:7px;max-height:280px;overflow:auto}
+.essentialResult{border:1px solid var(--line);background:var(--bg1);border-radius:9px;padding:9px;font-size:11px}
+.essentialResult strong{display:block;margin-bottom:3px}.essentialResult span{color:var(--muted);overflow-wrap:anywhere}
+.essentialOutput{margin-top:12px;border:1px solid var(--line);background:var(--bg1);border-radius:10px;padding:12px;white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto}
+
+.mobileNav{display:none}
+.mobileBackdrop{display:none}
+
+body.mobileMode{overscroll-behavior:none}
+body.mobileMode .app{
+  grid-template-columns:minmax(0,1fr)!important;
+  width:100vw;
+  height:100dvh;
+  padding-bottom:calc(64px + env(safe-area-inset-bottom));
+}
+body.mobileMode .rail,
+body.mobileMode .sidebar,
+body.mobileMode .rightbar{
+  display:none!important;
+}
+body.mobileMode .main{min-width:0;width:100vw}
+body.mobileMode .topbar{height:50px;padding:0 12px}
+body.mobileMode .content{min-height:0}
+body.mobileMode .mobileNav{
+  position:fixed;
+  z-index:2500000;
+  left:0;right:0;bottom:0;
+  height:calc(62px + env(safe-area-inset-bottom));
+  padding:5px 8px env(safe-area-inset-bottom);
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:4px;
+  border-top:1px solid var(--line);
+  background:color-mix(in srgb,var(--bg0) 94%,transparent);
+  backdrop-filter:blur(14px);
+}
+body.mobileMode .mobileNav button{
+  min-width:0;
+  min-height:48px;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  border-radius:10px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  font-weight:800;
+}
+body.mobileMode .mobileNav button span{font-size:18px;line-height:1}
+body.mobileMode .mobileNav button small{font-size:9px}
+body.mobileMode .mobileNav button.active{background:var(--bg3);color:var(--text)}
+body.mobileMode.mobileServersOpen .rail{
+  display:flex!important;
+  position:fixed;
+  z-index:2600002;
+  left:0;top:0;bottom:calc(62px + env(safe-area-inset-bottom));
+  width:64px;
+}
+body.mobileMode.mobileServersOpen .sidebar{
+  display:flex!important;
+  position:fixed;
+  z-index:2600001;
+  left:64px;top:0;bottom:calc(62px + env(safe-area-inset-bottom));
+  width:min(310px,calc(100vw - 64px));
+  box-shadow:18px 0 50px rgba(0,0,0,.45)!important;
+}
+body.mobileMode.mobileServersOpen .mobileBackdrop{
+  display:block!important;
+  position:fixed;
+  z-index:2600000;
+  inset:0 0 calc(62px + env(safe-area-inset-bottom)) 0;
+  background:rgba(0,0,0,.58);
+}
+body.mobileMode .message{max-width:94%;font-size:14px}
+body.mobileMode .messages{padding:10px;gap:8px}
+body.mobileMode .compose{padding:8px;gap:6px}
+body.mobileMode .compose input{min-height:46px;font-size:16px}
+body.mobileMode .compose .btn{min-height:46px}
+body.mobileMode .btn,
+body.mobileMode button,
+body.mobileMode select,
+body.mobileMode input{touch-action:manipulation}
+body.mobileMode .videoGrid{grid-template-columns:1fr!important;padding:7px}
+body.mobileMode .videoCard{min-height:190px}
+body.mobileMode .controls{padding:8px;gap:6px}
+body.mobileMode .control{min-height:46px;flex:1 1 42%}
+body.mobileMode .megaShell{grid-template-columns:1fr}
+body.mobileMode .megaNav{
+  display:flex;
+  overflow-x:auto;
+  border-right:0;
+  border-bottom:1px solid var(--line);
+  padding:8px;
+  gap:6px;
+}
+body.mobileMode .megaNav strong{display:none}
+body.mobileMode .megaNavBtn{width:auto;white-space:nowrap;min-height:42px}
+body.mobileMode .megaBody{padding:12px 10px 90px}
+body.mobileMode .megaGrid,
+body.mobileMode .essentialGrid{grid-template-columns:1fr}
+body.mobileMode .essentialWide{grid-column:auto}
+body.mobileMode .essentialHead{flex-direction:column}
+body.mobileMode .essentialSearchRow{grid-template-columns:1fr}
+body.mobileMode .modalWrap{padding:0;align-items:end}
+body.mobileMode .modal{
+  width:100%;
+  max-height:92dvh;
+  overflow:auto;
+  border-radius:20px 20px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+}
+body.mobileMode .friendsHome{padding-bottom:80px}
+body.mobileMode .installAppBtn{bottom:76px}
+body.mobileMode .toast{left:10px;right:10px;bottom:74px;text-align:center}
+body.mobileMode .serverSettings{grid-template-columns:1fr}
+body.mobileMode .settingsMenu{display:flex;overflow-x:auto;padding:8px}
+body.mobileMode .settingsNavBtn{white-space:nowrap;width:auto}
+body.mobileMode .settingsBody{padding:14px 10px 90px}
+
+@media(max-width:820px){
+  body:not(.desktopMode) .app{
+    max-width:100vw;
+  }
+}
+
+
+#appShell.hidden ~ .mobileBackdrop,
+#appShell.hidden ~ .mobileNav{
+  display:none!important;
+}
 </style>
 </head>
 <body>
@@ -3962,8 +4112,7 @@ body[data-creative-focus="1"] .rail,body[data-creative-focus="1"] .sidebar,body[
             <button class="megaNavBtn" data-mega-page="whiteboard">Quadro branco</button>
             <button class="megaNavBtn" data-mega-page="call">Áudio e vídeo</button>
             <button class="megaNavBtn" data-mega-page="tools">Ferramentas e bots</button>
-            <button class="megaNavBtn labsNavBtn" data-mega-page="labs">✦ Concorde 100+</button>
-            <button class="megaNavBtn creativeNavBtn" data-mega-page="creative">🚀 Concorde Criativo</button>
+            <button class="megaNavBtn essentialNavBtn" data-mega-page="essential">Essenciais</button>
           </aside>
           <div class="megaBody">
             <section id="megaPageProfile" class="megaPage active">
@@ -4071,7 +4220,99 @@ body[data-creative-focus="1"] .rail,body[data-creative-focus="1"] .sidebar,body[
                 <button id="megaBotRun" class="btn secondary">Executar bot</button>
                 <label>Chave Tenor (opcional)<input id="megaTenorKey" placeholder="Para busca de GIFs"></label>
               </div>
+
               <div id="megaBotOutput" class="megaList"></div>
+            </section>
+
+            <section id="megaPageEssential" class="megaPage">
+              <div class="essentialHead">
+                <div>
+                  <h2>Essenciais</h2>
+                  <p>Conta, segurança, dados, busca, conexão e modo celular.</p>
+                </div>
+                <span id="essentialConnectionBadge" class="essentialBadge">Verificando...</span>
+              </div>
+
+              <div class="essentialGrid">
+                <div class="essentialCard">
+                  <h3>Modo celular</h3>
+                  <p>Interface otimizada para toque, telas pequenas e uso como aplicativo.</p>
+                  <label>Interface
+                    <select id="essentialMobileMode">
+                      <option value="auto">Automático</option>
+                      <option value="mobile">Sempre usar modo celular</option>
+                      <option value="desktop">Sempre usar modo desktop</option>
+                    </select>
+                  </label>
+                  <label class="essentialCheck">
+                    <input id="essentialDataSaver" type="checkbox">
+                    <span>Economizar dados em chamadas</span>
+                  </label>
+                  <div class="essentialActions">
+                    <button id="essentialInstallBtn" class="btn primary" type="button">Instalar no celular</button>
+                    <button id="essentialApplyMobileBtn" class="btn secondary" type="button">Aplicar</button>
+                  </div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Conta e sessões</h3>
+                  <p>Proteja sua conta e encerre acessos antigos.</p>
+                  <div class="essentialActions">
+                    <button id="essentialSessionsBtn" class="btn secondary" type="button">Ver sessões</button>
+                    <button id="essentialLogoutOthersBtn" class="btn secondary" type="button">Sair de outros dispositivos</button>
+                  </div>
+                  <label>Senha atual<input id="essentialOldPassword" type="password" autocomplete="current-password"></label>
+                  <label>Nova senha<input id="essentialNewPassword" type="password" autocomplete="new-password" minlength="6"></label>
+                  <button id="essentialChangePasswordBtn" class="btn primary" type="button">Alterar senha</button>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Backup dos seus dados</h3>
+                  <p>Conta local, servidores em cache, amigos e preferências importantes.</p>
+                  <div class="essentialActions">
+                    <button id="essentialBackupBtn" class="btn primary" type="button">Baixar backup</button>
+                    <button id="essentialRefreshBackupBtn" class="btn secondary" type="button">Atualizar backup</button>
+                    <label class="btn secondary essentialFileBtn">Importar backup
+                      <input id="essentialRestoreFile" type="file" accept=".json,application/json">
+                    </label>
+                  </div>
+                  <div id="essentialPersistenceStatus" class="essentialMini"></div>
+                </div>
+
+                <div class="essentialCard essentialWide">
+                  <h3>Busca global</h3>
+                  <p>Procure mensagens, canais e pessoas nos servidores aos quais você tem acesso.</p>
+                  <div class="essentialSearchRow">
+                    <input id="essentialSearchInput" placeholder="O que você procura?">
+                    <button id="essentialSearchBtn" class="btn primary" type="button">Buscar</button>
+                  </div>
+                  <div id="essentialSearchResults" class="essentialResults"></div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Conexão</h3>
+                  <p>Veja se o Concorde está conectado e tente recuperar a conexão.</p>
+                  <div id="essentialConnectionInfo" class="essentialMini">Verificando...</div>
+                  <div class="essentialActions">
+                    <button id="essentialPingBtn" class="btn secondary" type="button">Testar conexão</button>
+                    <button id="essentialReconnectBtn" class="btn secondary" type="button">Reconectar</button>
+                  </div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Bloqueio e denúncia</h3>
+                  <p>Bloqueie localmente uma pessoa ou envie uma denúncia ligada ao servidor atual.</p>
+                  <label>Usuário<input id="essentialBlockUser" placeholder="nome do usuário"></label>
+                  <div class="essentialActions">
+                    <button id="essentialBlockBtn" class="btn secondary" type="button">Bloquear</button>
+                    <button id="essentialUnblockBtn" class="btn secondary" type="button">Desbloquear</button>
+                  </div>
+                  <label>Motivo da denúncia<textarea id="essentialReportReason" maxlength="500" rows="3"></textarea></label>
+                  <button id="essentialReportBtn" class="btn danger" type="button">Denunciar</button>
+                </div>
+              </div>
+
+              <div id="essentialOutput" class="essentialOutput hidden"></div>
             </section>
             <section id="megaPageLabs" class="megaPage">
               <div class="labsHead">
@@ -4798,6 +5039,16 @@ body[data-creative-focus="1"] .rail,body[data-creative-focus="1"] .sidebar,body[
   </div>
 </div>
 
+
+<div id="mobileBackdrop" class="mobileBackdrop hidden"></div>
+<nav id="mobileNav" class="mobileNav" aria-label="Navegação celular">
+  <button id="mobileHomeBtn" type="button"><span>⌂</span><small>Início</small></button>
+  <button id="mobileServersBtn" type="button"><span>▦</span><small>Servidores</small></button>
+  <button id="mobileChatBtn" type="button"><span>#</span><small>Chat</small></button>
+  <button id="mobileCallBtn" type="button"><span>☎</span><small>Call</small></button>
+  <button id="mobileProfileBtn" type="button"><span>●</span><small>Perfil</small></button>
+</nav>
+
 <button id="installAppBtn" class="installAppBtn hidden" type="button">⬇ Instalar aplicativo</button>
 <div id="messageContextMenu" class="messageContextMenu hidden">
   <button id="contextReplyBtn" type="button">Responder</button>
@@ -4983,7 +5234,10 @@ const state = {
   creativeStartedAt:Date.now(),
   creativeHealthyTimer:null,
   creativeSpeechMonitor:null,
-  creativeWordFilter:[]
+  creativeWordFilter:[],
+  interfaceMode:localStorage.getItem('concorde-interface-mode')||'auto',
+  dataSaver:localStorage.getItem('concorde-data-saver')==='1',
+  mobileDrawerOpen:false
 };
 
 const rtcConfig = {
@@ -7229,6 +7483,349 @@ async function handleCreativeClick(event){
 }
 
 
+
+function isMobileInterface(){
+  if(state.interfaceMode==='mobile') return true;
+  if(state.interfaceMode==='desktop') return false;
+  return window.matchMedia('(max-width: 820px)').matches ||
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+function applyInterfaceMode(){
+  const mobile=isMobileInterface();
+  document.body.classList.toggle('mobileMode',mobile);
+  document.body.classList.toggle('desktopMode',!mobile && state.interfaceMode==='desktop');
+
+  if(!mobile){
+    closeMobileServers();
+  }
+
+  const select=$('#essentialMobileMode');
+  if(select)select.value=state.interfaceMode;
+
+  const saver=$('#essentialDataSaver');
+  if(saver)saver.checked=!!state.dataSaver;
+
+  updateMobileNav();
+}
+
+function closeMobileServers(){
+  state.mobileDrawerOpen=false;
+  document.body.classList.remove('mobileServersOpen');
+  $('#mobileBackdrop')?.classList.add('hidden');
+}
+
+function toggleMobileServers(){
+  if(!isMobileInterface()) return;
+  state.mobileDrawerOpen=!state.mobileDrawerOpen;
+  document.body.classList.toggle('mobileServersOpen',state.mobileDrawerOpen);
+  $('#mobileBackdrop')?.classList.toggle('hidden',!state.mobileDrawerOpen);
+}
+
+function updateMobileNav(){
+  if(!isMobileInterface())return;
+  const view=state.currentView;
+  $('#mobileHomeBtn')?.classList.toggle('active',view==='friends'||view==='dm');
+  $('#mobileServersBtn')?.classList.toggle('active',state.mobileDrawerOpen);
+  $('#mobileChatBtn')?.classList.toggle('active',view==='chat');
+  $('#mobileCallBtn')?.classList.toggle('active',view==='voice');
+}
+
+function setEssentialStatus(message,type=''){
+  const out=$('#essentialOutput');
+  if(!out)return;
+  out.textContent=String(message||'');
+  out.classList.remove('hidden');
+  out.dataset.type=type;
+}
+
+async function essentialConnectionCheck(){
+  const badge=$('#essentialConnectionBadge');
+  const info=$('#essentialConnectionInfo');
+  const started=performance.now();
+
+  if(!socket.connected){
+    if(badge){badge.textContent='Desconectado';badge.className='essentialBadge error'}
+    if(info)info.textContent='Socket.IO desconectado.';
+    return;
+  }
+
+  socket.timeout(3500).emit('essential-ping',{at:Date.now()},(err,response)=>{
+    if(err||!response?.ok){
+      if(badge){badge.textContent='Instável';badge.className='essentialBadge error'}
+      if(info)info.textContent='Servidor conectado, mas sem resposta ao teste.';
+      return;
+    }
+
+    const ms=Math.round(performance.now()-started);
+    if(badge){badge.textContent='Online · '+ms+' ms';badge.className='essentialBadge ok'}
+    if(info){
+      info.textContent=[
+        'Conectado',
+        'Latência aproximada: '+ms+' ms',
+        'Servidor: '+new Date(response.serverTime).toLocaleString(),
+        'WebRTC ativo: '+(state.peers.size>0?'sim':'não')
+      ].join('\n');
+    }
+  });
+}
+
+async function loadPersistenceStatus(){
+  const box=$('#essentialPersistenceStatus');
+  if(!box)return;
+
+  try{
+    const response=await fetch('/api/persistence-status',{cache:'no-store'});
+    const data=await response.json();
+
+    box.textContent=[
+      'Arquivo principal: '+(data.dataFileExists?'OK':'não encontrado'),
+      'Backup: '+(data.backupExists?'OK':'não encontrado'),
+      'Contas carregadas: '+Number(data.accounts||0),
+      'Servidores carregados: '+Number(data.servers||0),
+      'Amizades carregadas: '+Number(data.friendships||0)
+    ].join('\n');
+  }catch{
+    box.textContent='Não foi possível consultar a persistência.';
+  }
+}
+
+function downloadEssentialBackup(){
+  saveLocalRecoverySnapshot();
+  const snapshot=readLocalRecoverySnapshot();
+
+  if(!snapshot){
+    setEssentialStatus('Não foi possível gerar o backup.','error');
+    return;
+  }
+
+  const full={
+    kind:'concorde-backup',
+    version:1,
+    exportedAt:Date.now(),
+    recovery:snapshot,
+    preferences:{
+      theme:state.theme,
+      palette:state.palette,
+      customColor:state.customColor,
+      interfaceMode:state.interfaceMode,
+      dataSaver:state.dataSaver,
+      blockedUsers:creativeLocalList('blockedUsers')
+    }
+  };
+
+  const blob=new Blob([JSON.stringify(full,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='concorde-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  setEssentialStatus('Backup baixado.','ok');
+}
+
+async function restoreEssentialBackup(file){
+  if(!file)return;
+
+  try{
+    const raw=await file.text();
+    const data=JSON.parse(raw);
+    if(data?.kind!=='concorde-backup'||!data?.recovery?.userId){
+      throw new Error('Arquivo de backup inválido');
+    }
+
+    localStorage.setItem('acord-recovery-v1',JSON.stringify(data.recovery));
+
+    if(data.preferences){
+      if(data.preferences.theme)localStorage.setItem('ecord-theme',data.preferences.theme);
+      if(data.preferences.palette)localStorage.setItem('ecord-palette',data.preferences.palette);
+      if(data.preferences.customColor)localStorage.setItem('ecord-custom-color',data.preferences.customColor);
+      if(data.preferences.interfaceMode)localStorage.setItem('concorde-interface-mode',data.preferences.interfaceMode);
+      localStorage.setItem('concorde-data-saver',data.preferences.dataSaver?'1':'0');
+
+      if(Array.isArray(data.preferences.blockedUsers)){
+        state.creativeLocal.blockedUsers=data.preferences.blockedUsers.slice(0,500);
+        saveCreativeLocal();
+      }
+    }
+
+    setEssentialStatus('Backup importado. Entre com a mesma conta para recuperar os dados.','ok');
+  }catch(error){
+    setEssentialStatus(error?.message||'Não foi possível importar o backup.','error');
+  }
+}
+
+function renderEssentialSearchResults(items){
+  const box=$('#essentialSearchResults');
+  if(!box)return;
+  box.innerHTML='';
+
+  for(const item of items||[]){
+    const row=document.createElement('div');
+    row.className='essentialResult';
+
+    const title=document.createElement('strong');
+    title.textContent=item.title||item.type||'Resultado';
+
+    const body=document.createElement('span');
+    body.textContent=item.preview||item.subtitle||'';
+
+    row.append(title,body);
+
+    if(item.serverId&&item.channelId){
+      row.style.cursor='pointer';
+      row.addEventListener('click',()=>{
+        state.serverId=item.serverId;
+        localStorage.setItem('ecord-last-server-id',item.serverId);
+        selectText(item.channelId);
+      });
+    }
+
+    box.appendChild(row);
+  }
+
+  if(!(items||[]).length){
+    const row=document.createElement('div');
+    row.className='essentialResult';
+    row.textContent='Nenhum resultado encontrado.';
+    box.appendChild(row);
+  }
+}
+
+function performEssentialSearch(){
+  const query=String($('#essentialSearchInput')?.value||'').trim();
+  if(query.length<2){
+    setEssentialStatus('Digite pelo menos 2 caracteres.','error');
+    return;
+  }
+
+  socket.timeout(6000).emit('essential-search',{query},(err,response)=>{
+    if(err||!response?.ok){
+      setEssentialStatus(response?.error||'A busca falhou.','error');
+      return;
+    }
+
+    renderEssentialSearchResults(response.results||[]);
+  });
+}
+
+function loadEssentialSessions(){
+  socket.timeout(5000).emit('essential-sessions',{token:state.authToken},(err,response)=>{
+    if(err||!response?.ok){
+      setEssentialStatus(response?.error||'Não foi possível carregar as sessões.','error');
+      return;
+    }
+
+    const lines=(response.sessions||[]).map((session,index)=>
+      (index+1)+'. '+(session.current?'ESTE DISPOSITIVO':'Outra sessão')+
+      ' · criada '+new Date(session.createdAt).toLocaleString()+
+      ' · ativa '+new Date(session.lastSeenAt).toLocaleString()
+    );
+
+    setEssentialStatus(lines.join('\n')||'Nenhuma sessão ativa.','ok');
+  });
+}
+
+function revokeOtherSessions(){
+  socket.timeout(5000).emit('essential-revoke-other-sessions',{token:state.authToken},(err,response)=>{
+    if(err||!response?.ok){
+      setEssentialStatus(response?.error||'Não foi possível encerrar as sessões.','error');
+      return;
+    }
+    setEssentialStatus('Outras sessões encerradas: '+Number(response.revoked||0),'ok');
+  });
+}
+
+function changeEssentialPassword(){
+  const oldPassword=$('#essentialOldPassword').value;
+  const newPassword=$('#essentialNewPassword').value;
+
+  if(newPassword.length<6){
+    setEssentialStatus('A nova senha precisa ter pelo menos 6 caracteres.','error');
+    return;
+  }
+
+  socket.timeout(6000).emit('essential-change-password',{
+    token:state.authToken,
+    oldPassword,
+    newPassword
+  },(err,response)=>{
+    if(err||!response?.ok){
+      setEssentialStatus(response?.error||'Não foi possível alterar a senha.','error');
+      return;
+    }
+
+    $('#essentialOldPassword').value='';
+    $('#essentialNewPassword').value='';
+    setEssentialStatus('Senha alterada com sucesso.','ok');
+  });
+}
+
+function essentialBlock(action){
+  const username=String($('#essentialBlockUser').value||'').trim().toLowerCase();
+  if(!username){
+    setEssentialStatus('Digite o nome do usuário.','error');
+    return;
+  }
+
+  const list=new Set(creativeLocalList('blockedUsers').map(v=>String(v).toLowerCase()));
+
+  if(action==='block')list.add(username);
+  else list.delete(username);
+
+  state.creativeLocal.blockedUsers=[...list].slice(0,500);
+  saveCreativeLocal();
+
+  setEssentialStatus(
+    action==='block'?'Usuário bloqueado neste dispositivo.':'Usuário desbloqueado.',
+    'ok'
+  );
+}
+
+function essentialReport(){
+  if(!state.serverId){
+    setEssentialStatus('Abra o servidor onde ocorreu o problema.','error');
+    return;
+  }
+
+  const target=String($('#essentialBlockUser').value||'').trim();
+  const reason=String($('#essentialReportReason').value||'').trim();
+
+  if(!target||reason.length<3){
+    setEssentialStatus('Informe o usuário e o motivo da denúncia.','error');
+    return;
+  }
+
+  socket.timeout(5000).emit('essential-report',{
+    serverId:state.serverId,
+    target,
+    reason
+  },(err,response)=>{
+    if(err||!response?.ok){
+      setEssentialStatus(response?.error||'Não foi possível enviar a denúncia.','error');
+      return;
+    }
+
+    $('#essentialReportReason').value='';
+    setEssentialStatus('Denúncia registrada.','ok');
+  });
+}
+
+function applyDataSaver(){
+  localStorage.setItem('concorde-data-saver',state.dataSaver?'1':'0');
+
+  if(state.dataSaver){
+    state.cameraQuality='720p';
+    state.screenShareQuality='720p';
+    localStorage.setItem('acord-camera-quality','720p');
+    localStorage.setItem('ecord-screen-quality','720p');
+  }
+}
+
+function openEssentials(){
+  openMegaView('essential',state.megaFromServer);
+}
+
 function openMegaView(page='profile',fromServer=false){
   state.megaFromServer=!!fromServer;
 
@@ -7276,6 +7873,11 @@ function selectMegaPage(page){
   if(page==='creative'){
     setCreativeStatus('Pronto para usar.');
     creativeGet().then(()=>renderCreative());
+  }
+  if(page==='essential'){
+    applyInterfaceMode();
+    essentialConnectionCheck();
+    loadPersistenceStatus();
   }
   if(page==='whiteboard' && state.serverId){
     initMegaWhiteboard();
@@ -8236,6 +8838,7 @@ function setView(name){
   syncVoiceControlsUI();
 
   updateCallDock();
+  updateMobileNav();
 }
 
 
@@ -9272,6 +9875,7 @@ function saveServerSettings(){
 }
 
 function selectServer(serverId){
+  closeMobileServers();
   // Navegar para outro servidor não encerra a call atual.
   // A call só termina pelo botão "Sair" ou ao entrar deliberadamente em outra call.
   setAppMode('server');
@@ -9383,6 +9987,7 @@ function requestTextJoin(serverId,channelId){
 
 
 function selectText(channelId){
+  closeMobileServers();
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
 
@@ -9421,6 +10026,7 @@ function selectText(channelId){
 }
 
 function selectVoice(channelId){
+  closeMobileServers();
   clearTextJoinRetry();
   $('#quickInviteBtn')?.classList.remove('hidden');
   setAppMode('server');
@@ -12271,6 +12877,8 @@ $('#installAppBtn').addEventListener('click',async ()=>{
   updateInstallButton();
 });
 
+applyInterfaceMode();
+
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('/sw.js').catch(error=>{
@@ -12325,6 +12933,58 @@ $('#labsFeatureGrid').addEventListener('click',handleLabsGridClick);
 $('#creativeSearch').addEventListener('input',renderCreative);
 $('#creativeCategory').addEventListener('change',renderCreative);
 $('#creativeGrid').addEventListener('click',handleCreativeClick);
+$('#essentialMobileMode').addEventListener('change',event=>{state.interfaceMode=event.target.value});
+$('#essentialDataSaver').addEventListener('change',event=>{state.dataSaver=event.target.checked});
+$('#essentialApplyMobileBtn').addEventListener('click',()=>{
+  state.interfaceMode=$('#essentialMobileMode').value;
+  state.dataSaver=$('#essentialDataSaver').checked;
+  localStorage.setItem('concorde-interface-mode',state.interfaceMode);
+  applyDataSaver();
+  applyInterfaceMode();
+  setEssentialStatus('Modo de interface aplicado.','ok');
+});
+$('#essentialInstallBtn').addEventListener('click',async()=>{
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    try{await deferredInstallPrompt.userChoice}catch{}
+    deferredInstallPrompt=null;
+    updateInstallButton();
+  }else{
+    setEssentialStatus('No celular, use “Adicionar à tela inicial” / “Instalar app” no menu do navegador.','ok');
+  }
+});
+$('#essentialBackupBtn').addEventListener('click',downloadEssentialBackup);
+$('#essentialRefreshBackupBtn').addEventListener('click',()=>{saveLocalRecoverySnapshot();loadPersistenceStatus();setEssentialStatus('Backup local atualizado.','ok')});
+$('#essentialRestoreFile').addEventListener('change',event=>restoreEssentialBackup(event.target.files?.[0]));
+$('#essentialSearchBtn').addEventListener('click',performEssentialSearch);
+$('#essentialSearchInput').addEventListener('keydown',event=>{if(event.key==='Enter')performEssentialSearch()});
+$('#essentialSessionsBtn').addEventListener('click',loadEssentialSessions);
+$('#essentialLogoutOthersBtn').addEventListener('click',revokeOtherSessions);
+$('#essentialChangePasswordBtn').addEventListener('click',changeEssentialPassword);
+$('#essentialPingBtn').addEventListener('click',essentialConnectionCheck);
+$('#essentialReconnectBtn').addEventListener('click',()=>{socket.disconnect();setTimeout(()=>socket.connect(),250);setTimeout(essentialConnectionCheck,900)});
+$('#essentialBlockBtn').addEventListener('click',()=>essentialBlock('block'));
+$('#essentialUnblockBtn').addEventListener('click',()=>essentialBlock('unblock'));
+$('#essentialReportBtn').addEventListener('click',essentialReport);
+
+$('#mobileHomeBtn').addEventListener('click',()=>{closeMobileServers();setAppMode('hub');setView('friends')});
+$('#mobileServersBtn').addEventListener('click',toggleMobileServers);
+$('#mobileChatBtn').addEventListener('click',()=>{
+  closeMobileServers();
+  if(state.serverId&&state.textChannelId)selectText(state.textChannelId);
+  else toggleMobileServers();
+});
+$('#mobileCallBtn').addEventListener('click',()=>{
+  closeMobileServers();
+  if(state.joinedVoiceId){returnToActiveCall();return}
+  if(state.voiceChannelId&&typeof selectVoice==='function'){selectVoice(state.voiceChannelId);return}
+  toast('Escolha um canal de voz');
+});
+$('#mobileProfileBtn').addEventListener('click',()=>{closeMobileServers();openProfileModal()});
+$('#mobileBackdrop').addEventListener('click',closeMobileServers);
+
+window.addEventListener('resize',()=>{if(state.interfaceMode==='auto')applyInterfaceMode()});
+
 $('#megaSaveProfile').addEventListener('click',saveMegaProfile);
 $('#megaUnreadClearBtn').addEventListener('click',clearAllUnread);
 $('#megaSaveServer').addEventListener('click',saveMegaServer);
@@ -16749,6 +17409,219 @@ io.on('connection', socket => {
     saveServersToDisk();
     broadcastServerUpdate(s);
     reply({ok:true,creative:s.creative});
+  });
+
+
+  socket.on('essential-ping',(payload,ack)=>{
+    if(typeof ack==='function'){
+      ack({ok:true,serverTime:Date.now(),echo:payload?.at||0});
+    }
+  });
+
+  socket.on('essential-sessions',({token},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const userId=sessionUserId(token,{renew:false});
+
+    if(!userId||userId!==socket.data.userId){
+      reply({ok:false,error:'Sessão inválida'});
+      return;
+    }
+
+    const currentHash=tokenHash(token);
+    const list=[...sessions.entries()]
+      .filter(([,session])=>session.userId===userId)
+      .map(([hash,session])=>({
+        current:hash===currentHash,
+        createdAt:Number(session.createdAt||Date.now()),
+        lastSeenAt:Number(session.lastSeenAt||session.createdAt||Date.now()),
+        expiresAt:Number(session.expiresAt||0)
+      }))
+      .sort((a,b)=>b.lastSeenAt-a.lastSeenAt);
+
+    reply({ok:true,sessions:list});
+  });
+
+  socket.on('essential-revoke-other-sessions',({token},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const userId=sessionUserId(token,{renew:false});
+
+    if(!userId||userId!==socket.data.userId){
+      reply({ok:false,error:'Sessão inválida'});
+      return;
+    }
+
+    const currentHash=tokenHash(token);
+    let revoked=0;
+
+    for(const [hash,session] of [...sessions.entries()]){
+      if(session.userId===userId&&hash!==currentHash){
+        sessions.delete(hash);
+        revoked+=1;
+      }
+    }
+
+    saveServersToDisk();
+    reply({ok:true,revoked});
+  });
+
+  socket.on('essential-change-password',({token,oldPassword,newPassword},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const userId=sessionUserId(token,{renew:false});
+    const account=userId?accounts.get(userId):null;
+
+    if(!userId||userId!==socket.data.userId||!account){
+      reply({ok:false,error:'Sessão inválida'});
+      return;
+    }
+
+    if(account.recoveredSessionOnly){
+      reply({ok:false,error:'Faça login novamente antes de alterar a senha'});
+      return;
+    }
+
+    if(!verifyAccountPassword(String(oldPassword||''),account)){
+      reply({ok:false,error:'Senha atual incorreta'});
+      return;
+    }
+
+    const safeNew=String(newPassword||'');
+    if(safeNew.length<6||safeNew.length>128){
+      reply({ok:false,error:'A nova senha precisa ter entre 6 e 128 caracteres'});
+      return;
+    }
+
+    const salt=crypto.randomBytes(16).toString('hex');
+    account.salt=salt;
+    account.passwordHash=passwordDigest(safeNew,salt);
+    account.recoveredSessionOnly=false;
+
+    const currentHash=tokenHash(token);
+    for(const [hash,session] of [...sessions.entries()]){
+      if(session.userId===userId&&hash!==currentHash)sessions.delete(hash);
+    }
+
+    saveServersToDisk();
+    reply({ok:true});
+  });
+
+  socket.on('essential-search',({query},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    if(!socket.data.userId){
+      reply({ok:false,error:'Entre na sua conta'});
+      return;
+    }
+
+    const q=String(query||'').trim().toLocaleLowerCase('pt-BR').slice(0,100);
+    if(q.length<2){
+      reply({ok:false,error:'Busca muito curta'});
+      return;
+    }
+
+    const results=[];
+
+    for(const s of servers.values()){
+      if(!requireServerAccess(s,socket))continue;
+
+      if(String(s.name||'').toLocaleLowerCase('pt-BR').includes(q)){
+        results.push({
+          type:'server',
+          title:'Servidor · '+s.name,
+          preview:s.description||'',
+          serverId:s.id
+        });
+      }
+
+      for(const channel of s.textChannels||[]){
+        if(channel.name.toLocaleLowerCase('pt-BR').includes(q)){
+          results.push({
+            type:'channel',
+            title:'# '+channel.name+' · '+s.name,
+            preview:'Canal de texto',
+            serverId:s.id,
+            channelId:channel.id
+          });
+        }
+
+        const history=s.messages.get(channel.id)||[];
+        for(const message of history.slice(-500)){
+          const hay=(String(message.username||'')+' '+String(message.text||'')).toLocaleLowerCase('pt-BR');
+          if(!hay.includes(q))continue;
+
+          results.push({
+            type:'message',
+            title:(message.username||'Usuário')+' · #'+channel.name,
+            preview:String(message.text||'').slice(0,220),
+            serverId:s.id,
+            channelId:channel.id,
+            messageId:message.id
+          });
+
+          if(results.length>=80)break;
+        }
+
+        if(results.length>=80)break;
+      }
+
+      if(results.length>=80)break;
+    }
+
+    const visibleUserIds=new Set([socket.data.userId]);
+
+    for(const pair of friendships){
+      if(pair.a===socket.data.userId)visibleUserIds.add(pair.b);
+      if(pair.b===socket.data.userId)visibleUserIds.add(pair.a);
+    }
+
+    for(const s of servers.values()){
+      if(requireServerAccess(s,socket)){
+        for(const memberId of s.members||[])visibleUserIds.add(memberId);
+      }
+    }
+
+    for(const userId of visibleUserIds){
+      if(results.length>=100)break;
+      const profile=profiles.get(userId);
+      if(!profile)continue;
+
+      const hay=(String(profile.username||'')+' '+String(profile.displayName||'')+' '+String(profile.bio||'')).toLocaleLowerCase('pt-BR');
+      if(hay.includes(q)){
+        results.push({
+          type:'user',
+          title:'Pessoa · '+profile.username,
+          preview:profile.bio||profile.displayName||''
+        });
+      }
+    }
+
+    reply({ok:true,results:results.slice(0,100)});
+  });
+
+  socket.on('essential-report',({serverId,target,reason},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const s=servers.get(String(serverId||''));
+
+    if(!s||!requireServerAccess(s,socket)){
+      reply({ok:false,error:'Servidor indisponível'});
+      return;
+    }
+
+    const safeTarget=String(target||'').trim().slice(0,40);
+    const safeReason=String(reason||'').trim().slice(0,500);
+
+    if(!safeTarget||safeReason.length<3){
+      reply({ok:false,error:'Preencha usuário e motivo'});
+      return;
+    }
+
+    recordAudit(
+      s.id,
+      'report',
+      socket.data.username||'Usuário',
+      (safeTarget+' · '+safeReason).slice(0,80)
+    );
+
+    saveServersToDisk();
+    reply({ok:true});
   });
 
   socket.on('labs-ping',(payload,ack)=>{
