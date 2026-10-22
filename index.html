@@ -3888,6 +3888,14 @@ body.mobileMode .mobileNav{
   border-color:var(--line)!important;
 }
 
+
+.installerPending{
+  opacity:.88;
+}
+.downloadBtn.installerPending{
+  border-style:dashed!important;
+}
+
 </style>
 </head>
 <body>
@@ -4050,7 +4058,7 @@ body.mobileMode .mobileNav{
         <div id="topSub" class="topSub">chat, amigos e calls</div>
       </div>
       <div class="topActions">
-        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small hidden" type="button" disabled>↓ Windows</button>
+        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small" type="button">↓ Windows</button>
         <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
       </div>
     </header>
@@ -4065,7 +4073,7 @@ body.mobileMode .mobileNav{
             <button id="homeCreateServer" class="btn primary">+ Novo servidor</button>
             <button id="homeCreateText" class="btn secondary"># Novo canal</button>
             <button id="homeCreateVoice" class="btn secondary">☎ Nova call</button>
-            <button id="windowsDownloadBtn" class="btn downloadBtn hidden" type="button" disabled>
+            <button id="windowsDownloadBtn" class="btn downloadBtn" type="button">
               <span class="downloadIcon">↓</span>
               <span class="downloadCopy">
                 <strong>Baixar Acord para Windows</strong>
@@ -13808,15 +13816,33 @@ function renderMembers(list){
 
 let acordWindowsInstallerUrl='';
 
-function setWindowsDownloadVisibility(visible){
+function setWindowsDownloadVisibility(available){
   const main=$('#windowsDownloadBtn');
   const top=$('#topWindowsDownloadBtn');
 
   [main,top].forEach(button=>{
     if(!button)return;
-    button.classList.toggle('hidden',!visible);
-    button.disabled=!visible;
+    button.classList.remove('hidden');
+    button.disabled=false;
+    button.classList.toggle('installerPending',!available);
   });
+
+  if(main){
+    const title=main.querySelector('strong');
+    const sub=main.querySelector('small');
+
+    if(available){
+      if(title)title.textContent='Baixar Acord para Windows';
+      if(sub)sub.textContent='Instalador independente · .exe';
+    }else{
+      if(title)title.textContent='Baixar Acord para Windows';
+      if(sub)sub.textContent='Instalador ainda não publicado';
+    }
+  }
+
+  if(top){
+    top.textContent=available?'↓ Windows .exe':'↓ Windows';
+  }
 }
 
 async function refreshWindowsInstaller(){
@@ -13840,7 +13866,11 @@ async function refreshWindowsInstaller(){
 }
 
 function downloadAcordWindows(){
-  if(!acordWindowsInstallerUrl)return;
+  if(!acordWindowsInstallerUrl){
+    toast('O instalador do Windows ainda não foi publicado.');
+    return;
+  }
+
   window.location.assign(acordWindowsInstallerUrl);
 }
 
