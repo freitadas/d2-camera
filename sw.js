@@ -1,4 +1,4 @@
-const CACHE='acord-cloudflare-v53';
+const CACHE='acord-cloudflare-v54';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png','/socket.io.js'];
 
 self.addEventListener('install',event=>{

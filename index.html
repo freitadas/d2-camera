@@ -4050,7 +4050,7 @@ body.mobileMode .mobileNav{
         <div id="topSub" class="topSub">chat, amigos e calls</div>
       </div>
       <div class="topActions">
-        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small" type="button">↓ Windows</button>
+        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small hidden" type="button" disabled>↓ Windows</button>
         <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
       </div>
     </header>
@@ -4065,7 +4065,7 @@ body.mobileMode .mobileNav{
             <button id="homeCreateServer" class="btn primary">+ Novo servidor</button>
             <button id="homeCreateText" class="btn secondary"># Novo canal</button>
             <button id="homeCreateVoice" class="btn secondary">☎ Nova call</button>
-            <button id="windowsDownloadBtn" class="btn downloadBtn" type="button">
+            <button id="windowsDownloadBtn" class="btn downloadBtn hidden" type="button" disabled>
               <span class="downloadIcon">↓</span>
               <span class="downloadCopy">
                 <strong>Baixar Acord para Windows</strong>
@@ -13806,31 +13806,42 @@ function renderMembers(list){
 }
 
 
-const WINDOWS_RELEASE_API =
-  'https://api.github.com/repos/freitadas/d2-camera/releases/tags/windows-latest';
+let acordWindowsInstallerUrl='';
 
-async function downloadAcordWindows(){
+function setWindowsDownloadVisibility(visible){
+  const main=$('#windowsDownloadBtn');
+  const top=$('#topWindowsDownloadBtn');
+
+  [main,top].forEach(button=>{
+    if(!button)return;
+    button.classList.toggle('hidden',!visible);
+    button.disabled=!visible;
+  });
+}
+
+async function refreshWindowsInstaller(){
+  setWindowsDownloadVisibility(false);
+  acordWindowsInstallerUrl='';
+
   try{
-    const response=await fetch(WINDOWS_RELEASE_API,{
-      headers:{Accept:'application/vnd.github+json'},
+    const response=await fetch('/api/windows-installer',{
       cache:'no-store'
     });
-    if(!response.ok){
-      toast('O instalador independente do Windows ainda não foi publicado.');
-      return;
-    }
-    const release=await response.json();
-    const asset=(release.assets||[]).find(item=>
-      String(item?.name||'').toLowerCase()==='acord-setup.exe'
-    );
-    if(!asset?.browser_download_url){
-      toast('O instalador independente do Windows ainda não foi publicado.');
-      return;
-    }
-    window.location.assign(asset.browser_download_url);
-  }catch{
-    toast('Não foi possível verificar o instalador agora.');
-  }
+
+    if(!response.ok)return;
+
+    const data=await response.json();
+
+    if(!data?.available || !data?.url)return;
+
+    acordWindowsInstallerUrl=String(data.url);
+    setWindowsDownloadVisibility(true);
+  }catch{}
+}
+
+function downloadAcordWindows(){
+  if(!acordWindowsInstallerUrl)return;
+  window.location.assign(acordWindowsInstallerUrl);
 }
 
 let deferredInstallPrompt = null;
@@ -13867,6 +13878,8 @@ $('#installAppBtn').addEventListener('click',event=>{
 });
 $('#windowsDownloadBtn').addEventListener('click',downloadAcordWindows);
 $('#topWindowsDownloadBtn').addEventListener('click',downloadAcordWindows);
+
+refreshWindowsInstaller();
 
 applyInterfaceMode();
 

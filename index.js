@@ -4869,6 +4869,40 @@ export default{
       });
     }
 
+    if(url.pathname==='/api/windows-installer'){
+      try{
+        const response=await fetch(
+          'https://api.github.com/repos/freitadas/d2-camera/releases/tags/windows-latest',
+          {
+            headers:{
+              'Accept':'application/vnd.github+json',
+              'User-Agent':'Acord-Cloudflare'
+            }
+          }
+        );
+
+        if(!response.ok){
+          return json({available:false,url:null});
+        }
+
+        const release=await response.json();
+        const asset=(Array.isArray(release?.assets)?release.assets:[]).find(item=>
+          String(item?.name||'').toLowerCase()==='acord-setup.exe'
+        );
+
+        if(!asset?.browser_download_url){
+          return json({available:false,url:null});
+        }
+
+        return json({
+          available:true,
+          url:String(asset.browser_download_url)
+        });
+      }catch{
+        return json({available:false,url:null});
+      }
+    }
+
     if(url.pathname.startsWith('/phone-camera-qr/')){
       const token=url.pathname.split('/').pop()||'';
       const target=
