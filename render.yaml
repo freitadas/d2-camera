@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: d2-camera
-    runtime: node
-    plan: free
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /health
-    autoDeployTrigger: commit
