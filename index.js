@@ -380,6 +380,17 @@ function tokenHash(token){
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+function readCookie(header,name){
+  const target=String(name||'')+'=';
+  for(const part of String(header||'').split(';')){
+    const item=part.trim();
+    if(item.startsWith(target)){
+      try{return decodeURIComponent(item.slice(target.length))}catch{return item.slice(target.length)}
+    }
+  }
+  return '';
+}
+
 function newSession(userId){
   const token=crypto.randomBytes(32).toString('hex');
   const now=Date.now();
@@ -559,7 +570,7 @@ function makeServer(name = 'Acord', options = {}) {
   const messages = new Map();
   for (const channel of textChannels) {
     const history = Array.isArray(options.messages?.[channel.id])
-      ? options.messages[channel.id].slice(-100)
+      ? options.messages[channel.id].slice(-300)
       : [];
     messages.set(channel.id, history);
   }
@@ -661,15 +672,7 @@ function serializePrivateGroups() {
       ? group.members.map(value=>String(value || '').slice(0,100)).filter(Boolean).slice(0,10)
       : [],
     createdAt:Number(group.createdAt || Date.now()),
-    messages:Array.isArray(group.messages)
-      ? group.messages.slice(-500).map(message=>({
-          id:String(message.id || '').slice(0,80),
-          userId:String(message.userId || '').slice(0,100),
-          username:String(message.username || 'Usuário').slice(0,30),
-          text:String(message.text || '').slice(0,1000),
-          at:Number(message.at || Date.now())
-        }))
-      : []
+    messages:[]
   }));
 }
 
@@ -699,7 +702,7 @@ function serializeServers() {
     voiceChannels: serverData.voiceChannels,
     categories: serverData.categories,
     roles: serverData.roles,
-    messages: Object.fromEntries(serverData.messages),
+    messages: {},
     rules:serverData.rules||'',
     banner:serverData.banner||'',
     inviteExpiresAt:Number(serverData.inviteExpiresAt||0),
@@ -1024,14 +1027,14 @@ function resetPersistentState(){
 
 function serializeSnapshot(){
   return {
-    version:16,
+    version:20,
     savedAt:Date.now(),
     servers:serializeServers(),
     profiles:serializeProfiles(),
     accounts:serializeAccounts(),
     sessions:serializeSessions(),
     auditLog:auditLog.slice(-2000),
-    directMessages:serializeDirectMessages(),
+    directMessages:[],
     friendRequests:serializeFriendRequests(),
     friendships:serializeFriendships(),
     privateGroups:serializePrivateGroups(),
@@ -1240,6 +1243,26 @@ function hydrateSnapshot(parsed){
 }
 
 let ACTIVE_RUNTIME=null;
+
+function persistChatMessage(message){
+  if(!ACTIVE_RUNTIME || !message) return Promise.resolve(false);
+  return ACTIVE_RUNTIME.persistChatMessage(message);
+}
+
+function deletePersistedChatMessage(message){
+  if(!ACTIVE_RUNTIME || !message) return Promise.resolve(false);
+  return ACTIVE_RUNTIME.deleteChatMessage(message);
+}
+
+function persistDmMessage(message){
+  if(!ACTIVE_RUNTIME || !message) return Promise.resolve(false);
+  return ACTIVE_RUNTIME.persistDmMessage(message);
+}
+
+function persistGroupMessage(message){
+  if(!ACTIVE_RUNTIME || !message) return Promise.resolve(false);
+  return ACTIVE_RUNTIME.persistGroupMessage(message);
+}
 
 function saveServersToDisk(){
   if(!ACTIVE_RUNTIME) return false;
@@ -1499,6 +1522,27 @@ function setupSocket(socket){
     return loginAttempts.count<=12;
   }
 
+  socket.on('auth-cookie',()=>{
+    const userId=String(socket.data.userId||'').slice(0,100);
+    const profile=userId?profiles.get(userId):null;
+
+    if(!userId || !profile || !socket.data.cookieSession){
+      socket.emit('auth-cookie-missing',{ok:false});
+      return;
+    }
+
+    socket.emit('auth-success',{
+      profile:publicProfile(profile),
+      cookieSession:true
+    });
+
+    emitAccountState(socket);
+    sendServerList(socket);
+    emitFriendState(userId);
+    emitGroupState(userId);
+    broadcastOnlineUsers();
+  });
+
   socket.on('auth-register',({username,password})=>{
     try{
       if(!allowLoginAttempt()){
@@ -1564,6 +1608,8 @@ function setupSocket(socket){
       const token=newSession(userId);
       socket.data.userId=userId;
       socket.data.username=safeUsername;
+      socket.data.sessionHash=tokenHash(token);
+      socket.data.cookieSession=false;
 
       saveServersToDisk();
 
@@ -1586,7 +1632,7 @@ function setupSocket(socket){
     }
   });
 
-  socket.on('auth-login',({username,password,recovery})=>{
+  socket.on('auth-login',async ({username,password,recovery})=>{
     try{
       if(!allowLoginAttempt()){
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
@@ -1629,8 +1675,12 @@ function setupSocket(socket){
           profiles.set(recoveryUserId,{id:recoveryUserId,username:safeUsername,displayName:String(recovery?.displayName||safeUsername).slice(0,40),bio:String(recovery?.bio||'').slice(0,300),avatar:String(recovery?.avatar||'').slice(0,350000),banner:String(recovery?.banner||'').slice(0,350000),status:['online','away','busy','invisible'].includes(recovery?.status)?recovery.status:'online',customStatus:String(recovery?.customStatus||'').slice(0,80),pronouns:String(recovery?.pronouns||'').slice(0,40),activity:String(recovery?.activity||'').slice(0,80),links:recovery?.links&&typeof recovery.links==='object'?recovery.links:{},privacy:recovery?.privacy&&typeof recovery.privacy==='object'?recovery.privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},createdAt:Number(recovery?.savedAt||Date.now()),updatedAt:Number(recovery?.savedAt||Date.now())});
         }
         mergeRecoveryIntoCanonicalUser(recoveryUserId,recovery);
-        socket.data.userId=recoveryUserId; socket.data.username=safeUsername;
-        const token=newSession(recoveryUserId); saveServersToDisk();
+        socket.data.userId=recoveryUserId;
+        socket.data.username=safeUsername;
+        const token=newSession(recoveryUserId);
+        socket.data.sessionHash=tokenHash(token);
+        socket.data.cookieSession=false;
+        saveServersToDisk();
         socket.emit('auth-success',{token,profile:publicProfile(profiles.get(recoveryUserId)),accountRecovered:true,recoveredIdentity:true});
         emitAccountState(socket); sendServerList(socket); emitFriendState(recoveryUserId); emitGroupState(recoveryUserId); broadcastOnlineUsers();
         return;
@@ -1648,7 +1698,10 @@ function setupSocket(socket){
       }
 
       const recoveryMerged=mergeRecoveryIntoCanonicalUser(account.userId,recovery);
-      if(recoveryMerged) saveServersToDisk();
+      if(recoveryMerged){
+        await ACTIVE_RUNTIME?.migrateInlineMedia();
+        saveServersToDisk();
+      }
 
       let profile=profiles.get(account.userId);
 
@@ -1677,6 +1730,8 @@ function setupSocket(socket){
       socket.data.username=account.username;
 
       const token=newSession(account.userId);
+      socket.data.sessionHash=tokenHash(token);
+      socket.data.cookieSession=false;
       saveServersToDisk();
 
       socket.emit('auth-success',{token,profile:publicProfile(profile)});
@@ -1859,6 +1914,8 @@ function setupSocket(socket){
 
       socket.data.userId=userId;
       socket.data.username=profile.username;
+      socket.data.sessionHash=tokenHash(token);
+      socket.data.cookieSession=false;
 
       saveServersToDisk();
 
@@ -1880,40 +1937,61 @@ function setupSocket(socket){
     }
   });
 
-  socket.on('auth-keepalive',({token})=>{
-    const userId=sessionUserId(token,{renew:true});
+  socket.on('auth-keepalive',({token}={})=>{
+    const rawToken=String(token||'');
+    const hash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const session=hash?sessions.get(hash):null;
+    const userId=rawToken
+      ? sessionUserId(rawToken,{renew:true})
+      : session?.userId;
 
-    if(!userId || userId!==socket.data.userId){
+    if(!userId || userId!==socket.data.userId || !session){
       socket.emit('auth-required',{reason:'invalid-session'});
       return;
     }
 
-    // Evita gravar o arquivo a cada ping. Grava aproximadamente a cada 30 minutos.
-    const hash=tokenHash(token);
-    const session=sessions.get(hash);
+    const now=Date.now();
+    session.lastSeenAt=now;
+    session.expiresAt=now+SESSION_LIFETIME_MS;
+
     const lastPersisted=Number(session?.lastPersistedAt || 0);
 
-    if(session && Date.now()-lastPersisted > 1000*60*30){
-      session.lastPersistedAt=Date.now();
+    if(now-lastPersisted > 1000*60*30){
+      session.lastPersistedAt=now;
       saveServersToDisk();
     }
 
-    socket.emit('auth-alive',{at:Date.now()});
+    socket.emit('auth-alive',{at:now});
   });
 
-  socket.on('auth-logout',({token})=>{
-    const hash=tokenHash(token);
-    const session=sessions.get(hash);
+  socket.on('auth-logout',({token}={})=>{
+    const rawToken=String(token||'');
+    const hash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const session=hash?sessions.get(hash):null;
     if(session?.userId===socket.data.userId) sessions.delete(hash);
     socket.data.userId=null;
     socket.data.username=null;
+    socket.data.sessionHash=null;
+    socket.data.cookieSession=false;
     saveServersToDisk();
     socket.emit('auth-logout-success');
     broadcastOnlineUsers();
   });
 
-  socket.on('delete-account',({token})=>{
-    const userId=sessionUserId(token);
+  socket.on('delete-account',({token}={})=>{
+    const rawToken=String(token||'');
+    const hash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const session=hash?sessions.get(hash):null;
+    const userId=rawToken
+      ? sessionUserId(rawToken)
+      : session?.userId;
+
     if(!userId || userId!==socket.data.userId){
       socket.emit('auth-error',{error:'Sessão inválida.'});return;
     }
@@ -1921,7 +1999,11 @@ function setupSocket(socket){
     const username=profile?.username||'';
 
     for(const [serverId,s] of [...servers.entries()]){
-      if(s.ownerId===userId){servers.delete(serverId);continue}
+      if(s.ownerId===userId){
+        servers.delete(serverId);
+        ACTIVE_RUNTIME?.deleteServerData(serverId);
+        continue;
+      }
       s.members=(s.members||[]).filter(id=>id!==userId);
       for(const role of s.roles||[]){
         role.members=(role.members||[]).filter(member=>String(member||'').toLowerCase()!==username.toLowerCase());
@@ -1937,11 +2019,19 @@ function setupSocket(socket){
       if(directMessages[i].fromUserId===userId || directMessages[i].toUserId===userId) directMessages.splice(i,1);
     }
     for(const [groupId,group] of [...privateGroups.entries()]){
-      if(group.ownerId===userId){privateGroups.delete(groupId);continue}
+      if(group.ownerId===userId){
+        privateGroups.delete(groupId);
+        ACTIVE_RUNTIME?.deleteGroupData(groupId);
+        continue;
+      }
       group.members=(group.members||[]).filter(id=>id!==userId);
       group.messages=(group.messages||[]).filter(message=>message.userId!==userId);
-      if(group.members.length<2) privateGroups.delete(groupId);
+      if(group.members.length<2){
+        privateGroups.delete(groupId);
+        ACTIVE_RUNTIME?.deleteGroupData(groupId);
+      }
     }
+    ACTIVE_RUNTIME?.deleteAccountData(userId);
     clearSessionsForUser(userId);
     accounts.delete(userId);profiles.delete(userId);
     socket.data.userId=null;socket.data.username=null;
@@ -1957,7 +2047,7 @@ function setupSocket(socket){
     broadcastOnlineUsers();
   });
 
-  socket.on('set-profile', ({ username, displayName, bio, avatar, banner, status, knownServerIds }) => {
+  socket.on('set-profile', async ({ username, displayName, bio, avatar, banner, status, knownServerIds }) => {
     const safeId=String(socket.data.userId||'').trim().slice(0,100);
     if(!safeId || !accounts.has(safeId)) return;
 
@@ -1972,14 +2062,25 @@ function setupSocket(socket){
       socket.emit('profile-error',{error:'Esse nome já está sendo usado.'});return;
     }
 
+    let nextAvatar=String(avatar===undefined?(oldProfile?.avatar||''):avatar).slice(0,1200000);
+    let nextBanner=String(banner===undefined?(oldProfile?.banner||''):banner).slice(0,1200000);
+
+    if(nextAvatar.startsWith('data:')){
+      nextAvatar=await ACTIVE_RUNTIME?.putMediaDataUrl('profile:'+safeId+':avatar',nextAvatar) || nextAvatar;
+    }
+
+    if(nextBanner.startsWith('data:')){
+      nextBanner=await ACTIVE_RUNTIME?.putMediaDataUrl('profile:'+safeId+':banner',nextBanner) || nextBanner;
+    }
+
     const profile={
       ...(oldProfile||{}),
       id:safeId,
       username:safeUsername,
       displayName:String(displayName||safeUsername).trim().slice(0,40)||safeUsername,
       bio:String(bio||'').trim().slice(0,300),
-      avatar:String(avatar||'').slice(0,350000),
-      banner:String(banner||'').slice(0,350000),
+      avatar:nextAvatar,
+      banner:nextBanner,
       status:['online','away','busy','invisible'].includes(status)?status:'online',
       customStatus:String(oldProfile?.customStatus||'').slice(0,80),
       pronouns:String(oldProfile?.pronouns||'').slice(0,40),
@@ -2043,7 +2144,7 @@ function setupSocket(socket){
     broadcastOnlineUsers();
   });
 
-  socket.on('restore-friends', ({ friends }) => {
+  socket.on('restore-friends', async ({ friends }) => {
     if (!socket.data.userId || !Array.isArray(friends)) return;
 
     const ownerId = socket.data.userId;
@@ -2058,11 +2159,31 @@ function setupSocket(socket){
       // Se o perfil do amigo sumiu após reinício do servidor,
       // restaura os dados públicos guardados no navegador.
       if (!profiles.has(friendId)) {
+        let restoredAvatar=String(rawFriend?.avatar || '').slice(0,1200000);
+
+        if(restoredAvatar.startsWith('data:')){
+          restoredAvatar=
+            await ACTIVE_RUNTIME?.putMediaDataUrl(
+              'profile:'+friendId+':avatar',
+              restoredAvatar
+            ) || restoredAvatar;
+        }
+
         profiles.set(friendId,{
           id:friendId,
           username,
+          displayName:username,
           bio:String(rawFriend?.bio || '').trim().slice(0,160),
-          avatar:String(rawFriend?.avatar || '').slice(0,350000)
+          avatar:restoredAvatar,
+          banner:'',
+          status:'offline',
+          customStatus:'',
+          pronouns:'',
+          activity:'',
+          links:{},
+          privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
+          createdAt:Date.now(),
+          updatedAt:Date.now()
         });
         changed = true;
       }
@@ -2324,6 +2445,7 @@ function setupSocket(socket){
     const groupName=group.name || 'Grupo privado';
 
     privateGroups.delete(safeGroupId);
+    ACTIVE_RUNTIME?.deleteGroupData(safeGroupId);
     saveServersToDisk();
 
     for(const userId of members){
@@ -2350,13 +2472,18 @@ function setupSocket(socket){
       return;
     }
 
+    const messages=ACTIVE_RUNTIME?.getGroupHistory(group.id,300)
+      || (group.messages||[]).slice(-300);
+
+    group.messages=messages.slice(-300);
+
     socket.emit('group-history',{
       groupId:group.id,
-      messages:(group.messages || []).slice(-300)
+      messages
     });
   });
 
-  socket.on('group-message', ({ groupId, text }) => {
+  socket.on('group-message', async ({ groupId, text }) => {
     if (!socket.data.userId) return;
 
     const group = privateGroups.get(String(groupId || '').slice(0,80));
@@ -2379,9 +2506,9 @@ function setupSocket(socket){
     };
 
     group.messages.push(message);
-    while (group.messages.length > 500) group.messages.shift();
+    while (group.messages.length > 300) group.messages.shift();
 
-    saveServersToDisk();
+    await persistGroupMessage(message);
 
     for (const client of io.sockets.sockets.values()) {
       if ((group.members || []).includes(client.data.userId)) {
@@ -2588,7 +2715,7 @@ function setupSocket(socket){
     });
   });
 
-  socket.on('update-server-settings', ({ serverId, name, icon, accent, description, tags }) => {
+  socket.on('update-server-settings', async ({ serverId, name, icon, accent, description, tags }) => {
     const safeId = String(serverId || '').slice(0,80);
     const serverData = servers.get(safeId);
 
@@ -2600,7 +2727,12 @@ function setupSocket(socket){
     }
 
     serverData.name = cleanName(name, serverData.name || 'Servidor');
-    serverData.icon = String(icon || '').slice(0,350000);
+
+    const rawIcon=String(icon===undefined?serverData.icon:icon).slice(0,1200000);
+    serverData.icon=rawIcon.startsWith('data:')
+      ? (await ACTIVE_RUNTIME?.putMediaDataUrl('server:'+safeId+':icon',rawIcon) || rawIcon)
+      : rawIcon;
+
     serverData.accent = /^#[0-9a-f]{6}$/i.test(String(accent || ''))
       ? String(accent)
       : (serverData.accent || '#ff6b4a');
@@ -2629,6 +2761,7 @@ function setupSocket(socket){
     }
 
     servers.delete(safeId);
+    ACTIVE_RUNTIME?.deleteServerData(safeId);
     saveServersToDisk();
 
     socket.emit('server-deleted', { serverId: safeId });
@@ -3064,6 +3197,7 @@ function setupSocket(socket){
 
       const [removed] = s.textChannels.splice(index,1);
       s.messages.delete(safeChannelId);
+      ACTIVE_RUNTIME?.deleteChannelData(serverId,safeChannelId);
       s.textChannels.forEach((channel,idx)=>channel.order=idx);
 
       for(const client of io.sockets.sockets.values()){
@@ -3156,10 +3290,11 @@ function setupSocket(socket){
       return;
     }
 
-    const history = directMessages
-      .filter(message=>sameDmConversation(message,socket.data.userId,targetId))
-      .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
-      .slice(-500);
+    const history=ACTIVE_RUNTIME?.getDmHistory(socket.data.userId,targetId,500)
+      || directMessages
+        .filter(message=>sameDmConversation(message,socket.data.userId,targetId))
+        .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+        .slice(-500);
 
     socket.emit('dm-history',{
       targetUserId:targetId,
@@ -3167,7 +3302,7 @@ function setupSocket(socket){
     });
   });
 
-  socket.on('dm-message', ({ targetUserId, targetUsername, text, clientMessageId }) => {
+  socket.on('dm-message', async ({ targetUserId, targetUsername, text, clientMessageId }) => {
     if (!socket.data.userId) return;
 
     let targetProfile = targetUserId
@@ -3207,7 +3342,7 @@ function setupSocket(socket){
       trimDmConversation(message.fromUserId,message.toUserId,500);
     }
 
-    saveServersToDisk();
+    await persistDmMessage(message);
 
     socket.emit('dm-message',message);
 
@@ -3219,7 +3354,7 @@ function setupSocket(socket){
   });
 
 
-  socket.on('dm-recovery-sync',({messages},ack)=>{
+  socket.on('dm-recovery-sync',async({messages},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
     if(!socket.data.userId){
       reply({ok:false,error:'Entre na sua conta'});
@@ -3245,20 +3380,21 @@ function setupSocket(socket){
 
       if(directMessages.some(m=>m.id===messageId && m.fromUserId===fromUserId)) continue;
 
-      directMessages.push({
+      const recoveredMessage={
         id:messageId,
         fromUserId,
         toUserId,
         fromUsername:socket.data.username||'Usuário',
         text:safeText,
         at:Number(raw?.at||Date.now())
-      });
+      };
 
+      directMessages.push(recoveredMessage);
       trimDmConversation(fromUserId,toUserId,500);
+      await persistDmMessage(recoveredMessage);
       added++;
     }
 
-    if(added) saveServersToDisk();
     reply({ok:true,added});
   });
 
@@ -3282,7 +3418,7 @@ function setupSocket(socket){
     io.to(room).emit('chat-message',message);
   }
 
-  socket.on('public-chat-history', ({ serverId, channelId }) => {
+  socket.on('public-chat-history', ({ serverId, channelId, before, limit }) => {
     if(!socket.data.userId) return;
 
     const safeServerId=String(serverId || '').slice(0,80);
@@ -3298,10 +3434,22 @@ function setupSocket(socket){
       return;
     }
 
+    const beforeAt=Number(before||Number.MAX_SAFE_INTEGER);
+    const page=ACTIVE_RUNTIME?.getChatHistory(
+      safeServerId,
+      safeChannelId,
+      {before:beforeAt,limit:Math.min(100,Math.max(20,Number(limit)||80))}
+    ) || {
+      messages:(serverData.messages.get(safeChannelId)||[]).slice(-80),
+      hasMore:false
+    };
+
     socket.emit('public-chat-history',{
       serverId:safeServerId,
       channelId:safeChannelId,
-      messages:serverData.messages.get(safeChannelId) || []
+      messages:page.messages,
+      hasMore:!!page.hasMore,
+      before:Number.isFinite(Number(before))?Number(before):null
     });
   });
 
@@ -3312,7 +3460,7 @@ function setupSocket(socket){
     return userRoles(serverData,socket).some(role=>role.id===policy.roleId);
   }
 
-  socket.on('public-chat-message', ({ serverId, channelId, text, attachment, replyTo, confirmedEveryone }) => {
+  socket.on('public-chat-message', async ({ serverId, channelId, text, attachment, replyTo, confirmedEveryone }) => {
     if(!socket.data.userId) return;
 
     const safeServerId=String(serverId||'').slice(0,80);
@@ -3371,60 +3519,95 @@ function setupSocket(socket){
       socket.data.creativeRecentTexts.push(normalized);
     }
     const data=String(attachment?.data||'');
-    const safeAttachment=
-      attachment && /^data:[^;]+;base64,/i.test(data) && data.length<=600000
+    const rawAttachment=
+      attachment && /^data:[^;]+;base64,/i.test(data) && data.length<=1200000
         ? {
             name:String(attachment.name||'arquivo').slice(0,100),
             type:String(attachment.type||'application/octet-stream').slice(0,100),
             data
           }
         : null;
-    if(!safeText&&!safeAttachment)return;
+    if(!safeText&&!rawAttachment)return;
 
-    const mentions=[...safeText.matchAll(/@([\\wÀ-ÿ._-]{2,30})/g)].map(match=>match[1]).slice(0,20);
+    const mentions=[...safeText.matchAll(/@([\\wÀ-ÿ._-]{2,30})/g)]
+      .map(match=>match[1])
+      .slice(0,20);
+
+    const messageId=id();
+    let safeAttachment=null;
+
+    if(rawAttachment){
+      const mediaUrl=await ACTIVE_RUNTIME?.putMediaDataUrl(
+        'message:'+messageId+':attachment',
+        rawAttachment.data
+      );
+
+      safeAttachment={
+        name:rawAttachment.name,
+        type:rawAttachment.type,
+        data:mediaUrl || rawAttachment.data
+      };
+    }
 
     const message={
-      id:id(),serverId:safeServerId,channelId:safeChannelId,
-      userId:socket.data.userId,username:socket.data.username||'Usuário',
-      text:safeText,attachment:safeAttachment,
+      id:messageId,
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      userId:socket.data.userId,
+      username:socket.data.username||'Usuário',
+      text:safeText,
+      attachment:safeAttachment,
       replyTo:String(replyTo||'').slice(0,80)||null,
-      mentions,at:Date.now(),edited:false
+      reactions:{},
+      mentions,
+      at:Date.now(),
+      edited:false
     };
 
     const history=serverData.messages.get(safeChannelId)||[];
     history.push(message);
-    if(history.length>500)history.splice(0,history.length-500);
+    if(history.length>400)history.splice(0,history.length-400);
     serverData.messages.set(safeChannelId,history);
-    saveServersToDisk();
+
+    await persistChatMessage(message);
 
     for(const client of io.sockets.sockets.values()){
       if(requireServerAccess(serverData,client)) client.emit('public-chat-message',message);
     }
   });
 
-  socket.on('mega-edit-public',({serverId,channelId,messageId,text})=>{
-    const s=servers.get(String(serverId||''));
+  socket.on('mega-edit-public',async({serverId,channelId,messageId,text})=>{
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
+    const s=servers.get(safeServerId);
     if(!s||!requireServerAccess(s,socket))return;
-    const history=s.messages.get(String(channelId||''))||[];
-    const message=history.find(m=>m.id===String(messageId||''));
-    if(!message||message.userId!==socket.data.userId)return;
-    message.text=String(text||'').trim().slice(0,2000);message.edited=true;
-    saveServersToDisk();
+    const history=s.messages.get(safeChannelId)||[];
+    let message=history.find(m=>m.id===String(messageId||''));
+    if(!message) message=ACTIVE_RUNTIME?.getChatMessage(String(messageId||''));
+    if(!message||message.serverId!==safeServerId||message.channelId!==safeChannelId||message.userId!==socket.data.userId)return;
+    message.text=String(text||'').trim().slice(0,2000);
+    message.edited=true;
+    ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
+    await persistChatMessage(message);
     for(const client of io.sockets.sockets.values()){
       if(requireServerAccess(s,client)) client.emit('public-chat-message-edited',message);
     }
   });
 
-  socket.on('mega-delete-public',({serverId,channelId,messageId})=>{
-    const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
-    const history=s.messages.get(String(channelId||''))||[];
+  socket.on('mega-delete-public',async({serverId,channelId,messageId})=>{
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
+    const s=servers.get(safeServerId);
+    if(!s||!requireServerAccess(s,socket))return;
+    const history=s.messages.get(safeChannelId)||[];
     const index=history.findIndex(m=>m.id===String(messageId||''));
-    if(index<0)return;
-    const message=history[index];
+    const message=index>=0?history[index]:ACTIVE_RUNTIME?.getChatMessage(String(messageId||''));
+    if(!message||message.serverId!==safeServerId||message.channelId!==safeChannelId)return;
     if(message.userId!==socket.data.userId&&!hasServerPermission(s,socket,'manageServer'))return;
-    history.splice(index,1);saveServersToDisk();
+    if(index>=0)history.splice(index,1);
+    await deletePersistedChatMessage(message);
     for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client)) client.emit('public-chat-message-deleted',{serverId,channelId,messageId});
+      if(requireServerAccess(s,client)) client.emit('public-chat-message-deleted',{serverId:safeServerId,channelId:safeChannelId,messageId});
     }
   });
 
@@ -3437,7 +3620,7 @@ function setupSocket(socket){
   });
 
 
-  socket.on('join-text', ({ serverId, channelId },ack) => {
+  socket.on('join-text', async ({ serverId, channelId },ack) => {
     const reply=typeof ack==='function' ? ack : ()=>{};
 
     if(!socket.data.userId){
@@ -3476,23 +3659,30 @@ function setupSocket(socket){
 
     socket.join(room);
 
-    const history=s.messages.get(safeChannelId) || [];
+    const page=ACTIVE_RUNTIME?.getChatHistory(
+      safeServerId,
+      safeChannelId,
+      {limit:80}
+    ) || {messages:(s.messages.get(safeChannelId)||[]).slice(-80),hasMore:false};
+    const history=page.messages;
 
     socket.emit('text-history',{
       serverId:safeServerId,
       channelId:safeChannelId,
-      history
+      history,
+      hasMore:!!page.hasMore
     });
 
     reply({
       ok:true,
       serverId:safeServerId,
       channelId:safeChannelId,
-      history
+      history,
+      hasMore:!!page.hasMore
     });
   });
 
-  socket.on('chat-message', ({ serverId, channelId, text, replyTo, attachment, clientNonce },ack) => {
+  socket.on('chat-message', async ({ serverId, channelId, text, replyTo, attachment, clientNonce },ack) => {
     const reply=typeof ack==='function' ? ack : ()=>{};
     const safeServerId=String(serverId || '').slice(0,80);
     const safeChannelId=String(channelId || '').slice(0,80);
@@ -3532,11 +3722,11 @@ function setupSocket(socket){
     }
 
     const cleanText=String(text||'').trim().slice(0,2000);
-    const safeAttachment=
+    const rawAttachment=
       attachment &&
       String(attachment.type||'').startsWith('image/') &&
       String(attachment.data||'').startsWith('data:image/') &&
-      String(attachment.data||'').length<=900000
+      String(attachment.data||'').length<=1200000
         ? {
             name:String(attachment.name||'imagem').slice(0,80),
             type:String(attachment.type||'').slice(0,80),
@@ -3544,22 +3734,46 @@ function setupSocket(socket){
           }
         : null;
 
-    if(!cleanText && !safeAttachment){
+    if(!cleanText && !rawAttachment){
       reply({ok:false,error:'Mensagem vazia'});
       return;
     }
 
+    const messageId=id();
+    let safeAttachment=null;
+
+    if(rawAttachment){
+      const mediaUrl=await ACTIVE_RUNTIME?.putMediaDataUrl(
+        'message:'+messageId+':attachment',
+        rawAttachment.data
+      );
+      safeAttachment={
+        name:rawAttachment.name,
+        type:rawAttachment.type,
+        data:mediaUrl || rawAttachment.data
+      };
+    }
+
     const history=s.messages.get(safeChannelId)||[];
     const message={
-      id:id(),serverId:safeServerId,channelId:safeChannelId,senderId:socket.id,userId:socket.data.userId,
-      username:socket.data.username||'Usuário',text:cleanText,attachment:safeAttachment,
+      id:messageId,
+      serverId:safeServerId,
+      channelId:safeChannelId,
+      senderId:socket.id,
+      userId:socket.data.userId,
+      username:socket.data.username||'Usuário',
+      text:cleanText,
+      attachment:safeAttachment,
       clientNonce:String(clientNonce||'').slice(0,100)||null,
-      replyTo:String(replyTo||'').slice(0,80)||null,reactions:{},at:Date.now(),edited:false
+      replyTo:String(replyTo||'').slice(0,80)||null,
+      reactions:{},
+      at:Date.now(),
+      edited:false
     };
     history.push(message);
-    if(history.length>500) history.splice(0,history.length-500);
+    if(history.length>400) history.splice(0,history.length-400);
     s.messages.set(safeChannelId,history);
-    saveServersToDisk();
+    await persistChatMessage(message);
 
     // A mensagem não depende mais de o usuário estar inscrito na sala Socket.IO
     // do canal. Todos os membros online do servidor recebem o evento.
@@ -3573,15 +3787,19 @@ function setupSocket(socket){
     });
   });
 
-  socket.on('chat-edit',({serverId,channelId,messageId,text})=>{
-    const s=servers.get(serverId);
+  socket.on('chat-edit',async({serverId,channelId,messageId,text})=>{
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
+    const s=servers.get(safeServerId);
     if(!s || !requireServerAccess(s,socket)) return;
-    const history=s.messages.get(channelId)||[];
-    const message=history.find(item=>item.id===messageId);
-    if(!message || message.userId!==socket.data.userId) return;
+    const history=s.messages.get(safeChannelId)||[];
+    let message=history.find(item=>item.id===String(messageId||''));
+    if(!message) message=ACTIVE_RUNTIME?.getChatMessage(String(messageId||''));
+    if(!message || message.serverId!==safeServerId || message.channelId!==safeChannelId || message.userId!==socket.data.userId) return;
     message.text=String(text||'').trim().slice(0,2000);
     message.edited=true;
-    saveServersToDisk();
+    ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
+    await persistChatMessage(message);
 
     for(const client of io.sockets.sockets.values()){
       if(
@@ -3596,17 +3814,19 @@ function setupSocket(socket){
     }
   });
 
-  socket.on('chat-delete',({serverId,channelId,messageId})=>{
-    const s=servers.get(serverId);
+  socket.on('chat-delete',async({serverId,channelId,messageId})=>{
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
+    const s=servers.get(safeServerId);
     if(!s || !requireServerAccess(s,socket)) return;
-    const history=s.messages.get(channelId)||[];
-    const index=history.findIndex(item=>item.id===messageId);
-    if(index<0) return;
-    const message=history[index];
+    const history=s.messages.get(safeChannelId)||[];
+    const index=history.findIndex(item=>item.id===String(messageId||''));
+    const message=index>=0?history[index]:ACTIVE_RUNTIME?.getChatMessage(String(messageId||''));
+    if(!message||message.serverId!==safeServerId||message.channelId!==safeChannelId) return;
     const canManage=message.userId===socket.data.userId || hasServerPermission(s,socket,'manageServer');
     if(!canManage) return;
-    history.splice(index,1);
-    saveServersToDisk();
+    if(index>=0)history.splice(index,1);
+    await deletePersistedChatMessage(message);
 
     for(const client of io.sockets.sockets.values()){
       if(
@@ -3617,28 +3837,32 @@ function setupSocket(socket){
         )
       ){
         client.emit('chat-message-deleted',{
-          serverId,
-          channelId,
+          serverId:safeServerId,
+          channelId:safeChannelId,
           messageId
         });
       }
     }
   });
 
-  socket.on('chat-react',({serverId,channelId,messageId,emoji})=>{
-    const s=servers.get(serverId);
+  socket.on('chat-react',async({serverId,channelId,messageId,emoji})=>{
+    const safeServerId=String(serverId||'').slice(0,80);
+    const safeChannelId=String(channelId||'').slice(0,80);
+    const s=servers.get(safeServerId);
     if(!s || !requireServerAccess(s,socket)) return;
     const allowed=['👍','❤️','😂','🔥','😮','😢'];
     if(!allowed.includes(emoji)) return;
-    const history=s.messages.get(channelId)||[];
-    const message=history.find(item=>item.id===messageId);
-    if(!message) return;
+    const history=s.messages.get(safeChannelId)||[];
+    let message=history.find(item=>item.id===String(messageId||''));
+    if(!message) message=ACTIVE_RUNTIME?.getChatMessage(String(messageId||''));
+    if(!message||message.serverId!==safeServerId||message.channelId!==safeChannelId) return;
     message.reactions=message.reactions||{};
     const users=new Set(message.reactions[emoji]||[]);
     if(users.has(socket.data.userId)) users.delete(socket.data.userId);
     else users.add(socket.data.userId);
     message.reactions[emoji]=[...users].slice(0,500);
-    saveServersToDisk();
+    ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
+    await persistChatMessage(message);
 
     for(const client of io.sockets.sockets.values()){
       if(
@@ -3702,11 +3926,16 @@ function setupSocket(socket){
     broadcastOnlineUsers();
   });
 
-  socket.on('mega-server-settings',payload=>{
+  socket.on('mega-server-settings',async payload=>{
     const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
     if(!hasServerPermission(s,socket,'manageServer')){permissionDenied(socket);return}
     s.rules=String(payload?.rules||'').slice(0,4000);
-    if(typeof payload?.banner==='string'&&payload.banner.length<=350000)s.banner=payload.banner;
+    if(typeof payload?.banner==='string'&&payload.banner.length<=1200000){
+      const rawBanner=payload.banner;
+      s.banner=rawBanner.startsWith('data:')
+        ? (await ACTIVE_RUNTIME?.putMediaDataUrl('server:'+s.id+':banner',rawBanner) || rawBanner)
+        : rawBanner;
+    }
     const expiry=Math.max(0,Math.min(1000*60*60*24*30,Number(payload?.inviteExpiryMs||0)));
     s.inviteExpiresAt=expiry?Date.now()+expiry:0;
     const channelId=String(payload?.channelId||'');
@@ -3974,16 +4203,22 @@ function setupSocket(socket){
     }
   });
 
-  socket.on('essential-sessions',({token},ack)=>{
+  socket.on('essential-sessions',({token}={},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
-    const userId=sessionUserId(token,{renew:false});
+    const rawToken=String(token||'');
+    const currentHash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const currentSession=currentHash?sessions.get(currentHash):null;
+    const userId=rawToken
+      ? sessionUserId(rawToken,{renew:false})
+      : currentSession?.userId;
 
-    if(!userId||userId!==socket.data.userId){
+    if(!userId||userId!==socket.data.userId||!currentSession){
       reply({ok:false,error:'Sessão inválida'});
       return;
     }
 
-    const currentHash=tokenHash(token);
     const list=[...sessions.entries()]
       .filter(([,session])=>session.userId===userId)
       .map(([hash,session])=>({
@@ -3997,16 +4232,22 @@ function setupSocket(socket){
     reply({ok:true,sessions:list});
   });
 
-  socket.on('essential-revoke-other-sessions',({token},ack)=>{
+  socket.on('essential-revoke-other-sessions',({token}={},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
-    const userId=sessionUserId(token,{renew:false});
+    const rawToken=String(token||'');
+    const currentHash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const currentSession=currentHash?sessions.get(currentHash):null;
+    const userId=rawToken
+      ? sessionUserId(rawToken,{renew:false})
+      : currentSession?.userId;
 
-    if(!userId||userId!==socket.data.userId){
+    if(!userId||userId!==socket.data.userId||!currentSession){
       reply({ok:false,error:'Sessão inválida'});
       return;
     }
 
-    const currentHash=tokenHash(token);
     let revoked=0;
 
     for(const [hash,session] of [...sessions.entries()]){
@@ -4020,12 +4261,19 @@ function setupSocket(socket){
     reply({ok:true,revoked});
   });
 
-  socket.on('essential-change-password',({token,oldPassword,newPassword},ack)=>{
+  socket.on('essential-change-password',({token,oldPassword,newPassword}={},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
-    const userId=sessionUserId(token,{renew:false});
+    const rawToken=String(token||'');
+    const currentHash=rawToken
+      ? tokenHash(rawToken)
+      : String(socket.data.sessionHash||'');
+    const currentSession=currentHash?sessions.get(currentHash):null;
+    const userId=rawToken
+      ? sessionUserId(rawToken,{renew:false})
+      : currentSession?.userId;
     const account=userId?accounts.get(userId):null;
 
-    if(!userId||userId!==socket.data.userId||!account){
+    if(!userId||userId!==socket.data.userId||!account||!currentSession){
       reply({ok:false,error:'Sessão inválida'});
       return;
     }
@@ -4051,7 +4299,6 @@ function setupSocket(socket){
     account.passwordHash=passwordDigest(safeNew,salt);
     account.recoveredSessionOnly=false;
 
-    const currentHash=tokenHash(token);
     for(const [hash,session] of [...sessions.entries()]){
       if(session.userId===userId&&hash!==currentHash)sessions.delete(hash);
     }
@@ -4699,13 +4946,432 @@ export class AcordRealtime extends DurableObject{
     this.persistChain=Promise.resolve();
     this.lastPersistAt=0;
     this.lastPersistError='';
+    this.sqlReady=false;
     ACTIVE_RUNTIME=this;
     io=createIoCompat(this);
 
     ctx.blockConcurrencyWhile(async()=>{
-      await this.loadSnapshot();
+      this.prepareSql();
+      const loaded=await this.loadSnapshot();
+      await this.migrateLegacyHistories();
+      if(loaded){
+        await this.queuePersist();
+      }
       this.rebuildSockets();
     });
+  }
+
+  prepareSql(){
+    if(this.sqlReady) return;
+    const sql=this.ctx.storage.sql;
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        text TEXT NOT NULL,
+        reply_to TEXT,
+        attachment_json TEXT,
+        reactions_json TEXT,
+        mentions_json TEXT,
+        client_nonce TEXT,
+        at INTEGER NOT NULL,
+        edited INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_chat_channel_at ON chat_messages(server_id,channel_id,at)`);
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS dm_messages (
+        id TEXT PRIMARY KEY,
+        from_user_id TEXT NOT NULL,
+        to_user_id TEXT NOT NULL,
+        from_username TEXT NOT NULL,
+        text TEXT NOT NULL,
+        at INTEGER NOT NULL
+      )
+    `);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_dm_users_at ON dm_messages(from_user_id,to_user_id,at)`);
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id TEXT PRIMARY KEY,
+        group_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        text TEXT NOT NULL,
+        at INTEGER NOT NULL
+      )
+    `);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_group_at ON group_messages(group_id,at)`);
+
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS media_objects (
+        media_key TEXT PRIMARY KEY,
+        mime TEXT NOT NULL,
+        data_url TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    this.sqlReady=true;
+  }
+
+  rowToChatMessage(row){
+    if(!row) return null;
+    let attachment=null,reactions={},mentions=[];
+    try{attachment=row.attachment_json?JSON.parse(row.attachment_json):null}catch{}
+    try{reactions=row.reactions_json?JSON.parse(row.reactions_json):{}}catch{}
+    try{mentions=row.mentions_json?JSON.parse(row.mentions_json):[]}catch{}
+    return {
+      id:String(row.id||''),
+      serverId:String(row.server_id||''),
+      channelId:String(row.channel_id||''),
+      userId:String(row.user_id||''),
+      username:String(row.username||'Usuário'),
+      text:String(row.text||''),
+      replyTo:row.reply_to?String(row.reply_to):null,
+      attachment,
+      reactions:reactions&&typeof reactions==='object'?reactions:{},
+      mentions:Array.isArray(mentions)?mentions:[],
+      clientNonce:row.client_nonce?String(row.client_nonce):null,
+      at:Number(row.at||0),
+      edited:!!row.edited
+    };
+  }
+
+  rememberChatMessages(serverId,channelId,messages){
+    const serverData=servers.get(String(serverId||''));
+    if(!serverData) return;
+    const existing=serverData.messages.get(String(channelId||''))||[];
+    const byId=new Map(existing.map(message=>[message.id,message]));
+    for(const message of messages||[]){
+      if(message?.id) byId.set(message.id,message);
+    }
+    const merged=[...byId.values()]
+      .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+      .slice(-400);
+    serverData.messages.set(String(channelId||''),merged);
+  }
+
+  async persistChatMessage(message){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO chat_messages
+          (id,server_id,channel_id,user_id,username,text,reply_to,attachment_json,reactions_json,mentions_json,client_nonce,at,edited)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        String(message.id||''),
+        String(message.serverId||''),
+        String(message.channelId||''),
+        String(message.userId||''),
+        String(message.username||'Usuário'),
+        String(message.text||''),
+        message.replyTo?String(message.replyTo):null,
+        message.attachment?JSON.stringify(message.attachment):null,
+        JSON.stringify(message.reactions||{}),
+        JSON.stringify(message.mentions||[]),
+        message.clientNonce?String(message.clientNonce):null,
+        Number(message.at||Date.now()),
+        message.edited?1:0
+      );
+      return true;
+    }catch(error){
+      this.lastPersistError=String(error?.message||error);
+      console.error('Falha ao persistir mensagem pública:',error);
+      return false;
+    }
+  }
+
+  async deleteChatMessage(message){
+    try{
+      this.prepareSql();
+      const safeId=String(message.id||'');
+      this.ctx.storage.sql.exec(`DELETE FROM chat_messages WHERE id=?`,safeId);
+      this.deleteMediaPrefix('message:'+safeId+':');
+      return true;
+    }catch(error){
+      this.lastPersistError=String(error?.message||error);
+      return false;
+    }
+  }
+
+  getChatHistory(serverId,channelId,{before=Number.MAX_SAFE_INTEGER,limit=100}={}){
+    this.prepareSql();
+    const safeLimit=Math.max(1,Math.min(100,Number(limit)||100));
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT * FROM chat_messages
+       WHERE server_id=? AND channel_id=? AND at<?
+       ORDER BY at DESC
+       LIMIT ?`,
+      String(serverId||''),
+      String(channelId||''),
+      Number(before)||Number.MAX_SAFE_INTEGER,
+      safeLimit+1
+    )];
+    const hasMore=rows.length>safeLimit;
+    const messages=rows.slice(0,safeLimit).reverse().map(row=>this.rowToChatMessage(row)).filter(Boolean);
+    this.rememberChatMessages(serverId,channelId,messages);
+    return {messages,hasMore};
+  }
+
+  getChatMessage(messageId){
+    this.prepareSql();
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT * FROM chat_messages WHERE id=? LIMIT 1`,
+      String(messageId||'')
+    )];
+    return this.rowToChatMessage(rows[0]);
+  }
+
+  async persistDmMessage(message){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO dm_messages
+          (id,from_user_id,to_user_id,from_username,text,at)
+         VALUES (?,?,?,?,?,?)`,
+        String(message.id||''),
+        String(message.fromUserId||''),
+        String(message.toUserId||''),
+        String(message.fromUsername||'Usuário'),
+        String(message.text||''),
+        Number(message.at||Date.now())
+      );
+      return true;
+    }catch(error){
+      this.lastPersistError=String(error?.message||error);
+      return false;
+    }
+  }
+
+  getDmHistory(userA,userB,limit=500){
+    this.prepareSql();
+    const safeLimit=Math.max(1,Math.min(500,Number(limit)||500));
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT * FROM dm_messages
+       WHERE (from_user_id=? AND to_user_id=?)
+          OR (from_user_id=? AND to_user_id=?)
+       ORDER BY at DESC
+       LIMIT ?`,
+      String(userA||''),String(userB||''),
+      String(userB||''),String(userA||''),
+      safeLimit
+    )];
+    return rows.reverse().map(row=>({
+      id:String(row.id||''),
+      fromUserId:String(row.from_user_id||''),
+      toUserId:String(row.to_user_id||''),
+      fromUsername:String(row.from_username||'Usuário'),
+      text:String(row.text||''),
+      at:Number(row.at||0)
+    }));
+  }
+
+  async persistGroupMessage(message){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO group_messages
+          (id,group_id,user_id,username,text,at)
+         VALUES (?,?,?,?,?,?)`,
+        String(message.id||''),
+        String(message.groupId||''),
+        String(message.userId||''),
+        String(message.username||'Usuário'),
+        String(message.text||''),
+        Number(message.at||Date.now())
+      );
+      return true;
+    }catch(error){
+      this.lastPersistError=String(error?.message||error);
+      return false;
+    }
+  }
+
+  getGroupHistory(groupId,limit=300){
+    this.prepareSql();
+    const safeLimit=Math.max(1,Math.min(500,Number(limit)||300));
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT * FROM group_messages
+       WHERE group_id=?
+       ORDER BY at DESC
+       LIMIT ?`,
+      String(groupId||''),safeLimit
+    )];
+    return rows.reverse().map(row=>({
+      id:String(row.id||''),
+      groupId:String(row.group_id||''),
+      userId:String(row.user_id||''),
+      username:String(row.username||'Usuário'),
+      text:String(row.text||''),
+      at:Number(row.at||0)
+    }));
+  }
+
+  async putMediaDataUrl(mediaKey,dataUrl){
+    const value=String(dataUrl||'');
+    const match=value.match(/^data:([^;,]+);base64,/i);
+    if(!match || value.length>1800000) return '';
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO media_objects(media_key,mime,data_url,updated_at)
+         VALUES (?,?,?,?)`,
+        String(mediaKey||'').slice(0,220),
+        String(match[1]||'application/octet-stream').slice(0,100),
+        value,
+        Date.now()
+      );
+      return '/api/media/'+encodeURIComponent(String(mediaKey||'').slice(0,220))+'?v='+Date.now();
+    }catch(error){
+      this.lastPersistError=String(error?.message||error);
+      return '';
+    }
+  }
+
+  getMedia(mediaKey){
+    this.prepareSql();
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT mime,data_url FROM media_objects WHERE media_key=? LIMIT 1`,
+      String(mediaKey||'').slice(0,220)
+    )];
+    return rows[0]||null;
+  }
+
+  deleteMediaPrefix(prefix){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `DELETE FROM media_objects WHERE media_key LIKE ?`,
+        String(prefix||'').slice(0,180)+'%'
+      );
+    }catch{}
+  }
+
+  deleteServerData(serverId){
+    try{
+      this.prepareSql();
+      const safeId=String(serverId||'').slice(0,80);
+      const rows=[...this.ctx.storage.sql.exec(
+        `SELECT id FROM chat_messages WHERE server_id=?`,
+        safeId
+      )];
+      for(const row of rows){
+        if(row?.id) this.deleteMediaPrefix('message:'+String(row.id)+':');
+      }
+      this.ctx.storage.sql.exec(`DELETE FROM chat_messages WHERE server_id=?`,safeId);
+      this.deleteMediaPrefix('server:'+safeId+':');
+    }catch{}
+  }
+
+  deleteChannelData(serverId,channelId){
+    try{
+      this.prepareSql();
+      const safeServerId=String(serverId||'').slice(0,80);
+      const safeChannelId=String(channelId||'').slice(0,80);
+      const rows=[...this.ctx.storage.sql.exec(
+        `SELECT id FROM chat_messages WHERE server_id=? AND channel_id=?`,
+        safeServerId,safeChannelId
+      )];
+      for(const row of rows){
+        if(row?.id) this.deleteMediaPrefix('message:'+String(row.id)+':');
+      }
+      this.ctx.storage.sql.exec(
+        `DELETE FROM chat_messages WHERE server_id=? AND channel_id=?`,
+        safeServerId,
+        safeChannelId
+      );
+    }catch{}
+  }
+
+  deleteAccountData(userId){
+    try{
+      this.prepareSql();
+      const safeId=String(userId||'').slice(0,100);
+      this.ctx.storage.sql.exec(
+        `DELETE FROM dm_messages WHERE from_user_id=? OR to_user_id=?`,
+        safeId,safeId
+      );
+      this.ctx.storage.sql.exec(
+        `DELETE FROM group_messages WHERE user_id=?`,
+        safeId
+      );
+      this.deleteMediaPrefix('profile:'+safeId+':');
+    }catch{}
+  }
+
+  deleteGroupData(groupId){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(
+        `DELETE FROM group_messages WHERE group_id=?`,
+        String(groupId||'').slice(0,80)
+      );
+    }catch{}
+  }
+
+  async migrateInlineMedia(){
+    const migrate=async(key,value,setter)=>{
+      if(!String(value||'').startsWith('data:')) return;
+      const url=await this.putMediaDataUrl(key,value);
+      if(url) setter(url);
+    };
+
+    for(const profile of profiles.values()){
+      await migrate('profile:'+profile.id+':avatar',profile.avatar,url=>{profile.avatar=url});
+      await migrate('profile:'+profile.id+':banner',profile.banner,url=>{profile.banner=url});
+    }
+
+    for(const serverData of servers.values()){
+      await migrate('server:'+serverData.id+':icon',serverData.icon,url=>{serverData.icon=url});
+      await migrate('server:'+serverData.id+':banner',serverData.banner,url=>{serverData.banner=url});
+    }
+  }
+
+  async migrateLegacyHistories(){
+    this.prepareSql();
+
+    for(const serverData of servers.values()){
+      for(const [channelId,history] of serverData.messages){
+        for(const message of history||[]){
+          message.serverId=message.serverId||serverData.id;
+          message.channelId=message.channelId||channelId;
+
+          if(message.attachment?.data && String(message.attachment.data).startsWith('data:')){
+            const mediaUrl=await this.putMediaDataUrl(
+              'message:'+String(message.id||id())+':attachment',
+              String(message.attachment.data)
+            );
+
+            if(mediaUrl){
+              message.attachment={
+                ...message.attachment,
+                data:mediaUrl
+              };
+            }
+          }
+
+          await this.persistChatMessage(message);
+        }
+      }
+    }
+
+    for(const message of directMessages){
+      await this.persistDmMessage(message);
+    }
+
+    for(const group of privateGroups.values()){
+      for(const message of group.messages||[]){
+        message.groupId=message.groupId||group.id;
+        await this.persistGroupMessage(message);
+      }
+    }
+
+    await this.migrateInlineMedia();
   }
 
   sendPacket(ws,packet){
@@ -4822,12 +5488,25 @@ export class AcordRealtime extends DurableObject{
 
     if(url.pathname==='/status'){
       const meta=await this.ctx.storage.get(SNAPSHOT_META_KEY);
+      let chatRows=0,dmRows=0,groupRows=0,mediaRows=0;
+
+      try{
+        chatRows=Number([...this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM chat_messages`)][0]?.n||0);
+        dmRows=Number([...this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM dm_messages`)][0]?.n||0);
+        groupRows=Number([...this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM group_messages`)][0]?.n||0);
+        mediaRows=Number([...this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM media_objects`)][0]?.n||0);
+      }catch{}
+
       return Response.json({
         ok:true,
         storage:'durable-object-sqlite',
+        architecture:'sqlite-normalized-v6',
         accounts:accounts.size,
         servers:servers.size,
-        directMessages:directMessages.length,
+        directMessages:dmRows,
+        chatMessages:chatRows,
+        groupMessages:groupRows,
+        mediaObjects:mediaRows,
         friendships:friendships.length,
         privateGroups:privateGroups.size,
         sockets:this.sockets.size,
@@ -4839,6 +5518,58 @@ export class AcordRealtime extends DurableObject{
       });
     }
 
+    if(url.pathname.startsWith('/media/')){
+      const mediaKey=decodeURIComponent(url.pathname.slice('/media/'.length));
+      const media=this.getMedia(mediaKey);
+
+      if(!media?.data_url){
+        return new Response('Mídia não encontrada',{status:404});
+      }
+
+      const raw=String(media.data_url);
+      const match=raw.match(/^data:([^;,]+);base64,(.+)$/s);
+
+      if(!match){
+        return new Response('Mídia inválida',{status:500});
+      }
+
+      try{
+        const binary=atob(match[2]);
+        const bytes=new Uint8Array(binary.length);
+        for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+
+        return new Response(bytes,{
+          status:200,
+          headers:{
+            'Content-Type':String(media.mime||match[1]||'application/octet-stream'),
+            'Cache-Control':'public, max-age=31536000, immutable',
+            'X-Content-Type-Options':'nosniff'
+          }
+        });
+      }catch{
+        return new Response('Mídia inválida',{status:500});
+      }
+    }
+
+    if(url.pathname==='/validate-session' && request.method==='POST'){
+      try{
+        const body=await request.json();
+        const token=String(body?.token||'');
+        const userId=sessionUserId(token,{renew:true});
+        const profile=userId?profiles.get(userId):null;
+
+        return Response.json({
+          ok:!!(userId&&profile),
+          userId:userId||null,
+          profile:publicProfile(profile)
+        },{
+          headers:{'Cache-Control':'no-store'}
+        });
+      }catch{
+        return Response.json({ok:false},{status:400});
+      }
+    }
+
     if(request.headers.get('Upgrade')!=='websocket'){
       return new Response('WebSocket esperado',{status:426});
     }
@@ -4846,7 +5577,25 @@ export class AcordRealtime extends DurableObject{
     const pair=new WebSocketPair();
     const client=pair[0];
     const server=pair[1];
-    const meta={id:id(),rooms:[],data:{}};
+
+    const cookieToken=readCookie(request.headers.get('Cookie'),'acord_session');
+    const cookieUserId=cookieToken
+      ? sessionUserId(cookieToken,{renew:true})
+      : null;
+    const cookieProfile=cookieUserId?profiles.get(cookieUserId):null;
+
+    const meta={
+      id:id(),
+      rooms:[],
+      data:cookieUserId&&cookieProfile
+        ? {
+            userId:cookieUserId,
+            username:cookieProfile.username,
+            sessionHash:tokenHash(cookieToken),
+            cookieSession:true
+          }
+        : {}
+    };
 
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(meta);
@@ -4929,13 +5678,73 @@ export default{
         platform:'cloudflare-workers',
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
-        dataVersion:16,
+        dataVersion:20,
         ...state
       });
     }
 
     if(url.pathname==='/api/persistence-status'){
       return doFetch(env,'/status',request);
+    }
+
+    if(url.pathname==='/api/session-cookie'){
+      if(request.method==='DELETE'){
+        return new Response(JSON.stringify({ok:true}),{
+          status:200,
+          headers:{
+            'Content-Type':'application/json; charset=utf-8',
+            'Cache-Control':'no-store',
+            'Set-Cookie':'acord_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+          }
+        });
+      }
+
+      if(request.method!=='POST'){
+        return json({ok:false,error:'Método inválido'},405);
+      }
+
+      let token='';
+      try{
+        const body=await request.clone().json();
+        token=String(body?.token||'');
+      }catch{}
+
+      if(token.length<20){
+        return json({ok:false,error:'Sessão inválida'},401);
+      }
+
+      const validationRequest=new Request(request.url,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({token})
+      });
+      const validation=await doFetch(env,'/validate-session',validationRequest);
+      const data=await validation.json().catch(()=>({ok:false}));
+
+      if(!data?.ok){
+        return json({ok:false,error:'Sessão inválida'},401);
+      }
+
+      return new Response(JSON.stringify({
+        ok:true,
+        profile:data.profile||null
+      }),{
+        status:200,
+        headers:{
+          'Content-Type':'application/json; charset=utf-8',
+          'Cache-Control':'no-store',
+          'Set-Cookie':
+            'acord_session='+
+            encodeURIComponent(token)+
+            '; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+
+            Math.floor(SESSION_LIFETIME_MS/1000)
+        }
+      });
+    }
+
+    if(url.pathname.startsWith('/api/media/')){
+      const mediaKey=url.pathname.slice('/api/media/'.length);
+      return doFetch(env,'/media/'+mediaKey,request);
     }
 
     if(url.pathname==='/api/rtc-config'){
@@ -4951,7 +5760,7 @@ export default{
     if(url.pathname==='/api/windows-installer'){
       try{
         const response=await fetch(
-          'https://api.github.com/repos/freitadas/acord-desktop/releases/tags/windows-latest',
+          'https://api.github.com/repos/freitadas/acord-desktop/releases/latest',
           {
             headers:{
               'Accept':'application/vnd.github+json',
