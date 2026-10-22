@@ -1,4 +1,4 @@
-const CACHE='acord-cloudflare-v59-modern';
+const CACHE='acord-cloudflare-v510-emoji-gif';
 const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png','/socket.io.js'];
 
 self.addEventListener('install',event=>{
