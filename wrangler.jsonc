@@ -12,6 +12,7 @@
       "/health",
       "/api/*",
       "/invite/*",
+      "/phone-camera-qr/*",
       "/phone-camera/*"
     ]
   },

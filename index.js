@@ -38,7 +38,8 @@ function publicProfile(profile) {
     privacy:profile.privacy && typeof profile.privacy==='object'
       ? profile.privacy
       : {dm:'friends',calls:'friends',friendRequests:'everyone'},
-    createdAt:Number(profile.createdAt||Date.now())
+    createdAt:Number(profile.createdAt||Date.now()),
+    updatedAt:Number(profile.updatedAt||profile.createdAt||Date.now())
   };
 }
 
@@ -121,6 +122,152 @@ function emitFriendState(userId) {
       client.emit('friend-state',payload);
     }
   }
+}
+
+
+function accountStateForUser(userId){
+  const safeId=String(userId||'').slice(0,100);
+  if(!safeId || !accounts.has(safeId)) return null;
+
+  return {
+    version:1,
+    syncedAt:Date.now(),
+    profile:publicProfile(profiles.get(safeId)),
+    friends:friendStateForUser(safeId),
+    servers:publicServersForUser(safeId),
+    groups:groupsForUser(safeId)
+  };
+}
+
+function emitAccountState(socket){
+  const userId=String(socket?.data?.userId||'').slice(0,100);
+  if(!userId) return;
+  const payload=accountStateForUser(userId);
+  if(payload) socket.emit('account-state',payload);
+}
+
+function migrateUserReferences(fromUserId,toUserId){
+  const fromId=String(fromUserId||'').slice(0,100);
+  const toId=String(toUserId||'').slice(0,100);
+  if(!fromId || !toId || fromId===toId) return false;
+  let changed=false;
+
+  for(const s of servers.values()){
+    if(s.ownerId===fromId){s.ownerId=toId;changed=true;}
+    if(Array.isArray(s.members)&&s.members.includes(fromId)){
+      s.members=[...new Set(s.members.map(v=>v===fromId?toId:v))];
+      changed=true;
+    }
+  }
+  for(const r of friendRequests){
+    if(r.fromUserId===fromId){r.fromUserId=toId;changed=true;}
+    if(r.toUserId===fromId){r.toUserId=toId;changed=true;}
+  }
+  for(const p of friendships){
+    if(p.a===fromId){p.a=toId;changed=true;}
+    if(p.b===fromId){p.b=toId;changed=true;}
+  }
+  const seenF=new Set();
+  for(let i=friendships.length-1;i>=0;i--){
+    const p=friendships[i];
+    if(!p.a||!p.b||p.a===p.b){friendships.splice(i,1);changed=true;continue;}
+    const k=[p.a,p.b].sort().join(':');
+    if(seenF.has(k)){friendships.splice(i,1);changed=true;continue;}
+    seenF.add(k);
+  }
+  const seenR=new Set();
+  for(let i=friendRequests.length-1;i>=0;i--){
+    const r=friendRequests[i];
+    if(!r.fromUserId||!r.toUserId||r.fromUserId===r.toUserId){friendRequests.splice(i,1);changed=true;continue;}
+    const k=r.fromUserId+':'+r.toUserId;
+    if(seenR.has(k)){friendRequests.splice(i,1);changed=true;continue;}
+    seenR.add(k);
+  }
+  for(const g of privateGroups.values()){
+    if(g.ownerId===fromId){g.ownerId=toId;changed=true;}
+    if(Array.isArray(g.members)&&g.members.includes(fromId)){
+      g.members=[...new Set(g.members.map(v=>v===fromId?toId:v))].slice(0,10);changed=true;
+    }
+    for(const m of g.messages||[]){if(m.userId===fromId){m.userId=toId;changed=true;}}
+  }
+  for(const m of directMessages){
+    if(m.fromUserId===fromId){m.fromUserId=toId;changed=true;}
+    if(m.toUserId===fromId){m.toUserId=toId;changed=true;}
+  }
+  return changed;
+}
+
+function mergeRecoveryIntoCanonicalUser(userId,recovery){
+  const canonicalId=String(userId||'').slice(0,100);
+  if(!canonicalId||!accounts.has(canonicalId)||!recovery||typeof recovery!=='object')return false;
+  const account=accounts.get(canonicalId);
+  const recoveryUsername=normalizeAccountUsername(recovery.username);
+  if(!recoveryUsername||usernameKey(recoveryUsername)!==account.usernameKey)return false;
+
+  const recoveryId=String(recovery.userId||'').slice(0,100);
+  let changed=false;
+
+  if(recoveryId&&recoveryId!==canonicalId&&(!accounts.has(recoveryId)||accounts.get(recoveryId)?.usernameKey===account.usernameKey)){
+    const old=profiles.get(recoveryId);
+    if(old&&!profiles.has(canonicalId)){
+      profiles.set(canonicalId,{...old,id:canonicalId,username:account.username,updatedAt:Date.now()});changed=true;
+    }
+    changed=migrateUserReferences(recoveryId,canonicalId)||changed;
+    if(!accounts.has(recoveryId))profiles.delete(recoveryId);
+  }
+
+  let profile=profiles.get(canonicalId);
+  if(!profile){
+    profile={id:canonicalId,username:account.username,displayName:account.username,bio:'',avatar:'',banner:'',status:'online',customStatus:'',pronouns:'',activity:'',links:{},privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},createdAt:Number(account.createdAt||Date.now()),updatedAt:Number(account.createdAt||Date.now())};
+    profiles.set(canonicalId,profile);changed=true;
+  }
+
+  const avatar=String(recovery.avatar||'').slice(0,350000), banner=String(recovery.banner||'').slice(0,350000), bio=String(recovery.bio||'').slice(0,300), display=String(recovery.displayName||'').slice(0,40);
+  if(!profile.avatar&&avatar){profile.avatar=avatar;changed=true;}
+  if(!profile.banner&&banner){profile.banner=banner;changed=true;}
+  if(!profile.bio&&bio){profile.bio=bio;changed=true;}
+  if((!profile.displayName||profile.displayName===profile.username)&&display&&display!==profile.username){profile.displayName=display;changed=true;}
+  if(!profile.customStatus&&recovery.customStatus){profile.customStatus=String(recovery.customStatus).slice(0,80);changed=true;}
+  if(!profile.pronouns&&recovery.pronouns){profile.pronouns=String(recovery.pronouns).slice(0,40);changed=true;}
+  if(!profile.activity&&recovery.activity){profile.activity=String(recovery.activity).slice(0,80);changed=true;}
+  if((!profile.links||!Object.keys(profile.links).length)&&recovery.links&&typeof recovery.links==='object'){profile.links=recovery.links;changed=true;}
+
+  if(Array.isArray(recovery.servers)){
+    for(const raw of recovery.servers.slice(0,100)){
+      const sid=String(raw?.id||'').slice(0,80); if(!sid)continue;
+      const owner=String(raw?.ownerId||'').slice(0,100);
+      const members=Array.isArray(raw?.members)?raw.members.map(v=>String(v||'').slice(0,100)).filter(Boolean):[];
+      const belongs=owner===recoveryId||owner===canonicalId||members.includes(recoveryId)||members.includes(canonicalId);
+      if(!belongs)continue;
+      const s=servers.get(sid);
+      if(s){
+        if(s.ownerId===recoveryId){s.ownerId=canonicalId;changed=true;}
+        if(s.ownerId===canonicalId||(s.members||[]).includes(recoveryId)||(s.members||[]).includes(canonicalId)||members.includes(recoveryId)||members.includes(canonicalId)){
+          const mapped=(s.members||[]).map(v=>v===recoveryId?canonicalId:v); if(!mapped.includes(canonicalId))mapped.push(canonicalId); s.members=[...new Set(mapped)];changed=true;
+        }
+        continue;
+      }
+      if(owner!==recoveryId&&owner!==canonicalId)continue;
+      const restored=makeServer(cleanName(raw?.name,'Servidor'),{id:sid,ownerId:canonicalId,members:[...new Set([canonicalId,...members.map(v=>v===recoveryId?canonicalId:v)])],inviteToken:String(raw?.inviteToken||crypto.randomBytes(18).toString('hex')).slice(0,100),icon:String(raw?.icon||'').slice(0,350000),accent:raw?.accent,description:raw?.description,tags:raw?.tags,textChannels:raw?.textChannels,voiceChannels:raw?.voiceChannels,categories:raw?.categories,roles:raw?.roles,messages:raw?.messages,rules:raw?.rules,banner:raw?.banner,inviteExpiresAt:raw?.inviteExpiresAt,bans:raw?.bans,mutes:raw?.mutes,channelPolicies:raw?.channelPolicies,pinned:raw?.pinned,events:raw?.events,polls:raw?.polls,watchParty:raw?.watchParty,whiteboard:raw?.whiteboard,creative:raw?.creative});
+      if(restored)changed=true;
+    }
+  }
+
+  if(Array.isArray(recovery.friends)){
+    for(const rf of recovery.friends.slice(0,500)){
+      const uname=cleanName(rf?.username,'Usuário');
+      const canonicalFriend=findProfileByUsername(uname);
+      let fid=canonicalFriend?.id||String(rf?.id||'').slice(0,100);
+      if(fid===recoveryId)fid=canonicalId;
+      if(!fid||fid===canonicalId)continue;
+      if(!profiles.has(fid)){
+        profiles.set(fid,{id:fid,username:uname,displayName:uname,bio:String(rf?.bio||'').slice(0,160),avatar:String(rf?.avatar||'').slice(0,350000),banner:'',status:'offline',customStatus:'',pronouns:'',activity:'',links:{},privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},createdAt:Date.now(),updatedAt:Date.now()});changed=true;
+      }
+      if(!areFriends(canonicalId,fid)){friendships.push({a:canonicalId,b:fid,at:Date.now()});changed=true;}
+    }
+  }
+  if(changed)profile.updatedAt=Date.now();
+  return changed;
 }
 
 function publicPrivateGroup(group) {
@@ -483,7 +630,8 @@ function serializeProfiles() {
     privacy:profile.privacy && typeof profile.privacy==='object'
       ? profile.privacy
       : {dm:'friends',calls:'friends',friendRequests:'everyone'},
-    createdAt:Number(profile.createdAt||Date.now())
+    createdAt:Number(profile.createdAt||Date.now()),
+    updatedAt:Number(profile.updatedAt||profile.createdAt||Date.now())
   }));
 }
 
@@ -876,7 +1024,7 @@ function resetPersistentState(){
 
 function serializeSnapshot(){
   return {
-    version:15,
+    version:16,
     savedAt:Date.now(),
     servers:serializeServers(),
     profiles:serializeProfiles(),
@@ -1034,7 +1182,8 @@ function hydrateSnapshot(parsed){
         privacy:raw?.privacy && typeof raw.privacy==='object'
           ? raw.privacy
           : {dm:'friends',calls:'friends',friendRequests:'everyone'},
-        createdAt:Number(raw?.createdAt||Date.now())
+        createdAt:Number(raw?.createdAt||Date.now()),
+        updatedAt:Number(raw?.updatedAt||raw?.createdAt||Date.now())
       });
     }
 
@@ -1398,7 +1547,13 @@ function setupSocket(socket){
         avatar:'',
         banner:'',
         status:'online',
-        createdAt:Date.now()
+        customStatus:'',
+        pronouns:'',
+        activity:'',
+        links:{},
+        privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
+        createdAt:Date.now(),
+        updatedAt:Date.now()
       };
 
       profile.username=safeUsername;
@@ -1418,6 +1573,7 @@ function setupSocket(socket){
         migratedLegacy:!!legacy
       });
 
+      emitAccountState(socket);
       sendServerList(socket);
       emitFriendState(userId);
       emitGroupState(userId);
@@ -1453,139 +1609,30 @@ function setupSocket(socket){
       const key=usernameKey(safeUsername);
       let account=[...accounts.values()].find(item=>item.usernameKey===key);
 
-      // Em hospedagens sem disco persistente, recupera a MESMA identidade
-      // armazenada no navegador antes de criar um novo ID. Isso preserva
-      // a ligação com servidores e amizades já existentes no backup local.
+      // Login não cria mais uma identidade vazia silenciosamente.
+      // Uma conta ausente só é recuperada quando este aparelho possui
+      // um backup local compatível com o mesmo usuário.
       if(!account){
-        const recoveryUserId=String(recovery?.userId || '').slice(0,100);
+        const recoveryUserId=String(recovery?.userId||'').slice(0,100);
         const recoveryUsername=normalizeAccountUsername(recovery?.username);
-        const sameRecoveryUser=
-          recoveryUserId &&
-          recoveryUsername &&
-          usernameKey(recoveryUsername)===key;
-
-        const legacy=legacyProfileForUsername(safeUsername);
-        const userId=legacy?.id || (sameRecoveryUser ? recoveryUserId : crypto.randomUUID());
+        const sameRecoveryUser=recoveryUserId&&recoveryUsername&&usernameKey(recoveryUsername)===key;
+        if(!sameRecoveryUser){
+          socket.emit('auth-error',{error:'Conta não encontrada. Entre primeiro no aparelho que ainda possui seus dados ou crie uma nova conta.'});
+          return;
+        }
+        const conflicting=accounts.get(recoveryUserId);
+        if(conflicting&&conflicting.usernameKey!==key){socket.emit('auth-error',{error:'Não foi possível recuperar essa conta com segurança.'});return;}
         const salt=crypto.randomBytes(16).toString('hex');
-
-        account={
-          userId,
-          username:safeUsername,
-          usernameKey:key,
-          salt,
-          passwordHash:passwordDigest(safePassword,salt),
-          createdAt:Number(legacy?.createdAt || recovery?.savedAt || Date.now())
-        };
-
-        accounts.set(userId,account);
-
-        const restoredProfile=legacy || {
-          id:userId,
-          username:safeUsername,
-          displayName:String(recovery?.displayName || safeUsername).slice(0,40),
-          bio:String(recovery?.bio || '').slice(0,300),
-          avatar:String(recovery?.avatar || '').slice(0,350000),
-          banner:String(recovery?.banner || '').slice(0,350000),
-          status:['online','away','busy','invisible'].includes(recovery?.status)
-            ? recovery.status
-            : 'online',
-          customStatus:String(recovery?.customStatus || '').slice(0,80),
-          pronouns:String(recovery?.pronouns || '').slice(0,40),
-          activity:String(recovery?.activity || '').slice(0,80),
-          links:recovery?.links && typeof recovery.links==='object' ? recovery.links : {},
-          privacy:recovery?.privacy && typeof recovery.privacy==='object'
-            ? recovery.privacy
-            : {dm:'friends',calls:'friends',friendRequests:'everyone'},
-          createdAt:Number(recovery?.savedAt || Date.now())
-        };
-
-        restoredProfile.username=safeUsername;
-        restoredProfile.displayName=restoredProfile.displayName || safeUsername;
-        restoredProfile.status=restoredProfile.status || 'online';
-        profiles.set(userId,restoredProfile);
-
-        // Recupera servidores do próprio usuário preservando seus IDs.
-        if(sameRecoveryUser && Array.isArray(recovery?.servers)){
-          for(const raw of recovery.servers.slice(0,100)){
-            const serverId=String(raw?.id || '').slice(0,80);
-            const ownerId=String(raw?.ownerId || '').slice(0,100);
-            if(!serverId || ownerId!==userId) continue;
-
-            if(!servers.has(serverId)){
-              makeServer(cleanName(raw?.name,'Servidor'),{
-                id:serverId,
-                ownerId:userId,
-                members:Array.isArray(raw?.members)
-                  ? [...new Set([userId,...raw.members.map(v=>String(v||'').slice(0,100))])]
-                  : [userId],
-                inviteToken:String(raw?.inviteToken || crypto.randomBytes(18).toString('hex')).slice(0,100),
-                icon:String(raw?.icon || '').slice(0,350000),
-                accent:raw?.accent,
-                description:raw?.description,
-                tags:raw?.tags,
-                textChannels:raw?.textChannels,
-                voiceChannels:raw?.voiceChannels,
-                categories:raw?.categories,
-                roles:raw?.roles,
-                rules:raw?.rules,
-                banner:raw?.banner,
-                inviteExpiresAt:raw?.inviteExpiresAt,
-                bans:raw?.bans,
-                mutes:raw?.mutes,
-                channelPolicies:raw?.channelPolicies,
-                pinned:raw?.pinned,
-                events:raw?.events,
-                polls:raw?.polls,
-                watchParty:raw?.watchParty,
-                creative:raw?.creative
-              });
-            }
-          }
+        account={userId:recoveryUserId,username:safeUsername,usernameKey:key,salt,passwordHash:passwordDigest(safePassword,salt),createdAt:Number(recovery?.savedAt||Date.now())};
+        accounts.set(recoveryUserId,account);
+        if(!profiles.has(recoveryUserId)){
+          profiles.set(recoveryUserId,{id:recoveryUserId,username:safeUsername,displayName:String(recovery?.displayName||safeUsername).slice(0,40),bio:String(recovery?.bio||'').slice(0,300),avatar:String(recovery?.avatar||'').slice(0,350000),banner:String(recovery?.banner||'').slice(0,350000),status:['online','away','busy','invisible'].includes(recovery?.status)?recovery.status:'online',customStatus:String(recovery?.customStatus||'').slice(0,80),pronouns:String(recovery?.pronouns||'').slice(0,40),activity:String(recovery?.activity||'').slice(0,80),links:recovery?.links&&typeof recovery.links==='object'?recovery.links:{},privacy:recovery?.privacy&&typeof recovery.privacy==='object'?recovery.privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},createdAt:Number(recovery?.savedAt||Date.now()),updatedAt:Number(recovery?.savedAt||Date.now())});
         }
-
-        // Recupera amizades públicas salvas no navegador.
-        if(sameRecoveryUser && Array.isArray(recovery?.friends)){
-          for(const rawFriend of recovery.friends.slice(0,500)){
-            const friendId=String(rawFriend?.id || '').slice(0,100);
-            if(!friendId || friendId===userId) continue;
-
-            if(!profiles.has(friendId)){
-              const friendUsername=cleanName(rawFriend?.username,'Usuário');
-              profiles.set(friendId,{
-                id:friendId,
-                username:friendUsername,
-                displayName:friendUsername,
-                bio:String(rawFriend?.bio || '').slice(0,160),
-                avatar:String(rawFriend?.avatar || '').slice(0,350000),
-                banner:'',
-                status:'offline',
-                createdAt:Date.now()
-              });
-            }
-
-            if(!areFriends(userId,friendId)){
-              friendships.push({a:userId,b:friendId,at:Date.now()});
-            }
-          }
-        }
-
-        socket.data.userId=userId;
-        socket.data.username=safeUsername;
-
-        const token=newSession(userId);
-        saveServersToDisk();
-
-        socket.emit('auth-success',{
-          token,
-          profile:publicProfile(restoredProfile),
-          accountRecovered:true,
-          recoveredIdentity:sameRecoveryUser
-        });
-
-        sendServerList(socket);
-        emitFriendState(userId);
-        emitGroupState(userId);
-        broadcastOnlineUsers();
+        mergeRecoveryIntoCanonicalUser(recoveryUserId,recovery);
+        socket.data.userId=recoveryUserId; socket.data.username=safeUsername;
+        const token=newSession(recoveryUserId); saveServersToDisk();
+        socket.emit('auth-success',{token,profile:publicProfile(profiles.get(recoveryUserId)),accountRecovered:true,recoveredIdentity:true});
+        emitAccountState(socket); sendServerList(socket); emitFriendState(recoveryUserId); emitGroupState(recoveryUserId); broadcastOnlineUsers();
         return;
       }
 
@@ -1600,6 +1647,9 @@ function setupSocket(socket){
         return;
       }
 
+      const recoveryMerged=mergeRecoveryIntoCanonicalUser(account.userId,recovery);
+      if(recoveryMerged) saveServersToDisk();
+
       let profile=profiles.get(account.userId);
 
       // Se a conta existe mas o perfil se perdeu, recria apenas o perfil público.
@@ -1612,7 +1662,13 @@ function setupSocket(socket){
           avatar:'',
           banner:'',
           status:'online',
-          createdAt:Number(account.createdAt || Date.now())
+          customStatus:'',
+          pronouns:'',
+          activity:'',
+          links:{},
+          privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
+          createdAt:Number(account.createdAt || Date.now()),
+          updatedAt:Number(account.createdAt || Date.now())
         };
         profiles.set(account.userId,profile);
       }
@@ -1624,6 +1680,7 @@ function setupSocket(socket){
       saveServersToDisk();
 
       socket.emit('auth-success',{token,profile:publicProfile(profile)});
+      emitAccountState(socket);
       sendServerList(socket);
       emitFriendState(account.userId);
       emitGroupState(account.userId);
@@ -1691,7 +1748,8 @@ function setupSocket(socket){
             privacy:recovery.privacy && typeof recovery.privacy==='object'
               ? recovery.privacy
               : {dm:'friends',calls:'friends',friendRequests:'everyone'},
-            createdAt:Number(recovery.savedAt || Date.now())
+            createdAt:Number(recovery.savedAt || Date.now()),
+            updatedAt:Number(recovery.savedAt || Date.now())
           };
 
           profiles.set(safeUserId,profile);
@@ -1787,6 +1845,11 @@ function setupSocket(socket){
         }
       }
 
+      if(userId && recovery){
+        const mergedRecovery=mergeRecoveryIntoCanonicalUser(userId,recovery);
+        if(mergedRecovery) saveServersToDisk();
+      }
+
       profile=userId ? profiles.get(userId) : null;
 
       if(!userId || !profile){
@@ -1806,6 +1869,7 @@ function setupSocket(socket){
         recoveredAfterUpdate
       });
 
+      emitAccountState(socket);
       sendServerList(socket);
       emitFriendState(userId);
       emitGroupState(userId);
@@ -1909,6 +1973,7 @@ function setupSocket(socket){
     }
 
     const profile={
+      ...(oldProfile||{}),
       id:safeId,
       username:safeUsername,
       displayName:String(displayName||safeUsername).trim().slice(0,40)||safeUsername,
@@ -1916,7 +1981,13 @@ function setupSocket(socket){
       avatar:String(avatar||'').slice(0,350000),
       banner:String(banner||'').slice(0,350000),
       status:['online','away','busy','invisible'].includes(status)?status:'online',
-      createdAt:Number(oldProfile?.createdAt||Date.now())
+      customStatus:String(oldProfile?.customStatus||'').slice(0,80),
+      pronouns:String(oldProfile?.pronouns||'').slice(0,40),
+      activity:String(oldProfile?.activity||'').slice(0,80),
+      links:oldProfile?.links&&typeof oldProfile.links==='object'?oldProfile.links:{},
+      privacy:oldProfile?.privacy&&typeof oldProfile.privacy==='object'?oldProfile.privacy:{dm:'friends',calls:'friends',friendRequests:'everyone'},
+      createdAt:Number(oldProfile?.createdAt||Date.now()),
+      updatedAt:Date.now()
     };
 
     profiles.set(safeId, profile);
@@ -1964,6 +2035,7 @@ function setupSocket(socket){
 
     saveServersToDisk();
     socket.emit('profile-saved', publicProfile(profile));
+    emitAccountState(socket);
     sendServerList(socket);
     emitFriendState(safeId);
     emitGroupState(safeId);
@@ -2321,6 +2393,11 @@ function setupSocket(socket){
   socket.on('get-friend-state', () => {
     if (!socket.data.userId) return;
     emitFriendState(socket.data.userId);
+  });
+
+  socket.on('get-account-state',()=>{
+    if(!socket.data.userId) return;
+    emitAccountState(socket);
   });
 
   socket.on('get-servers', () => {
@@ -3618,8 +3695,10 @@ function setupSocket(socket){
       calls:allowed.has(payload?.privacy?.calls)?payload.privacy.calls:'friends',
       friendRequests:'everyone'
     };
+    profile.updatedAt=Date.now();
     saveServersToDisk();
     socket.emit('profile-extra-updated',publicProfile(profile));
+    emitAccountState(socket);
     broadcastOnlineUsers();
   });
 
@@ -4850,7 +4929,7 @@ export default{
         platform:'cloudflare-workers',
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
-        dataVersion:15,
+        dataVersion:16,
         ...state
       });
     }
@@ -4904,21 +4983,46 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera-qr/')){
-      const token=url.pathname.split('/').pop()||'';
-      const target=
-        'https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=png&data='+
-        encodeURIComponent(url.origin+'/phone-camera/'+encodeURIComponent(token));
+      const token=decodeURIComponent(url.pathname.split('/').pop()||'').trim();
 
-      const response=await fetch(target,{headers:{'User-Agent':'Acord-Cloudflare'}});
-      if(!response.ok) return new Response('Não foi possível gerar o QR Code',{status:502});
+      if(!token || token.length>200){
+        return new Response('QR inválido',{status:400});
+      }
 
-      return new Response(response.body,{
-        status:200,
-        headers:{
-          'Content-Type':'image/png',
-          'Cache-Control':'no-store'
-        }
-      });
+      const phoneUrl=
+        url.origin+
+        '/phone-camera/'+
+        encodeURIComponent(token);
+
+      const providers=[
+        'https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&margin=12&data='+
+          encodeURIComponent(phoneUrl),
+        'https://quickchart.io/qr?size=320&margin=2&format=png&text='+
+          encodeURIComponent(phoneUrl)
+      ];
+
+      for(const target of providers){
+        try{
+          const response=await fetch(target);
+
+          if(!response.ok) continue;
+
+          const contentType=String(response.headers.get('content-type')||'');
+          if(!contentType.includes('image/')) continue;
+
+          return new Response(response.body,{
+            status:200,
+            headers:{
+              'Content-Type':contentType.includes('png')?'image/png':contentType,
+              'Cache-Control':'no-store, no-cache, must-revalidate',
+              'Pragma':'no-cache',
+              'X-Content-Type-Options':'nosniff'
+            }
+          });
+        }catch{}
+      }
+
+      return new Response('Não foi possível gerar o QR Code',{status:502});
     }
 
     if(url.pathname.startsWith('/phone-camera/')){

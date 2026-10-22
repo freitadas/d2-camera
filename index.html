@@ -3896,6 +3896,31 @@ body.mobileMode .mobileNav{
   border-style:dashed!important;
 }
 
+
+.phoneCameraQrCard #phoneCameraQr{
+  display:block;
+  width:min(220px,100%);
+  height:auto;
+  aspect-ratio:1/1;
+  object-fit:contain;
+  background:#fff;
+  border-radius:10px;
+  margin:0 auto;
+}
+.phoneCameraDirectLink{
+  display:block;
+  margin-top:9px;
+  color:var(--mint);
+  font-size:10px;
+  font-weight:850;
+  text-align:center;
+  overflow-wrap:anywhere;
+}
+.phoneCameraCopyLinkBtn{
+  width:100%;
+  margin-top:7px;
+}
+
 </style>
 </head>
 <body>
@@ -4741,6 +4766,12 @@ body.mobileMode .mobileNav{
                   <div class="phoneCameraQrText">
                     Aponte a câmera do celular para este QR Code.
                   </div>
+                  <a id="phoneCameraDirectLink" class="phoneCameraDirectLink hidden" href="#" target="_blank" rel="noopener">
+                    Abrir link da câmera
+                  </a>
+                  <button id="phoneCameraCopyLinkBtn" class="btn secondary small phoneCameraCopyLinkBtn hidden" type="button">
+                    Copiar link
+                  </button>
                 </div>
                 <button id="phoneCameraStopBtn" class="btn danger small" type="button">Desconectar</button>
               </div>
@@ -5201,6 +5232,7 @@ const state = {
   authMode:'login',
   authRestoreFailures:0,
   authKeepaliveTimer:null,
+  accountCloudReady:false,
   userId:'',
   username:'',
   displayName:'',
@@ -5770,6 +5802,7 @@ function startAuthKeepalive(){
 function clearAccountState(){
   stopAuthKeepalive();
   state.authRestoreFailures=0;
+  state.accountCloudReady=false;
   state.authToken='';state.userId='';state.username='';state.displayName='';
   state.bio='';state.avatar='';state.banner='';state.profileReady=false;state.appInitialized=false;
   localStorage.removeItem('acord-auth-token');
@@ -5848,6 +5881,7 @@ function applyAuthProfile(profile,token){
   refreshOwnProfileUI();
   saveLocalRecoverySnapshot();
   if(!state.appInitialized){setAppMode('hub');setView('friends')}else{restoreCurrentView()}
+  socket.emit('get-account-state');
   socket.emit('get-servers');socket.emit('get-friend-state');socket.emit('get-group-state');
   setTimeout(syncCachedOutgoingDms,700);
 }
@@ -5902,23 +5936,40 @@ function updatePhoneCameraUI(){
   const wrap=$('#phoneCameraLinkWrap');
   const qr=$('#phoneCameraQr');
   const status=$('#phoneCameraStatus');
+  const directLink=$('#phoneCameraDirectLink');
+  const copyButton=$('#phoneCameraCopyLinkBtn');
   if(!wrap || !qr || !status) return;
 
   const active=!!state.phoneCameraToken;
   wrap.classList.toggle('hidden',!active);
 
+  if(directLink){
+    directLink.href=active && state.phoneCameraLink
+      ? state.phoneCameraLink
+      : '#';
+    directLink.classList.toggle('hidden',!active || !state.phoneCameraLink);
+  }
+
+  if(copyButton){
+    copyButton.classList.toggle('hidden',!active || !state.phoneCameraLink);
+  }
+
   if(active && state.phoneCameraLink){
     qr.onerror=()=>{
-      status.textContent='Não foi possível carregar o QR. Clique em Conectar celular novamente.';
+      qr.classList.add('hidden');
+      status.textContent='QR indisponível. Use “Abrir link da câmera” ou “Copiar link”.';
     };
 
     qr.onload=()=>{
+      qr.classList.remove('hidden');
       if(!state.phoneCameraTrack){
         status.textContent='Escaneie o QR Code com o celular';
       }
     };
 
+    qr.classList.remove('hidden');
     qr.src=
+      location.origin+
       '/phone-camera-qr/' +
       encodeURIComponent(state.phoneCameraToken) +
       '?v=' + Date.now();
@@ -5926,6 +5977,7 @@ function updatePhoneCameraUI(){
     qr.onerror=null;
     qr.onload=null;
     qr.removeAttribute('src');
+    qr.classList.remove('hidden');
   }
 
   status.textContent=
@@ -8896,6 +8948,16 @@ function cacheServers(list){
   }catch(error){
     console.warn('Não foi possível salvar o backup local dos servidores',error);
   }
+}
+
+function replaceServerCacheFromCloud(list){
+  try{
+    const safe=(Array.isArray(list)?list:[]).map(safeServerSnapshot).filter(Boolean);
+    const payload=JSON.stringify(safe);
+    localStorage.setItem('ecord-server-cache',payload);
+    localStorage.setItem('ecord-server-backup',payload);
+    if(state.profileReady)saveLocalRecoverySnapshot();
+  }catch(error){console.warn('Não foi possível atualizar o cache canônico dos servidores',error);}
 }
 
 function syncOwnedServersToBackend(force=false){
@@ -14592,6 +14654,27 @@ $('#speakerDeviceSelect').addEventListener('change',async event=>{
 });
 $('#phoneCameraCreateBtn').addEventListener('click',createPhoneCameraLink);
 $('#phoneCameraStopBtn').addEventListener('click',()=>stopPhoneCameraConnection(true));
+$('#phoneCameraCopyLinkBtn').addEventListener('click',async()=>{
+  if(!state.phoneCameraLink){
+    toast('Crie o link da câmera primeiro');
+    return;
+  }
+
+  try{
+    await navigator.clipboard.writeText(state.phoneCameraLink);
+    toast('Link da câmera copiado');
+  }catch{
+    const temp=document.createElement('textarea');
+    temp.value=state.phoneCameraLink;
+    temp.style.position='fixed';
+    temp.style.opacity='0';
+    document.body.appendChild(temp);
+    temp.select();
+    document.execCommand('copy');
+    temp.remove();
+    toast('Link da câmera copiado');
+  }
+});
 $('#noiseSuppressionToggle').checked=state.noiseSuppression;
 $('#noiseSuppressionToggle').addEventListener('change',async event=>{
   state.noiseSuppression=event.target.checked;localStorage.setItem('acord-noise-suppression',state.noiseSuppression?'1':'0');
@@ -14697,10 +14780,12 @@ document.addEventListener('keydown',e=>{
 socket.on('auth-success',payload=>{
   resetAuthSubmitButton();
   state.authRestoreFailures=0;
+  state.accountCloudReady=false;
   $('#authError').textContent='';
   applyAuthProfile(payload?.profile,payload?.token);
   startAuthKeepalive();
 
+  socket.emit('get-account-state');
   setTimeout(()=>syncOwnedServersToBackend(true),120);
   setTimeout(flushQueuedServerMessages,300);
   setTimeout(handlePendingServerInvite,80);
@@ -14833,6 +14918,22 @@ socket.on('online-users', users => {
   }
 });
 
+socket.on('account-state',payload=>{
+  if(!payload||!state.profileReady)return;
+  state.accountCloudReady=true;
+  const p=payload.profile;
+  if(p?.id&&String(p.id)===String(state.userId)){
+    state.username=p.username||state.username;state.displayName=p.displayName||p.username||state.displayName;state.bio=p.bio||'';state.avatar=p.avatar||'';state.banner=p.banner||'';state.status=p.status||'online';state.customStatus=p.customStatus||'';state.pronouns=p.pronouns||'';state.activity=p.activity||'';state.links=p.links||{};state.privacy=p.privacy||{};
+    localStorage.setItem('ecord-user-id',state.userId);localStorage.setItem('ecord-name',state.username);localStorage.setItem('ecord-bio',state.bio);try{localStorage.setItem('ecord-avatar',state.avatar)}catch{localStorage.removeItem('ecord-avatar')}
+  }
+  const cloudServers=Array.isArray(payload.servers)?payload.servers:[];state.servers=cloudServers;replaceServerCacheFromCloud(cloudServers);
+  const fp=payload.friends||{};const cloudFriends=normalizeFriendList(fp.friends||[]);state.serverFriends=cloudFriends;state.incomingFriendRequests=Array.isArray(fp.incoming)?fp.incoming:[];state.outgoingFriendRequests=Array.isArray(fp.outgoing)?fp.outgoing:[];state.friendStateLoaded=true;state.friendsRestoreAttempted=false;
+  const fj=JSON.stringify(cloudFriends);localStorage.setItem('ecord-friends',fj);localStorage.setItem('ecord-friends-backup',fj);
+  state.privateGroups=Array.isArray(payload.groups)?payload.groups:[];
+  if(!state.servers.some(s=>s.id===state.serverId)){state.serverId=state.servers[0]?.id||null;state.textChannelId=null;state.voiceChannelId=null;}
+  refreshOwnProfileUI();renderServers();renderSidebar();renderRoles();renderFriends();renderActiveFriends();renderDmContacts();renderPrivateGroups();restoreCurrentView();saveLocalRecoverySnapshot();
+});
+
 socket.on('profile-saved',profile=>{
   if(!profile) return;
 
@@ -14844,6 +14945,11 @@ socket.on('profile-saved',profile=>{
   state.avatar=profile.avatar||'';
   state.banner=profile.banner||'';
   state.status=profile.status||'online';
+  state.customStatus=profile.customStatus||'';
+  state.pronouns=profile.pronouns||'';
+  state.activity=profile.activity||'';
+  state.links=profile.links||{};
+  state.privacy=profile.privacy||{};
 
   localStorage.setItem('ecord-user-id',state.userId);
   localStorage.setItem('ecord-name',state.username);
@@ -14881,37 +14987,14 @@ socket.on('friend-request-result',result=>{
 });
 
 socket.on('friend-state',payload=>{
-  const incomingFriends = normalizeFriendList(payload?.friends || []);
-  const cachedFriends = readFriendCache();
-
-  state.incomingFriendRequests = Array.isArray(payload?.incoming) ? payload.incoming : [];
-  state.outgoingFriendRequests = Array.isArray(payload?.outgoing) ? payload.outgoing : [];
-  state.friendStateLoaded = true;
-
-  if(incomingFriends.length){
-    state.serverFriends = incomingFriends;
-    saveFriends(incomingFriends);
-    state.friendsRestoreAttempted = false;
-  }else if(cachedFriends.length){
-    // Uma resposta vazia não apaga os amigos.
-    // Mantém o backup local e tenta reconstruir a relação no servidor.
-    state.serverFriends = cachedFriends;
-
-    if(!state.friendsRestoreAttempted){
-      state.friendsRestoreAttempted = true;
-
-      socket.emit('restore-friends',{
-        friends:cachedFriends
-      });
-    }
-  }else{
-    state.serverFriends = [];
-    localStorage.setItem('ecord-friends','[]');
-  }
-
-  renderFriends();
-  renderActiveFriends();
-  renderDmContacts();
+  const incomingFriends=normalizeFriendList(payload?.friends||[]);const cachedFriends=readFriendCache();
+  state.incomingFriendRequests=Array.isArray(payload?.incoming)?payload.incoming:[];state.outgoingFriendRequests=Array.isArray(payload?.outgoing)?payload.outgoing:[];state.friendStateLoaded=true;
+  if(state.accountCloudReady){
+    state.serverFriends=incomingFriends;const authoritative=JSON.stringify(incomingFriends);localStorage.setItem('ecord-friends',authoritative);localStorage.setItem('ecord-friends-backup',authoritative);state.friendsRestoreAttempted=false;
+  }else if(incomingFriends.length){state.serverFriends=incomingFriends;saveFriends(incomingFriends);state.friendsRestoreAttempted=false;
+  }else if(cachedFriends.length){state.serverFriends=cachedFriends;if(!state.friendsRestoreAttempted){state.friendsRestoreAttempted=true;socket.emit('restore-friends',{friends:cachedFriends});}
+  }else{state.serverFriends=[];localStorage.setItem('ecord-friends','[]');}
+  renderFriends();renderActiveFriends();renderDmContacts();
 });
 
 // Compatibilidade com resposta antiga, sem adicionar automaticamente.
@@ -15174,40 +15257,14 @@ socket.on('server-list',list=>{
   const previousServerId=state.serverId;
   const previousView=state.currentView || 'friends';
 
-  // O servidor é a fonte principal, mas durante a migração de versões antigas
-  // preservamos no cliente os servidores próprios que ainda estão no cache.
-  const byId=new Map();
-
-  for(const server of incoming){
-    if(server?.id) byId.set(server.id,server);
+  const cachedOwned=getCachedServers().filter(server=>String(server?.ownerId||'')===String(state.userId));
+  if(state.accountCloudReady){
+    state.servers=incoming;replaceServerCacheFromCloud(incoming);
+  }else{
+    const byId=new Map();for(const server of incoming){if(server?.id)byId.set(server.id,server)}for(const cached of cachedOwned){if(cached?.id&&!byId.has(cached.id))byId.set(cached.id,cached)}state.servers=[...byId.values()];if(state.servers.length)cacheServers(state.servers);
+    const missingOwned=cachedOwned.filter(cached=>!incoming.some(server=>server?.id===cached.id));if(missingOwned.length)socket.emit('sync-owned-servers',{servers:missingOwned.map(safeServerSnapshot).filter(Boolean)});
   }
-
-  const cachedOwned=getCachedServers().filter(server=>
-    String(server?.ownerId || '')===String(state.userId)
-  );
-
-  for(const cached of cachedOwned){
-    if(cached?.id && !byId.has(cached.id)){
-      byId.set(cached.id,cached);
-    }
-  }
-
-  state.servers=[...byId.values()];
   state.restoreAttempted=true;
-
-  if(state.servers.length){
-    cacheServers(state.servers);
-  }
-
-  // Garante que servidores próprios antigos/locais sejam reenviados ao backend
-  // sempre que uma atualização ou reconexão devolver uma lista incompleta.
-  const missingOwned=cachedOwned.filter(cached=>!incoming.some(server=>server?.id===cached.id));
-
-  if(missingOwned.length){
-    socket.emit('sync-owned-servers',{
-      servers:missingOwned.map(safeServerSnapshot).filter(Boolean)
-    });
-  }
 
   const params=new URLSearchParams(location.search);
   const requested=
