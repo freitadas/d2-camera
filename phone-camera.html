@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Acord · Câmera do celular</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07110e;color:#eff8f3;font-family:Arial,sans-serif;min-height:100vh;display:grid;place-items:center;padding:18px}
+.card{width:min(520px,100%);background:#0d1b17;border:1px solid #24473b;border-radius:20px;padding:18px}
+h1{font-size:22px;margin:0 0 8px}p{color:#a8beb4;line-height:1.5}
+video{width:100%;aspect-ratio:9/16;max-height:62vh;object-fit:cover;background:#020403;border-radius:16px;border:1px solid #24473b}
+.actions{display:grid;gap:9px;margin-top:12px}button{border:0;border-radius:12px;padding:13px 15px;font-weight:800;font-size:15px}
+.primary{background:#ff6b4a;color:#281009}.secondary{background:#183128;color:#eff8f3;border:1px solid #24473b}
+.status{margin-top:12px;font-size:13px;color:#a8beb4}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>📱 Câmera do celular</h1>
+<p>Use a câmera deste celular como câmera da sua chamada no Acord.</p>
+<video id="preview" autoplay muted playsinline></video>
+<div class="actions">
+<button id="startBtn" class="primary" type="button">Ativar câmera</button>
+<button id="flipBtn" class="secondary" type="button">Trocar câmera</button>
+</div>
+<div id="status" class="status">Conectando ao computador...</div>
+</div>
+<script src="/socket.io.js"></script>
+<script>
+const socket=io();
+const token=decodeURIComponent(location.pathname.split('/').pop() || '');
+const rtcConfig={iceServers:[
+{urls:'stun:stun.l.google.com:19302'},
+{urls:'stun:stun1.l.google.com:19302'},
+{urls:'stun:stun.cloudflare.com:3478'}
+],iceCandidatePoolSize:10};
+
+let pc=null;
+let stream=null;
+let facingMode='environment';
+
+const status=document.getElementById('status');
+const preview=document.getElementById('preview');
+
+function setStatus(value){status.textContent=value;}
+
+function joinPair(){
+  socket.emit('phone-camera-join',{token},response=>{
+    if(response && response.ok){
+      setStatus('Ligado ao computador. Toque em Ativar câmera.');
+    }else{
+      setStatus((response && response.error) || 'Link inválido ou expirado.');
+    }
+  });
+}
+
+async function startCamera(){
+  try{
+    if(stream) stream.getTracks().forEach(track=>track.stop());
+
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:facingMode},
+        width:{ideal:1920},
+        height:{ideal:1080},
+        frameRate:{ideal:30,max:30}
+      },
+      audio:false
+    });
+
+    preview.srcObject=stream;
+
+    if(pc){try{pc.close()}catch{}}
+    pc=new RTCPeerConnection(rtcConfig);
+
+    const videoTrack=stream.getVideoTracks()[0];
+
+    if(!videoTrack){
+      setStatus('Nenhuma câmera disponível.');
+      return;
+    }
+
+    pc.addTransceiver(videoTrack,{
+      direction:'sendonly',
+      streams:[stream]
+    });
+
+    pc.onicecandidate=event=>{
+      if(event.candidate){
+        socket.emit('phone-camera-ice',{token,candidate:event.candidate});
+      }
+    };
+
+    pc.onconnectionstatechange=()=>{
+      if(pc.connectionState==='connected') setStatus('Câmera conectada ao computador.');
+      if(pc.connectionState==='failed') setStatus('Falha de conexão. Tente novamente.');
+    };
+
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit('phone-camera-offer',{token,sdp:pc.localDescription});
+    setStatus('Enviando câmera para o computador...');
+  }catch(error){
+    console.error(error);
+    setStatus('Autorize o acesso à câmera no celular.');
+  }
+}
+
+socket.on('connect',joinPair);
+
+socket.on('phone-camera-answer',async data=>{
+  if(!pc || data.token!==token || !data.sdp) return;
+  try{await pc.setRemoteDescription(data.sdp)}catch(error){console.error(error)}
+});
+
+socket.on('phone-camera-ice',async data=>{
+  if(!pc || data.token!==token || !data.candidate) return;
+  try{await pc.addIceCandidate(data.candidate)}catch{}
+});
+
+socket.on('phone-camera-stopped',()=>{
+  setStatus('O computador encerrou a conexão.');
+  if(stream) stream.getTracks().forEach(track=>track.stop());
+  if(pc) pc.close();
+  pc=null;
+});
+
+document.getElementById('startBtn').addEventListener('click',startCamera);
+document.getElementById('flipBtn').addEventListener('click',async()=>{
+  facingMode=facingMode==='environment' ? 'user' : 'environment';
+  await startCamera();
+});
+window.addEventListener('beforeunload',()=>socket.emit('phone-camera-stop',{token}));
+</script>
+</body>
+</html>
