@@ -1,0 +1,40 @@
+CONCORDE v4.0 — VALIDAÇÃO
+
+[OK] server.js validado com node --check
+[OK] JavaScript principal embutido validado com node --check
+[OK] JavaScript da câmera do celular validado com node --check
+[OK] nenhum ID HTML duplicado
+[OK] nenhum listener aponta para ID inexistente
+[OK] CSS balanceado
+[OK] cache/PWA atualizado para v4.0
+
+CALLS
+[OK] pré-call dedicada
+[OK] teste de câmera/microfone antes de entrar
+[OK] entrar mutado
+[OK] entrar com câmera desligada
+[OK] layouts Grade / Foco / Apresentação
+[OK] fixar participante
+[OK] qualidade por participante
+[OK] indicador geral de conexão
+[OK] diagnóstico de RTT/ping, jitter e perda de pacotes
+[OK] status TURN
+[OK] destaque de fala remoto quando Web Audio está disponível
+[OK] aviso de fala no mudo
+[OK] overlay de reconexão
+[OK] reparo automático/manual da call preservado
+[OK] modo celular em tela cheia
+[OK] mensagens amigáveis para erros de mídia
+[OK] persistência das preferências da call
+
+PERSISTÊNCIA
+[OK] login preservado
+[OK] conta preservada
+[OK] servidores preservados
+[OK] amigos preservados
+[OK] backup/recuperação local preservados
+
+DEPENDÊNCIAS EXTERNAS
+[INFO] TURN real só fica ativo quando TURN_URLS, TURN_USERNAME e TURN_CREDENTIAL existem.
+[INFO] PostgreSQL não foi ativado automaticamente porque requer banco provisionado e credenciais.
+[INFO] não houve teste E2E real no Render nesta sessão.
