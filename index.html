@@ -3996,7 +3996,7 @@ body{
         <div id="topSub" class="topSub">chat, amigos e calls</div>
       </div>
       <div class="topActions">
-        <a id="topWindowsDownloadBtn" class="btn topDownloadBtn small" href="https://github.com/freitadas/d2-camera/releases/latest" target="_blank" rel="noopener">↓ Windows</a>
+        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small" type="button">↓ Windows</button>
         <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
       </div>
     </header>
@@ -4011,13 +4011,13 @@ body{
             <button id="homeCreateServer" class="btn primary">+ Novo servidor</button>
             <button id="homeCreateText" class="btn secondary"># Novo canal</button>
             <button id="homeCreateVoice" class="btn secondary">☎ Nova call</button>
-            <a id="windowsDownloadBtn" class="btn downloadBtn" href="https://github.com/freitadas/d2-camera/releases/latest" target="_blank" rel="noopener">
+            <button id="windowsDownloadBtn" class="btn downloadBtn" type="button">
               <span class="downloadIcon">↓</span>
               <span class="downloadCopy">
-                <strong>Baixar Acord para Windows</strong>
-                <small>Aplicativo instalável · .exe</small>
+                <strong>Instalar Acord no Windows</strong>
+                <small>Aplicativo leve · abre em janela própria</small>
               </span>
-            </a>
+            </button>
             <button id="homeCreateRole" class="btn secondary uiLegacyHidden">🛡 Criar cargo</button>
           </div>
         </div>
@@ -13719,6 +13719,72 @@ function renderMembers(list){
 }
 
 
+const WINDOWS_INSTALLER_RELEASE_API =
+  'https://api.github.com/repos/freitadas/d2-camera/releases/tags/windows-latest';
+
+let windowsInstallerUrl='';
+
+async function refreshWindowsInstallerAvailability(){
+  try{
+    const response=await fetch(WINDOWS_INSTALLER_RELEASE_API,{
+      headers:{Accept:'application/vnd.github+json'},
+      cache:'no-store'
+    });
+
+    if(!response.ok)return;
+
+    const release=await response.json();
+    const asset=(release.assets||[]).find(item=>
+      String(item?.name||'').toLowerCase()==='acord-setup.exe'
+    );
+
+    if(!asset?.browser_download_url)return;
+
+    windowsInstallerUrl=asset.browser_download_url;
+
+    const main=$('#windowsDownloadBtn');
+    const top=$('#topWindowsDownloadBtn');
+
+    if(main){
+      const title=main.querySelector('strong');
+      const sub=main.querySelector('small');
+      if(title)title.textContent='Baixar Acord para Windows';
+      if(sub)sub.textContent='Instalador .exe disponível';
+    }
+
+    if(top)top.textContent='↓ Windows .exe';
+  }catch(error){
+    console.warn('Instalador Windows:',error);
+  }
+}
+
+async function triggerAcordInstall(){
+  if(windowsInstallerUrl){
+    window.location.assign(windowsInstallerUrl);
+    return;
+  }
+
+  if(isStandaloneApp()){
+    toast('O Acord já está instalado neste computador');
+    return;
+  }
+
+  if(!deferredInstallPrompt){
+    toast('A instalação está disponível pelo botão “Instalar aplicativo”.');
+    $('#installAppBtn')?.classList.remove('hidden');
+    return;
+  }
+
+  deferredInstallPrompt.prompt();
+
+  try{
+    await deferredInstallPrompt.userChoice;
+  }catch{}
+
+  deferredInstallPrompt=null;
+  updateInstallButton();
+}
+
 let deferredInstallPrompt = null;
 
 function isStandaloneApp(){
@@ -13748,21 +13814,11 @@ window.addEventListener('appinstalled',()=>{
   toast('Aplicativo instalado');
 });
 
-$('#installAppBtn').addEventListener('click',async ()=>{
-  if(!deferredInstallPrompt){
-    toast('Use a opção “Adicionar à tela inicial” do navegador');
-    return;
-  }
+$('#installAppBtn').addEventListener('click',triggerAcordInstall);
+$('#windowsDownloadBtn').addEventListener('click',triggerAcordInstall);
+$('#topWindowsDownloadBtn').addEventListener('click',triggerAcordInstall);
 
-  deferredInstallPrompt.prompt();
-
-  try{
-    await deferredInstallPrompt.userChoice;
-  }catch{}
-
-  deferredInstallPrompt=null;
-  updateInstallButton();
-});
+refreshWindowsInstallerAvailability();
 
 applyInterfaceMode();
 

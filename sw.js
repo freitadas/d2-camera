@@ -1,5 +1,5 @@
-const CACHE='acord-cloudflare-v43';
-const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png','/socket.io/socket.io.js'];
+const CACHE='acord-cloudflare-v52';
+const CORE=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png','/socket.io.js'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(
