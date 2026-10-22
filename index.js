@@ -4872,7 +4872,7 @@ export default{
     if(url.pathname==='/api/windows-installer'){
       try{
         const response=await fetch(
-          'https://api.github.com/repos/freitadas/d2-camera/releases/tags/windows-latest',
+          'https://api.github.com/repos/freitadas/acord-desktop/releases/tags/windows-latest',
           {
             headers:{
               'Accept':'application/vnd.github+json',
