@@ -1,24 +1,15 @@
-CONCORDE v4.1 — TESTES
+CONCORDE v4.2 — VALIDAÇÃO
 
 [OK] server.js validado com node --check
-[OK] JavaScript principal embutido validado com node --check
-[OK] JavaScript da câmera do celular validado com node --check
+[OK] JavaScript principal embutido validado
+[OK] JavaScript da câmera do celular validado
 [OK] nenhum ID HTML duplicado
 [OK] nenhum listener aponta para ID inexistente
 [OK] CSS balanceado
+[OK] cache/PWA atualizado para v4.2
+[OK] persistência de mensagens privadas da v4.1 preservada
+[OK] funções de call preservadas
 
-DM / MENSAGENS PRIVADAS
-[OK] serializeDirectMessages continua presente e ampliado
-[OK] carregamento de DMs ampliado
-[OK] histórico de conversa limitado a 500 mensagens
-[OK] ID de mensagem estável entre cliente e servidor
-[OK] cache local por conversa
-[OK] merge entre histórico local e histórico do backend
-[OK] sincronização de mensagens enviadas após login/reconexão
-[OK] sincronização aceita apenas mensagens cujo remetente é a própria conta autenticada
-[OK] diagnóstico de persistência informa quantidade de DMs
-
-IMPORTANTE
-A persistência principal continua sendo o arquivo de dados do backend.
-Em hospedagem Render sem Persistent Disk, o cache local funciona como camada adicional
-para o mesmo navegador e ajuda a reconstruir as mensagens enviadas pelo usuário.
+ALTERAÇÃO DESTA VERSÃO
+Principalmente CSS e acabamento visual.
+Nenhuma migração de conta ou servidor é necessária.
