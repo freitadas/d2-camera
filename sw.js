@@ -1,5 +1,5 @@
-const CACHE='acord-cloudflare-v60-stability';
-const CORE=['/','/app.css','/app.js','/manifest.webmanifest','/icon-192.png','/icon-512.png','/socket.io.js','/phone-camera.js'];
+const CACHE='acord-cloudflare-v61-login-fix';
+const CORE=['/','/app-v61.css','/bundle-v61.js','/manifest.webmanifest','/icon-192.png','/icon-512.png','/phone-camera-bundle-v61.js'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(
@@ -45,7 +45,11 @@ self.addEventListener('fetch',event=>{
     url.pathname==='/sw.js' ||
     url.pathname==='/app.js' ||
     url.pathname==='/app.css' ||
-    url.pathname==='/phone-camera.js'
+    url.pathname==='/phone-camera.js' ||
+    url.pathname==='/bundle-v61.js' ||
+    url.pathname==='/app-v61.css' ||
+    url.pathname==='/phone-camera-bundle-v61.js' ||
+    url.pathname==='/index-v61.html'
   ){
     event.respondWith(
       fetch(event.request,{cache:'no-store'})

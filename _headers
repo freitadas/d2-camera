@@ -30,3 +30,18 @@
 
 /socket.io/*
   Cache-Control: no-store, no-cache, must-revalidate
+
+/index-v61.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bundle-v61.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/app-v61.css
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/phone-camera-v61.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/phone-camera-bundle-v61.js
+  Cache-Control: no-store, no-cache, must-revalidate

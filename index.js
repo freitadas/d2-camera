@@ -5666,6 +5666,21 @@ export default{
   async fetch(request,env,ctx){
     const url=new URL(request.url);
 
+    const acceptsHtml=String(request.headers.get('Accept')||'').includes('text/html');
+    const appNavigation=
+      request.method==='GET' &&
+      acceptsHtml &&
+      (
+        url.pathname==='/' ||
+        url.pathname==='/index.html' ||
+        (!url.pathname.includes('.') && !url.pathname.startsWith('/api/') && url.pathname!=='/ws')
+      );
+
+    if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
+      const assetUrl=new URL('/index-v61.html',url);
+      return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
+    }
+
     if(url.pathname==='/ws'){
       return doFetch(env,'/ws',request);
     }
@@ -5678,7 +5693,7 @@ export default{
         platform:'cloudflare-workers',
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
-        dataVersion:20,
+        dataVersion:21,
         ...state
       });
     }
@@ -5835,12 +5850,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera.html',url);
+      const assetUrl=new URL('/phone-camera-v61.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index.html',url);
+      const assetUrl=new URL('/index-v61.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 

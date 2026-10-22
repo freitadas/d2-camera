@@ -2,6 +2,58 @@ const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
 
+window.__ACORD_BUILD='6.1.0';
+document.documentElement.dataset.acordBuild='6.1.0';
+
+window.addEventListener('error',event=>{
+  console.error('Acord runtime:',event.error||event.message);
+  const error=document.querySelector('#authError');
+  if(error && !document.querySelector('#login')?.classList.contains('hidden')){
+    error.textContent='O Acord encontrou um erro ao iniciar. Atualize a página; se continuar, instale a versão mais recente.';
+  }
+});
+
+// Controles críticos de autenticação são registrados no início do arquivo.
+// Isso mantém Entrar/Criar conta funcionais mesmo se um módulo secundário falhar depois.
+document.addEventListener('click',event=>{
+  const button=event.target?.closest?.('button');
+  if(!button) return;
+
+  if(button.id==='authLoginTab'){
+    event.preventDefault();
+    event.stopPropagation();
+    setAuthMode('login');
+    return;
+  }
+
+  if(button.id==='authRegisterTab'){
+    event.preventDefault();
+    event.stopPropagation();
+    setAuthMode('register');
+    return;
+  }
+
+  if(button.id==='loginBtn'){
+    event.preventDefault();
+    event.stopPropagation();
+    submitAuthentication();
+    return;
+  }
+
+  if(button.id==='showAuthPasswordBtn'){
+    event.preventDefault();
+    event.stopPropagation();
+    togglePasswordVisibility('#authPassword','#showAuthPasswordBtn');
+    return;
+  }
+
+  if(button.id==='showAuthConfirmBtn'){
+    event.preventDefault();
+    event.stopPropagation();
+    togglePasswordVisibility('#authPasswordConfirm','#showAuthConfirmBtn');
+  }
+},true);
+
 document.addEventListener('click',event=>{
   try{
     handleEssentialDelegatedClick(event);
@@ -693,8 +745,10 @@ async function establishSessionCookie(token){
     if(!response.ok) return false;
 
     state.cookieSession=true;
-    state.authToken='';
-    localStorage.removeItem('acord-auth-token');
+    // Mantém o token validado como fallback de recuperação do aplicativo.
+    // O cookie HttpOnly continua sendo a camada principal no servidor.
+    state.authToken=raw;
+    localStorage.setItem('acord-auth-token',raw);
     saveLocalRecoverySnapshot();
     return true;
   }catch{
