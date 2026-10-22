@@ -45,3 +45,16 @@
 
 /phone-camera-bundle-v61.js
   Cache-Control: no-store, no-cache, must-revalidate
+
+
+/index-v62.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bootstrap-v62.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bundle-v62.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/app-v62.css
+  Cache-Control: no-store, no-cache, must-revalidate
