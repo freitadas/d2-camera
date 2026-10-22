@@ -766,7 +766,7 @@ function serializePrivateGroups() {
 }
 
 function serializeDirectMessages() {
-  return directMessages.slice(-5000).map(message => ({
+  return directMessages.slice(-20000).map(message => ({
     id: String(message.id || '').slice(0,80),
     fromUserId: String(message.fromUserId || '').slice(0,100),
     toUserId: String(message.toUserId || '').slice(0,100),
@@ -810,7 +810,7 @@ function serializeServers() {
 function saveServersToDisk() {
   try {
     const payload=JSON.stringify({
-      version: 12,
+      version: 13,
       savedAt:Date.now(),
       servers: serializeServers(),
       profiles: serializeProfiles(),
@@ -987,7 +987,7 @@ function loadServersFromDisk() {
       });
     }
 
-    for (const message of savedDirectMessages.slice(-5000)) {
+    for (const message of savedDirectMessages.slice(-20000)) {
       if (!message?.fromUserId || !message?.toUserId || !message?.text) continue;
 
       directMessages.push({
@@ -1389,7 +1389,7 @@ app.get('/icon-512.png', (req,res) => {
 app.get('/sw.js', (req,res) => {
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   res.type('application/javascript').send(`
-const CACHE='acord-app-stable-v40-call-experience';
+const CACHE='acord-app-stable-v41-dm-persistence';
 const CORE=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
@@ -6099,6 +6099,7 @@ function applyAuthProfile(profile,token){
   saveLocalRecoverySnapshot();
   if(!state.appInitialized){setAppMode('hub');setView('friends')}else{restoreCurrentView()}
   socket.emit('get-servers');socket.emit('get-friend-state');socket.emit('get-group-state');
+  setTimeout(syncCachedOutgoingDms,700);
 }
 function logoutAccount(){socket.emit('auth-logout',{token:state.authToken})}
 function deleteAccount(){
@@ -11740,6 +11741,94 @@ function renderDmContacts(){
   }
 }
 
+
+function dmCacheKey(userA,userB){
+  const ids=[String(userA||''),String(userB||'')].filter(Boolean).sort();
+  return ids.length===2 ? 'concorde-dm-cache-'+ids.join('--') : '';
+}
+
+function readDmCache(targetId){
+  try{
+    const key=dmCacheKey(state.userId,targetId);
+    if(!key)return [];
+    const value=JSON.parse(localStorage.getItem(key)||'[]');
+    return Array.isArray(value)?value:[];
+  }catch{return []}
+}
+
+function writeDmCache(targetId,messages){
+  try{
+    const key=dmCacheKey(state.userId,targetId);
+    if(!key)return;
+
+    const byId=new Map();
+    for(const message of messages||[]){
+      if(message?.id) byId.set(String(message.id),message);
+    }
+
+    const list=[...byId.values()]
+      .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+      .slice(-500);
+
+    localStorage.setItem(key,JSON.stringify(list));
+  }catch(error){
+    console.warn('Falha ao salvar DM localmente',error);
+  }
+}
+
+function cacheDmMessage(message){
+  if(!message)return;
+  const otherId=message.fromUserId===state.userId ? message.toUserId : message.fromUserId;
+  if(!otherId)return;
+  writeDmCache(otherId,[...readDmCache(otherId),message]);
+}
+
+function mergedDmHistory(targetId,serverMessages){
+  const byId=new Map();
+  for(const message of [...readDmCache(targetId),...(serverMessages||[])]){
+    if(message?.id) byId.set(String(message.id),message);
+  }
+  const merged=[...byId.values()]
+    .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+    .slice(-500);
+  writeDmCache(targetId,merged);
+  return merged;
+}
+
+function renderDmHistory(messages){
+  $('#dmMessages').innerHTML='';
+  (messages||[]).forEach(appendDmMessage);
+}
+
+function syncCachedOutgoingDms(){
+  if(!state.profileReady || !socket.connected || !state.userId)return;
+
+  const ownId=String(state.userId);
+  const byId=new Map();
+
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(!key || !key.startsWith('concorde-dm-cache-') || !key.includes(ownId)) continue;
+    try{
+      const list=JSON.parse(localStorage.getItem(key)||'[]');
+      if(!Array.isArray(list))continue;
+      for(const message of list){
+        if(message?.fromUserId===ownId && message?.toUserId && message?.id){
+          byId.set(String(message.id),message);
+        }
+      }
+    }catch{}
+  }
+
+  const messages=[...byId.values()]
+    .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+    .slice(-2000);
+
+  if(messages.length){
+    socket.timeout(8000).emit('dm-recovery-sync',{messages},()=>{});
+  }
+}
+
 function openDm(profile){
   $('#groupCallBtn')?.classList.add('hidden');
   $('#groupDeleteBtn')?.classList.add('hidden');
@@ -11764,7 +11853,7 @@ function openDm(profile){
   $('#dmInput').disabled = false;
   $('#dmSendBtn').disabled = false;
   $('#dmInput').placeholder = 'Mensagem para ' + state.dmTarget.username;
-  $('#dmMessages').innerHTML = '';
+  renderDmHistory(readDmCache(state.dmTarget.id));
 
   socket.emit('dm-history',{
     targetUserId:state.dmTarget.id,
@@ -11811,10 +11900,22 @@ function sendDm(){
 
   if(!state.dmTarget) return;
 
+  const clientMessageId='local-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+
+  cacheDmMessage({
+    id:clientMessageId,
+    fromUserId:state.userId,
+    toUserId:state.dmTarget.id,
+    fromUsername:state.username,
+    text,
+    at:Date.now()
+  });
+
   socket.emit('dm-message',{
     targetUserId:state.dmTarget.id,
     targetUsername:state.dmTarget.username,
-    text
+    text,
+    clientMessageId
   });
 
   input.value='';
@@ -15153,13 +15254,22 @@ socket.on('mega-call-file',payload=>{
 });
 
 
-socket.on('dm-history',history=>{
-  $('#dmMessages').innerHTML='';
-  (Array.isArray(history) ? history : []).forEach(appendDmMessage);
+socket.on('dm-history',payload=>{
+  const messages=Array.isArray(payload)
+    ? payload
+    : (Array.isArray(payload?.messages)?payload.messages:[]);
+
+  const targetId=String(payload?.targetUserId||state.dmTarget?.id||'');
+  if(!targetId)return;
+  if(state.dmTarget?.id && String(state.dmTarget.id)!==targetId)return;
+
+  renderDmHistory(mergedDmHistory(targetId,messages));
 });
 
 socket.on('dm-message',message=>{
   if(!message) return;
+
+  cacheDmMessage(message);
 
   const blocked=creativeLocalList('blockedUsers').map(v=>String(v).toLowerCase());
   if(
@@ -15746,6 +15856,7 @@ socket.on('disconnect',()=>{
 
 socket.on('connect',()=>{
   state.lastOwnedServerSyncAt=0;
+  if(state.profileReady)setTimeout(syncCachedOutgoingDms,900);
   if(!state.joinedVoiceId)setCallReconnectState(false);
 
   if($('#authError') && !state.profileReady){
@@ -16015,7 +16126,8 @@ app.get('/api/persistence-status',(req,res)=>{
     backupExists:fs.existsSync(DATA_BACKUP_FILE),
     accounts:accounts.size,
     servers:servers.size,
-    friendships:friendships.length
+    friendships:friendships.length,
+    directMessages:directMessages.length
   });
 });
 
@@ -16039,7 +16151,7 @@ app.get('/health', (req,res) => {
     app:'Acord',
     accounts:accounts.size,
     servers:servers.size,
-    dataVersion:12,
+    dataVersion:13,
     dataFile:DATA_FILE,
     persistentDataDir:DEFAULT_PERSIST_DIR,
     persistentDiskDetected:DEFAULT_PERSIST_DIR==='/var/data' || !!process.env.PERSISTENT_DATA_DIR,
@@ -17811,6 +17923,23 @@ io.on('connection', socket => {
     });
   });
 
+  function sameDmConversation(message,a,b){
+    return (
+      (message.fromUserId===a && message.toUserId===b) ||
+      (message.fromUserId===b && message.toUserId===a)
+    );
+  }
+
+  function trimDmConversation(a,b,maxItems=500){
+    const indexes=[];
+    for(let i=0;i<directMessages.length;i++){
+      if(sameDmConversation(directMessages[i],a,b)) indexes.push(i);
+    }
+    const excess=Math.max(0,indexes.length-maxItems);
+    for(let n=excess-1;n>=0;n--) directMessages.splice(indexes[n],1);
+    while(directMessages.length>20000) directMessages.shift();
+  }
+
   socket.on('dm-history', ({ targetUserId, targetUsername }) => {
     if (!socket.data.userId) return;
 
@@ -17826,22 +17955,17 @@ io.on('connection', socket => {
     }
 
     const history = directMessages
-      .filter(message =>
-        (
-          message.fromUserId===socket.data.userId &&
-          message.toUserId===targetId
-        ) ||
-        (
-          message.fromUserId===targetId &&
-          message.toUserId===socket.data.userId
-        )
-      )
-      .slice(-200);
+      .filter(message=>sameDmConversation(message,socket.data.userId,targetId))
+      .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+      .slice(-500);
 
-    socket.emit('dm-history',history);
+    socket.emit('dm-history',{
+      targetUserId:targetId,
+      messages:history
+    });
   });
 
-  socket.on('dm-message', ({ targetUserId, targetUsername, text }) => {
+  socket.on('dm-message', ({ targetUserId, targetUsername, text, clientMessageId }) => {
     if (!socket.data.userId) return;
 
     let targetProfile = targetUserId
@@ -17860,8 +17984,12 @@ io.on('connection', socket => {
     const safeText = String(text || '').trim().slice(0,1000);
     if (!safeText) return;
 
+    const safeClientId=String(clientMessageId||'')
+      .replace(/[^a-zA-Z0-9_-]/g,'')
+      .slice(0,80);
+
     const message = {
-      id:id(),
+      id:safeClientId || id(),
       fromUserId:socket.data.userId,
       toUserId:targetProfile.id,
       fromUsername:socket.data.username || 'Usuário',
@@ -17869,8 +17997,13 @@ io.on('connection', socket => {
       at:Date.now()
     };
 
-    directMessages.push(message);
-    while(directMessages.length>5000) directMessages.shift();
+    if(!directMessages.some(item=>
+      item.id===message.id &&
+      item.fromUserId===message.fromUserId
+    )){
+      directMessages.push(message);
+      trimDmConversation(message.fromUserId,message.toUserId,500);
+    }
 
     saveServersToDisk();
 
@@ -17881,6 +18014,50 @@ io.on('connection', socket => {
         client.emit('dm-message',message);
       }
     }
+  });
+
+
+  socket.on('dm-recovery-sync',({messages},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    if(!socket.data.userId){
+      reply({ok:false,error:'Entre na sua conta'});
+      return;
+    }
+
+    const list=Array.isArray(messages)?messages.slice(-2000):[];
+    let added=0;
+
+    for(const raw of list){
+      const fromUserId=String(raw?.fromUserId||'').slice(0,100);
+      const toUserId=String(raw?.toUserId||'').slice(0,100);
+      const messageId=String(raw?.id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80);
+      const safeText=String(raw?.text||'').trim().slice(0,1000);
+
+      if(
+        fromUserId!==socket.data.userId ||
+        !toUserId ||
+        !profiles.has(toUserId) ||
+        !messageId ||
+        !safeText
+      ) continue;
+
+      if(directMessages.some(m=>m.id===messageId && m.fromUserId===fromUserId)) continue;
+
+      directMessages.push({
+        id:messageId,
+        fromUserId,
+        toUserId,
+        fromUsername:socket.data.username||'Usuário',
+        text:safeText,
+        at:Number(raw?.at||Date.now())
+      });
+
+      trimDmConversation(fromUserId,toUserId,500);
+      added++;
+    }
+
+    if(added) saveServersToDisk();
+    reply({ok:true,added});
   });
 
   function emitChatMessageToServerMembers(serverData,message){
