@@ -42,16 +42,24 @@ html[data-theme="purple"]{
 }
 
 html[data-palette="ocean"]{
+  --bg0:#06121a;--bg1:#091a25;--bg2:#0e2634;--bg3:#143244;--bg4:#1c4056;
+  --line:#28556e;--text:#f2fbff;--muted:#acc9d8;--low:#7394a5;
   --coral:#3182ce;--coral2:#63b3ed;--mint:#38bdf8;--mintbg:#0f3057;
 }
 html[data-palette="sunset"]{
+  --bg0:#160b0b;--bg1:#22100f;--bg2:#311714;--bg3:#41201a;--bg4:#552a21;
+  --line:#6d3c31;--text:#fff8f3;--muted:#d7b7a8;--low:#a77e6d;
   --coral:#ff7a59;--coral2:#ff9f68;--mint:#ffb347;--mintbg:#4a2430;
 }
 html[data-palette="forest"]{
+  --bg0:#07120c;--bg1:#0c1b12;--bg2:#12271a;--bg3:#193522;--bg4:#22472d;
+  --line:#2d6040;--text:#f3fff7;--muted:#b3cfbd;--low:#789985;
   --coral:#2f855a;--coral2:#48bb78;--mint:#68d391;--mintbg:#173d2c;
 }
 html[data-palette="candy"]{
-  --coral:#ec4899;--coral2:#f472b6;--mint:#a855f7;--mintbg:#321b47;
+  --bg0:#160914;--bg1:#220d20;--bg2:#31132f;--bg3:#421a40;--bg4:#562253;
+  --line:#713268;--text:#fff5fd;--muted:#ddb5d5;--low:#aa7aa1;
+  --coral:#ec4899;--coral2:#f472b6;--mint:#c084fc;--mintbg:#321b47;
 }
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:var(--bg0);color:var(--text)}
@@ -3289,18 +3297,18 @@ input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--muted) 68
 .uiLegacyHidden{display:none!important}
 
 :root{
-  --app-bg:#08110f;
-  --panel:#0d1714;
-  --panel-2:#111e1a;
-  --panel-3:#172721;
-  --line-v5:rgba(177,214,198,.10);
-  --line-v5-strong:rgba(177,214,198,.18);
+  --app-bg:var(--bg0);
+  --panel:var(--bg1);
+  --panel-2:var(--bg2);
+  --panel-3:var(--bg3);
+  --line-v5:color-mix(in srgb,var(--line) 72%,transparent);
+  --line-v5-strong:color-mix(in srgb,var(--line) 92%,transparent);
   --shadow-v5:0 18px 55px rgba(0,0,0,.24);
 }
 
 body{
   background:
-    radial-gradient(circle at 50% -20%,rgba(65,217,154,.09),transparent 34%),
+    radial-gradient(circle at 50% -20%,color-mix(in srgb,var(--mint) 9%,transparent),transparent 34%),
     var(--app-bg);
 }
 
@@ -3318,7 +3326,7 @@ body{
 .rail{
   padding:10px 0;
   gap:7px;
-  background:#07100e;
+  background:var(--bg0);
   border-right:1px solid var(--line-v5);
 }
 .serverIcon,.addServer{
@@ -3402,7 +3410,7 @@ body{
 .topbar{
   height:56px;
   padding:0 16px;
-  background:rgba(13,23,20,.88);
+  background:color-mix(in srgb,var(--bg1) 88%,transparent);
   border-bottom:1px solid var(--line-v5);
   backdrop-filter:blur(18px);
 }
@@ -3479,7 +3487,7 @@ body{
   padding:0 18px;
   gap:5px;
   border-bottom:1px solid var(--line-v5);
-  background:rgba(13,23,20,.62);
+  background:color-mix(in srgb,var(--bg1) 68%,transparent);
 }
 .hubTitle{
   margin-right:10px;
@@ -3565,7 +3573,7 @@ body{
 .compose{
   padding:10px 12px 12px;
   border-top:1px solid var(--line-v5);
-  background:rgba(13,23,20,.90);
+  background:color-mix(in srgb,var(--bg1) 90%,transparent);
 }
 .compose input{
   min-height:43px;
@@ -3699,7 +3707,7 @@ body{
 @media(max-width:820px){
   body.mobileMode .mobileNav{
     height:calc(60px + env(safe-area-inset-bottom));
-    background:rgba(7,16,14,.94)!important;
+    background:color-mix(in srgb,var(--bg0) 94%,transparent)!important;
     border-top:1px solid var(--line-v5)!important;
   }
   body.mobileMode .mobileNav button{
@@ -3832,6 +3840,52 @@ body{
   body.mobileMode .downloadBtn{
     min-height:58px!important;
   }
+}
+
+
+/* v5.3 — tema global */
+html,body,.app,.main,.content,.view,.home,.chatView,.voiceView,
+.friendsHome,.serverSettings,.megaShell{
+  background-color:var(--bg0)!important;
+  color:var(--text)!important;
+}
+.rail{background:var(--bg0)!important}
+.sidebar,.rightbar,.settingsMenu,.megaNav,.userbar,.compose,.controls,
+.callToolbar,.friendsHomeTop,.topbar,.sideHead,.chatHead,.voiceHead{
+  background-color:var(--bg1)!important;
+  border-color:var(--line)!important;
+}
+.channelBtn:hover,.navBtn:hover,.friendTab:hover,.member:hover,
+.settingsNavBtn:hover,.megaNavBtn:hover,.inviteBtn:hover{
+  background-color:var(--bg2)!important;
+  color:var(--text)!important;
+}
+.channelBtn.active,.navBtn.active,.friendTab.active,
+.settingsNavBtn.active,.megaNavBtn.active{
+  background-color:var(--bg3)!important;
+  color:var(--text)!important;
+}
+.message,.settingsCard,.essentialCard,.megaItem,.megaCaptionBox,
+.activeFriendCard,.videoCard,.callSettingsPanel,.preCallCard,
+.callReconnectCard,.loginPrivacy{
+  background-color:var(--bg2)!important;
+  border-color:var(--line)!important;
+}
+.message.mine{
+  background:color-mix(in srgb,var(--coral) 17%,var(--bg2))!important;
+}
+input,textarea,select{
+  background-color:var(--bg2)!important;
+  border-color:var(--line)!important;
+  color:var(--text)!important;
+}
+.modal,.loginCard{
+  background-color:var(--bg1)!important;
+  border-color:var(--line)!important;
+}
+body.mobileMode .mobileNav{
+  background:color-mix(in srgb,var(--bg0) 94%,transparent)!important;
+  border-color:var(--line)!important;
 }
 
 </style>
@@ -4014,8 +4068,8 @@ body{
             <button id="windowsDownloadBtn" class="btn downloadBtn" type="button">
               <span class="downloadIcon">↓</span>
               <span class="downloadCopy">
-                <strong>Instalar Acord no Windows</strong>
-                <small>Aplicativo leve · abre em janela própria</small>
+                <strong>Baixar Acord para Windows</strong>
+                <small>Instalador independente · .exe</small>
               </span>
             </button>
             <button id="homeCreateRole" class="btn secondary uiLegacyHidden">🛡 Criar cargo</button>
@@ -5088,7 +5142,7 @@ body{
   <button id="mobileProfileBtn" type="button"><span>●</span><small>Perfil</small></button>
 </nav>
 
-<button id="installAppBtn" class="installAppBtn hidden" type="button">⬇ Instalar aplicativo</button>
+<button id="installAppBtn" class="installAppBtn hidden uiLegacyHidden" type="button" aria-hidden="true" tabindex="-1">Instalação pelo navegador desativada</button>
 <div id="messageContextMenu" class="messageContextMenu hidden">
   <button id="contextReplyBtn" type="button">Responder</button>
   <button id="contextEditBtn" type="button">Editar</button>
@@ -6147,14 +6201,17 @@ function normalizeProfileTheme(theme){
 
 function applyProfileTheme(theme){
   const selected = normalizeProfileTheme(theme);
-
   if(selected === 'default' || selected === 'custom'){
     document.documentElement.removeAttribute('data-theme');
   }else{
     document.documentElement.setAttribute('data-theme',selected);
   }
-
   document.body.classList.toggle('customSiteColorMode', selected === 'custom');
+  if(selected==='custom'){
+    applyCustomColor(state.pendingCustomColor || state.customColor || '#ff6b4a');
+  }else{
+    clearCustomColorOverrides();
+  }
 }
 
 function updateProfileThemeButtons(){
@@ -6231,17 +6288,43 @@ function hexToRgb(hex){
   const m=/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex||'').trim());
   return m ? {r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)} : null;
 }
+function customThemeMix(rgb,amount,base={r:4,g:8,b:7}){
+  return rgbToHex(
+    base.r*(1-amount)+rgb.r*amount,
+    base.g*(1-amount)+rgb.g*amount,
+    base.b*(1-amount)+rgb.b*amount
+  );
+}
+function clearCustomColorOverrides(){
+  [
+    '--bg0','--bg1','--bg2','--bg3','--bg4',
+    '--line','--text','--muted','--low',
+    '--coral','--coral2','--mint','--mintbg'
+  ].forEach(name=>document.documentElement.style.removeProperty(name));
+}
 function applyCustomColor(hex){
   const rgb=hexToRgb(hex);
-  if(!rgb){
-    document.documentElement.style.removeProperty('--coral');
-    document.documentElement.style.removeProperty('--coral2');
-    return;
-  }
+  if(!rgb){ clearCustomColorOverrides(); return; }
   const safe=rgbToHex(rgb.r,rgb.g,rgb.b);
-  const lighter=rgbToHex(Math.min(255,rgb.r+24),Math.min(255,rgb.g+24),Math.min(255,rgb.b+24));
-  document.documentElement.style.setProperty('--coral',safe);
-  document.documentElement.style.setProperty('--coral2',lighter);
+  const lighter=rgbToHex(
+    Math.min(255,rgb.r+34),
+    Math.min(255,rgb.g+34),
+    Math.min(255,rgb.b+34)
+  );
+  const root=document.documentElement.style;
+  root.setProperty('--bg0',customThemeMix(rgb,.07));
+  root.setProperty('--bg1',customThemeMix(rgb,.11));
+  root.setProperty('--bg2',customThemeMix(rgb,.17));
+  root.setProperty('--bg3',customThemeMix(rgb,.23));
+  root.setProperty('--bg4',customThemeMix(rgb,.30));
+  root.setProperty('--line',customThemeMix(rgb,.38));
+  root.setProperty('--text','#f7fbf9');
+  root.setProperty('--muted',customThemeMix(rgb,.48,{r:172,g:190,b:182}));
+  root.setProperty('--low',customThemeMix(rgb,.36,{r:108,g:132,b:121}));
+  root.setProperty('--coral',safe);
+  root.setProperty('--coral2',lighter);
+  root.setProperty('--mint',lighter);
+  root.setProperty('--mintbg',customThemeMix(rgb,.22));
 }
 function updateCustomColorUI(hex){
   const rgb=hexToRgb(hex) || {r:255,g:107,b:74};
@@ -6272,7 +6355,11 @@ function updateCustomColorFromHex(){
   if(/^#[0-9a-f]{6}$/i.test(value)) previewCustomColor(value);
 }
 
-applyCustomColor(state.customColor);
+if(normalizeProfileTheme(state.theme)==='custom'){
+  applyCustomColor(state.customColor || '#ff6b4a');
+}else{
+  clearCustomColorOverrides();
+}
 
 function refreshOwnProfileUI(){
   const shownName=state.displayName || state.username || 'Você';
@@ -13719,70 +13806,31 @@ function renderMembers(list){
 }
 
 
-const WINDOWS_INSTALLER_RELEASE_API =
+const WINDOWS_RELEASE_API =
   'https://api.github.com/repos/freitadas/d2-camera/releases/tags/windows-latest';
 
-let windowsInstallerUrl='';
-
-async function refreshWindowsInstallerAvailability(){
+async function downloadAcordWindows(){
   try{
-    const response=await fetch(WINDOWS_INSTALLER_RELEASE_API,{
+    const response=await fetch(WINDOWS_RELEASE_API,{
       headers:{Accept:'application/vnd.github+json'},
       cache:'no-store'
     });
-
-    if(!response.ok)return;
-
+    if(!response.ok){
+      toast('O instalador independente do Windows ainda não foi publicado.');
+      return;
+    }
     const release=await response.json();
     const asset=(release.assets||[]).find(item=>
       String(item?.name||'').toLowerCase()==='acord-setup.exe'
     );
-
-    if(!asset?.browser_download_url)return;
-
-    windowsInstallerUrl=asset.browser_download_url;
-
-    const main=$('#windowsDownloadBtn');
-    const top=$('#topWindowsDownloadBtn');
-
-    if(main){
-      const title=main.querySelector('strong');
-      const sub=main.querySelector('small');
-      if(title)title.textContent='Baixar Acord para Windows';
-      if(sub)sub.textContent='Instalador .exe disponível';
+    if(!asset?.browser_download_url){
+      toast('O instalador independente do Windows ainda não foi publicado.');
+      return;
     }
-
-    if(top)top.textContent='↓ Windows .exe';
-  }catch(error){
-    console.warn('Instalador Windows:',error);
+    window.location.assign(asset.browser_download_url);
+  }catch{
+    toast('Não foi possível verificar o instalador agora.');
   }
-}
-
-async function triggerAcordInstall(){
-  if(windowsInstallerUrl){
-    window.location.assign(windowsInstallerUrl);
-    return;
-  }
-
-  if(isStandaloneApp()){
-    toast('O Acord já está instalado neste computador');
-    return;
-  }
-
-  if(!deferredInstallPrompt){
-    toast('A instalação está disponível pelo botão “Instalar aplicativo”.');
-    $('#installAppBtn')?.classList.remove('hidden');
-    return;
-  }
-
-  deferredInstallPrompt.prompt();
-
-  try{
-    await deferredInstallPrompt.userChoice;
-  }catch{}
-
-  deferredInstallPrompt=null;
-  updateInstallButton();
 }
 
 let deferredInstallPrompt = null;
@@ -13804,8 +13852,8 @@ function updateInstallButton(){
 
 window.addEventListener('beforeinstallprompt',event=>{
   event.preventDefault();
-  deferredInstallPrompt=event;
-  updateInstallButton();
+  deferredInstallPrompt=null;
+  $('#installAppBtn')?.classList.add('hidden','uiLegacyHidden');
 });
 
 window.addEventListener('appinstalled',()=>{
@@ -13814,11 +13862,11 @@ window.addEventListener('appinstalled',()=>{
   toast('Aplicativo instalado');
 });
 
-$('#installAppBtn').addEventListener('click',triggerAcordInstall);
-$('#windowsDownloadBtn').addEventListener('click',triggerAcordInstall);
-$('#topWindowsDownloadBtn').addEventListener('click',triggerAcordInstall);
-
-refreshWindowsInstallerAvailability();
+$('#installAppBtn').addEventListener('click',event=>{
+  event.preventDefault();
+});
+$('#windowsDownloadBtn').addEventListener('click',downloadAcordWindows);
+$('#topWindowsDownloadBtn').addEventListener('click',downloadAcordWindows);
 
 applyInterfaceMode();
 
