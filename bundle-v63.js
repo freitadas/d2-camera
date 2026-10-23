@@ -1006,8 +1006,8 @@ async function clearSessionCookie(){
 }
 
 function applyAuthProfile(profile,token,{cookieSession=false}={}){
-  if(!profile?.id) return false;
-  if(!token && !cookieSession && !state.cookieSession) return false;
+  if(!profile?.id) return;
+  if(!token && !cookieSession && !state.cookieSession) return;
 
   if(token){
     state.authToken=token;
@@ -1060,20 +1060,11 @@ function applyAuthProfile(profile,token,{cookieSession=false}={}){
     $('#login').style.removeProperty('opacity');
   }catch(error){
     window.__ACORD_APP_READY=false;
-    state.profileReady=false;
     console.error('Falha ao abrir a interface principal:',error);
-    const login=$('#login');
-    const app=$('#appShell');
-    login?.classList.remove('hidden');
-    app?.classList.add('hidden');
-    if(login){
-      login.style.display='grid';
-      login.style.visibility='visible';
-      login.style.opacity='1';
-      login.style.pointerEvents='auto';
-    }
-    if($('#authError')) $('#authError').textContent='Não foi possível abrir o Acord. Entre novamente.';
-    return false;
+    $('#login').classList.remove('hidden');
+    $('#appShell').classList.add('hidden');
+    $('#authError').textContent='Não foi possível abrir o Acord. Entre novamente.';
+    return;
   }
 
   socket.emit('get-account-state');
@@ -1081,7 +1072,6 @@ function applyAuthProfile(profile,token,{cookieSession=false}={}){
   socket.emit('get-friend-state');
   socket.emit('get-group-state');
   setTimeout(syncCachedOutgoingDms,700);
-  return true;
 }
 
 async function logoutAccount(){
@@ -10653,16 +10643,11 @@ socket.on('auth-success',payload=>{
   state.authRestoreFailures=0;
   state.accountCloudReady=false;
   $('#authError').textContent='';
-  const opened=applyAuthProfile(
+  applyAuthProfile(
     payload?.profile,
     payload?.token,
     {cookieSession:!!payload?.cookieSession}
   );
-
-  if(!opened){
-    resetAuthSubmitButton();
-    return;
-  }
 
   if(payload?.token){
     establishSessionCookie(payload.token).then(ok=>{
