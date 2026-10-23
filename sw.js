@@ -1,8 +1,8 @@
-const CACHE='acord-cloudflare-v62-startup-fix';
+const CACHE='acord-cloudflare-v63-startup';
 const CORE=[
-  '/app-v62.css',
-  '/bootstrap-v62.js',
-  '/bundle-v62.js',
+  '/app-v63.css',
+  '/bootstrap-v63.js',
+  '/bundle-v63.js',
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png'
@@ -29,7 +29,6 @@ self.addEventListener('fetch',event=>{
 
   const url=new URL(event.request.url);
 
-  // Navegação nunca usa HTML antigo do cache.
   if(event.request.mode==='navigate'){
     event.respondWith(fetch(event.request,{cache:'no-store'}));
     return;
@@ -40,16 +39,13 @@ self.addEventListener('fetch',event=>{
     url.pathname.startsWith('/api/') ||
     url.pathname==='/health' ||
     url.pathname==='/sw.js' ||
-    url.pathname==='/bootstrap-v62.js' ||
-    url.pathname==='/bundle-v62.js' ||
-    url.pathname==='/app-v62.css' ||
-    url.pathname==='/index-v62.html'
+    url.pathname==='/bootstrap-v63.js' ||
+    url.pathname==='/bundle-v63.js' ||
+    url.pathname==='/app-v63.css' ||
+    url.pathname==='/index-v63.html' ||
+    url.pathname==='/phone-camera-v63.html' ||
+    url.pathname==='/phone-camera-bundle-v63.js'
   ){
-    event.respondWith(fetch(event.request,{cache:'no-store'}));
-    return;
-  }
-
-  if(url.pathname.startsWith('/api/media/')){
     event.respondWith(fetch(event.request,{cache:'no-store'}));
     return;
   }
@@ -57,7 +53,6 @@ self.addEventListener('fetch',event=>{
   event.respondWith(
     caches.match(event.request).then(cached=>{
       if(cached) return cached;
-
       return fetch(event.request).then(response=>{
         if(response && response.ok){
           const clone=response.clone();

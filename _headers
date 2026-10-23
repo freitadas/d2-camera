@@ -58,3 +58,22 @@
 
 /app-v62.css
   Cache-Control: no-store, no-cache, must-revalidate
+
+
+/index-v63.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bootstrap-v63.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bundle-v63.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/app-v63.css
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/phone-camera-v63.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/phone-camera-bundle-v63.js
+  Cache-Control: no-store, no-cache, must-revalidate

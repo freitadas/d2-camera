@@ -5677,7 +5677,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v62.html',url);
+      const assetUrl=new URL('/index-v63.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -5693,7 +5693,7 @@ export default{
         platform:'cloudflare-workers',
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
-        dataVersion:22,
+        dataVersion:23,
         ...state
       });
     }
@@ -5850,12 +5850,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v61.html',url);
+      const assetUrl=new URL('/phone-camera-v63.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v62.html',url);
+      const assetUrl=new URL('/index-v63.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
