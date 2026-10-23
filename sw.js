@@ -1,4 +1,4 @@
-const CACHE='acord-cloudflare-v660-static';
+const CACHE='acord-cloudflare-v680-static';
 const STATIC=['/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{

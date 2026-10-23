@@ -1,16 +1,18 @@
 {
   "name": "acord-cloudflare",
-  "version": "6.6.0",
+  "version": "6.8.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
-    "test": "node tests/smoke.mjs && node tests/security.mjs",
+    "test": "node scripts/build-assets.mjs --check && node tests/smoke.mjs && node tests/security.mjs && node tests/scalability.mjs",
     "verify": "npm test && npm run check",
     "test:security": "node tests/security.mjs",
-    "test:security:e2e": "node tests/security-e2e.mjs"
+    "test:security:e2e": "node tests/security-e2e.mjs",
+    "build:assets": "node scripts/build-assets.mjs",
+    "check:generated": "node scripts/build-assets.mjs --check"
   },
   "devDependencies": {
     "wrangler": "4.68.0"

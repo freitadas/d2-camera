@@ -14,3 +14,6 @@ yarn.lock
 npm-debug.log*
 
 tests/
+src/
+scripts/
+ARCHITECTURE.md

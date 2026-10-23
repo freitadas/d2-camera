@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import * as crypto from "node:crypto";
+import { StateIndexes } from "./src/worker/state-indexes.js";
+import { SocketCompat, createIoCompat } from "./src/worker/socket-compat.js";
+import { normalizeAccountUsername, usernameKey, passwordDigest, verifyAccountPassword, tokenHash, readCookie } from "./src/worker/auth-utils.js";
 
 const id=()=>crypto.randomBytes(12).toString('hex');
 
@@ -15,6 +18,7 @@ const privateGroups=new Map();
 const privateCalls=new Map();
 const phoneCameraSessions=new Map();
 const sharedControlRooms=new Map();
+const stateIndexes=new StateIndexes();
 
 const SESSION_LIFETIME_MS=1000*60*60*24*365;
 const SESSION_GRACE_MS=1000*60*60*24*7;
@@ -24,6 +28,11 @@ const SHARED_CONTROL_GRANT_MS=10*60*1000;
 const SHARED_CONTROL_REQUEST_MS=2*60*1000;
 
 let io=null;
+
+function rebuildStateIndexes(){
+  stateIndexes.rebuild({profiles,accounts,friendships,friendRequests,servers,privateGroups});
+  return stateIndexes;
+}
 
 
 function publicProfile(profile) {
@@ -49,16 +58,7 @@ function publicProfile(profile) {
 }
 
 function findProfileByUsername(username) {
-  const key = String(username || '').trim().toLowerCase();
-  if (!key) return null;
-
-  for (const profile of profiles.values()) {
-    if (String(profile.username || '').toLowerCase() === key) {
-      return profile;
-    }
-  }
-
-  return null;
+  return stateIndexes.profileByUsername(username);
 }
 
 function privacyAllows(targetId,sourceId,kind){
@@ -70,33 +70,18 @@ function privacyAllows(targetId,sourceId,kind){
 }
 
 function areFriends(userA,userB) {
-  const a = String(userA || '');
-  const b = String(userB || '');
-
-  if (!a || !b || a === b) return false;
-
-  return friendships.some(pair =>
-    (pair.a === a && pair.b === b) ||
-    (pair.a === b && pair.b === a)
-  );
+  return stateIndexes.areFriends(userA,userB);
 }
 
 function friendStateForUser(userId) {
   const safeId = String(userId || '').slice(0,100);
-  if (!safeId) {
-    return { friends:[], incoming:[], outgoing:[] };
-  }
+  if (!safeId) return { friends:[], incoming:[], outgoing:[] };
 
-  const friendIds = friendships
-    .filter(pair => pair.a === safeId || pair.b === safeId)
-    .map(pair => pair.a === safeId ? pair.b : pair.a);
-
-  const friends = friendIds
+  const friends = stateIndexes.friendIds(safeId)
     .map(friendId => publicProfile(profiles.get(friendId)))
     .filter(Boolean);
 
-  const incoming = friendRequests
-    .filter(request => request.toUserId === safeId)
+  const incoming = stateIndexes.incomingRequests(safeId)
     .map(request => ({
       id:request.id,
       from:publicProfile(profiles.get(request.fromUserId)),
@@ -104,8 +89,7 @@ function friendStateForUser(userId) {
     }))
     .filter(item => item.from);
 
-  const outgoing = friendRequests
-    .filter(request => request.fromUserId === safeId)
+  const outgoing = stateIndexes.outgoingRequests(safeId)
     .map(request => ({
       id:request.id,
       to:publicProfile(profiles.get(request.toUserId)),
@@ -119,13 +103,14 @@ function friendStateForUser(userId) {
 function emitFriendState(userId) {
   const safeId = String(userId || '').slice(0,100);
   if (!safeId) return;
-
   const payload = friendStateForUser(safeId);
-
+  const clients=ACTIVE_RUNTIME?.socketsForUser?.(safeId);
+  if(clients){
+    for(const client of clients) client.emit('friend-state',payload);
+    return;
+  }
   for (const client of io.sockets.sockets.values()) {
-    if (client.data.userId === safeId) {
-      client.emit('friend-state',payload);
-    }
+    if (client.data.userId === safeId) client.emit('friend-state',payload);
   }
 }
 
@@ -293,23 +278,22 @@ function publicPrivateGroup(group) {
 function groupsForUser(userId) {
   const safeId = String(userId || '').slice(0,100);
   if (!safeId) return [];
-
-  return [...privateGroups.values()]
-    .filter(group => (group.members || []).includes(safeId))
-    .map(publicPrivateGroup)
+  return stateIndexes.groupIds(safeId)
+    .map(groupId=>publicPrivateGroup(privateGroups.get(groupId)))
     .filter(Boolean);
 }
 
 function emitGroupState(userId) {
   const safeId = String(userId || '').slice(0,100);
   if (!safeId) return;
-
   const groups = groupsForUser(safeId);
-
+  const clients=ACTIVE_RUNTIME?.socketsForUser?.(safeId);
+  if(clients){
+    for(const client of clients) client.emit('group-state',groups);
+    return;
+  }
   for (const client of io.sockets.sockets.values()) {
-    if (client.data.userId === safeId) {
-      client.emit('group-state',groups);
-    }
+    if (client.data.userId === safeId) client.emit('group-state',groups);
   }
 }
 
@@ -336,65 +320,26 @@ function broadcastOnlineUsers() {
   io.emit('online-users', users);
 }
 
-function normalizeAccountUsername(value){
-  return String(value || '').trim().replace(/\s+/g,' ').slice(0,30);
-}
 
-function usernameKey(value){
-  return normalizeAccountUsername(value).toLocaleLowerCase('pt-BR');
-}
+
+
 
 function usernameExists(username, exceptId = null){
-  const key = usernameKey(username);
-  for(const account of accounts.values()){
-    if(account.userId !== exceptId && account.usernameKey === key) return true;
-  }
-  return false;
+  return stateIndexes.usernameExists(username,exceptId);
 }
 
 function legacyProfileForUsername(username){
-  const key=usernameKey(username);
-  if(!key) return null;
-
-  for(const profile of profiles.values()){
-    if(usernameKey(profile?.username)===key && !accounts.has(profile.id)){
-      return profile;
-    }
-  }
-
-  return null;
+  const profile=stateIndexes.profileByUsername(username);
+  return profile && !accounts.has(profile.id) ? profile : null;
 }
 
-function passwordDigest(password,salt){
-  return crypto.scryptSync(
-    String(password || ''),
-    Buffer.from(String(salt || ''),'hex'),
-    64
-  ).toString('hex');
-}
 
-function verifyAccountPassword(password,account){
-  try{
-    const expected=Buffer.from(account.passwordHash,'hex');
-    const actual=Buffer.from(passwordDigest(password,account.salt),'hex');
-    return expected.length===actual.length && crypto.timingSafeEqual(expected,actual);
-  }catch{return false}
-}
 
-function tokenHash(token){
-  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
-}
 
-function readCookie(header,name){
-  const target=String(name||'')+'=';
-  for(const part of String(header||'').split(';')){
-    const item=part.trim();
-    if(item.startsWith(target)){
-      try{return decodeURIComponent(item.slice(target.length))}catch{return item.slice(target.length)}
-    }
-  }
-  return '';
-}
+
+
+
+
 
 function newSession(userId){
   const token=crypto.randomBytes(32).toString('hex');
@@ -921,15 +866,11 @@ function publicServer(serverData) {
 }
 
 function publicServersForUser(userId) {
-  const safeUserId = String(userId || '').slice(0,100);
-  if (!safeUserId) return [];
-
-  return [...servers.values()]
-    .filter(serverData =>
-      serverData.ownerId === safeUserId ||
-      (serverData.members || []).includes(safeUserId)
-    )
-    .map(publicServer);
+  const safeId=String(userId||'').slice(0,100);
+  if(!safeId) return [];
+  return stateIndexes.serverIds(safeId)
+    .map(serverId=>publicServer(servers.get(serverId)))
+    .filter(Boolean);
 }
 
 function syncSocketServerRooms(socket){
@@ -960,23 +901,59 @@ function sendServerList(socket) {
   socket.emit('server-list', publicServersForUser(socket.data.userId));
 }
 
-function broadcastServerLists() {
-  for (const client of io.sockets.sockets.values()) {
-    if (!client?.data?.userId) continue;
-    sendServerList(client);
+function broadcastServerLists(serverData=null,{extraUserIds=[]}={}) {
+  let userIds=[];
+  if(serverData){
+    userIds=[serverData.ownerId,...(serverData.members||[]),...extraUserIds];
+  }else if(extraUserIds.length){
+    userIds=[...extraUserIds];
+  }else if(ACTIVE_RUNTIME?.userSockets){
+    userIds=[...ACTIVE_RUNTIME.userSockets.keys()];
+  }else{
+    userIds=[...new Set([...io.sockets.sockets.values()].map(client=>client?.data?.userId).filter(Boolean))];
   }
+  for(const userId of [...new Set(userIds.filter(Boolean).map(String))]){
+    for(const client of ACTIVE_RUNTIME?.socketsForUser?.(userId)||[]){
+      sendServerList(client);
+    }
+  }
+}
+
+function broadcastServerListsForUser(userId){
+  const safeId=String(userId||'');
+  if(!safeId) return;
+  const impacted=new Set([safeId]);
+  for(const serverId of stateIndexes.serverIds(safeId)){
+    const serverData=servers.get(serverId);
+    if(!serverData) continue;
+    impacted.add(String(serverData.ownerId||''));
+    for(const memberId of serverData.members||[]) impacted.add(String(memberId||''));
+  }
+  broadcastServerLists(null,{extraUserIds:[...impacted]});
+}
+
+function serverSockets(serverData,{excludeId=null}={}){
+  if(!serverData) return [];
+  const userIds=[...new Set([serverData.ownerId,...(serverData.members||[])].filter(Boolean).map(String))];
+  const result=[];
+  const seen=new Set();
+  for(const userId of userIds){
+    for(const client of ACTIVE_RUNTIME?.socketsForUser?.(userId)||[]){
+      if(!client || (excludeId&&client.id===excludeId) || seen.has(client.id)) continue;
+      seen.add(client.id);
+      result.push(client);
+    }
+  }
+  return result;
+}
+
+function emitToServerMembers(serverData,event,payload,{excludeId=null}={}){
+  for(const client of serverSockets(serverData,{excludeId})) client.emit(event,payload);
 }
 
 function broadcastServerUpdate(serverData) {
   if (!serverData) return;
-
-  const payload = publicServer(serverData);
-
-  for (const client of io.sockets.sockets.values()) {
-    if (requireServerAccess(serverData, client)) {
-      client.emit('server-updated', payload);
-    }
-  }
+  emitToServerMembers(serverData,'server-updated',publicServer(serverData));
 }
 
 function userRoles(serverData, socket) {
@@ -1043,6 +1020,7 @@ function resetPersistentState(){
   privateGroups.clear();
   privateCalls.clear();
   phoneCameraSessions.clear();
+  stateIndexes.clear();
 }
 
 function serializeSnapshot(){
@@ -1254,6 +1232,7 @@ function hydrateSnapshot(parsed){
       phoneCameraSessions.set(String(token).slice(0,100),session);
     }
 
+    rebuildStateIndexes();
     return true;
   }catch(error){
     console.error('Falha ao hidratar snapshot:',error);
@@ -1285,213 +1264,12 @@ function persistGroupMessage(message){
 }
 
 function saveServersToDisk(){
+  rebuildStateIndexes();
   if(!ACTIVE_RUNTIME) return false;
   ACTIVE_RUNTIME.queuePersist();
   return true;
 }
 
-
-
-class SocketCompat{
-  constructor(runtime,ws,meta){
-    this.runtime=runtime;
-    this.ws=ws;
-    this.id=String(meta?.id||id());
-    this.handlers=new Map();
-    this.middlewares=[];
-    this._meta={
-      id:this.id,
-      rooms:Array.isArray(meta?.rooms)?meta.rooms.map(String):[],
-      data:meta?.data && typeof meta.data==='object'?meta.data:{}
-    };
-
-    const socket=this;
-    this.data=new Proxy(this._meta.data,{
-      set(target,key,value){
-        target[key]=value;
-        socket.persistAttachment();
-        return true;
-      },
-      deleteProperty(target,key){
-        delete target[key];
-        socket.persistAttachment();
-        return true;
-      }
-    });
-  }
-
-  persistAttachment(){
-    try{
-      const safeData={...this._meta.data};
-      delete safeData.creativeRecentTexts;
-      delete safeData.creativeLastMessages;
-
-      this.ws.serializeAttachment({
-        id:this._meta.id,
-        rooms:this._meta.rooms,
-        data:safeData
-      });
-    }catch(error){
-      console.warn('Falha ao persistir metadados do socket:',error?.message||error);
-    }
-  }
-
-  get rooms(){
-    return new Set(this._meta.rooms||[]);
-  }
-
-  on(event,handler){
-    if(!this.handlers.has(event)) this.handlers.set(event,[]);
-    this.handlers.get(event).push(handler);
-    return this;
-  }
-
-  use(middleware){
-    if(typeof middleware==='function') this.middlewares.push(middleware);
-    return this;
-  }
-
-  emit(event,data){
-    this.runtime.sendPacket(this.ws,{t:'e',e:String(event||''),d:data});
-    return this;
-  }
-
-  join(room){
-    const value=String(room||'');
-    if(!value) return this;
-    const rooms=new Set(this._meta.rooms||[]);
-    rooms.add(value);
-    this._meta.rooms=[...rooms];
-    this.persistAttachment();
-    return this;
-  }
-
-  leave(room){
-    const value=String(room||'');
-    const rooms=new Set(this._meta.rooms||[]);
-    rooms.delete(value);
-    this._meta.rooms=[...rooms];
-    this.persistAttachment();
-    return this;
-  }
-
-  to(room){
-    return {
-      emit:(event,data)=>{
-        const target=String(room||'');
-        const direct=this.runtime.sockets.get(target);
-        if(direct && direct.id!==this.id){
-          direct.emit(event,data);
-          return;
-        }
-        this.runtime.broadcastRoom(target,event,data,this.id);
-      }
-    };
-  }
-
-  async dispatch(event,data,ackId){
-    const packet=[event,data];
-
-    for(const middleware of this.middlewares){
-      let allowed=false;
-      await new Promise(resolve=>{
-        try{
-          middleware(packet,()=>{
-            allowed=true;
-            resolve();
-          });
-        }catch(error){
-          console.error('Middleware falhou:',error);
-          resolve();
-        }
-      });
-      if(!allowed) return;
-    }
-
-    const handlers=this.handlers.get(event)||[];
-    if(!handlers.length){
-      if(ackId) this.runtime.sendPacket(this.ws,{t:'a',a:ackId,d:{ok:false,error:'Evento não suportado'}});
-      return;
-    }
-
-    let replied=false;
-    const ack=(payload)=>{
-      if(!ackId || replied) return;
-      replied=true;
-      this.runtime.sendPacket(this.ws,{t:'a',a:ackId,d:payload});
-    };
-
-    for(const handler of [...handlers]){
-      try{
-        const result=handler(data,ack);
-        if(result && typeof result.then==='function') await result;
-      }catch(error){
-        console.error('Evento '+event+' falhou:',error);
-        if(ackId && !replied){
-          ack({ok:false,error:'Falha interna ao processar a ação'});
-        }
-      }
-    }
-
-    if(PERSIST_AFTER_EVENTS.has(event)){
-      this.runtime.queuePersist();
-    }
-  }
-}
-
-function createIoCompat(runtime){
-  const collection={
-    get(id){return runtime.sockets.get(String(id||''));},
-    values(){return runtime.sockets.values();}
-  };
-
-  const rooms={
-    get(room){
-      const result=new Set();
-      const target=String(room||'');
-      for(const socket of runtime.sockets.values()){
-        if(socket.rooms.has(target)) result.add(socket.id);
-      }
-      return result.size?result:undefined;
-    }
-  };
-
-  return {
-    sockets:{
-      sockets:collection,
-      adapter:{rooms}
-    },
-    emit(event,data){
-      for(const socket of runtime.sockets.values()){
-        socket.emit(event,data);
-      }
-    },
-    to(room){
-      return {
-        emit(event,data){
-          const target=String(room||'');
-          const direct=runtime.sockets.get(target);
-          if(direct){
-            direct.emit(event,data);
-            return;
-          }
-          runtime.broadcastRoom(target,event,data,null);
-        }
-      };
-    }
-  };
-}
-
-const PERSIST_AFTER_EVENTS=new Set([
-  'phone-camera-create',
-  'phone-camera-join',
-  'phone-camera-stop',
-  'private-call-invite',
-  'private-call-response',
-  'private-group-call-start',
-  'private-group-call-response',
-  'join-private-call'
-]);
 
 
 function setupSocket(socket){
@@ -1949,7 +1727,7 @@ function setupSocket(socket){
       }
 
       const key=usernameKey(safeUsername);
-      let account=[...accounts.values()].find(item=>item.usernameKey===key);
+      let account=stateIndexes.accountByUsername(safeUsername);
 
       // Login não cria mais uma identidade vazia silenciosamente.
       // Uma conta ausente só é recuperada quando este aparelho possui
@@ -2450,7 +2228,7 @@ function setupSocket(socket){
     sendServerList(socket);
     emitFriendState(safeId);
     emitGroupState(safeId);
-    broadcastServerLists();
+    broadcastServerListsForUser(safeId);
     broadcastOnlineUsers();
   });
 
@@ -2761,13 +2539,8 @@ function setupSocket(socket){
     for(const userId of members){
       emitGroupState(userId);
 
-      for(const client of io.sockets.sockets.values()){
-        if(client.data.userId===userId){
-          client.emit('group-deleted',{
-            groupId:safeGroupId,
-            groupName
-          });
-        }
+      for(const client of ACTIVE_RUNTIME?.socketsForUser?.(userId)||[]){
+        client.emit('group-deleted',{groupId:safeGroupId,groupName});
       }
     }
   });
@@ -2820,10 +2593,8 @@ function setupSocket(socket){
 
     await persistGroupMessage(message);
 
-    for (const client of io.sockets.sockets.values()) {
-      if ((group.members || []).includes(client.data.userId)) {
-        client.emit('group-message',message);
-      }
+    for(const userId of group.members||[]){
+      for(const client of ACTIVE_RUNTIME?.socketsForUser?.(userId)||[]) client.emit('group-message',message);
     }
   });
 
@@ -2920,7 +2691,7 @@ function setupSocket(socket){
 
     if(changed){
       saveServersToDisk();
-      broadcastServerLists();
+      broadcastServerListsForUser(socket.data.userId);
     }else{
       sendServerList(socket);
     }
@@ -2965,7 +2736,7 @@ function setupSocket(socket){
     );
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(created);
 
     socket.emit('server-created',{
       serverId:created.id,
@@ -2986,9 +2757,7 @@ function setupSocket(socket){
       return;
     }
 
-    const serverData=[...servers.values()].find(item=>
-      item.inviteToken===safeToken
-    );
+    const serverData=stateIndexes.serverByInvite(safeToken);
 
     if(!serverData || (serverData.inviteExpiresAt && serverData.inviteExpiresAt<=Date.now())){
       socket.emit('permission-error',{error:'Convite inválido ou expirado'});
@@ -3052,7 +2821,7 @@ function setupSocket(socket){
       : [];
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(serverData);
 
     socket.emit('server-settings-updated',{
       serverId:safeId,
@@ -3070,12 +2839,13 @@ function setupSocket(socket){
       return;
     }
 
+    const formerUserIds=[serverData.ownerId,...(serverData.members||[])];
     servers.delete(safeId);
     ACTIVE_RUNTIME?.deleteServerData(safeId);
     saveServersToDisk();
 
     socket.emit('server-deleted', { serverId: safeId });
-    broadcastServerLists();
+    broadcastServerLists(null,{extraUserIds:formerUserIds});
   });
 
   socket.on('create-role', ({ serverId, name, color, permissions }) => {
@@ -3273,7 +3043,7 @@ function setupSocket(socket){
     s.categories.push(category);
     saveServersToDisk();
 
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated', { message: 'Categoria criada' });
   });
 
@@ -3303,7 +3073,7 @@ function setupSocket(socket){
     );
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated',{message:'Categoria renomeada'});
   });
 
@@ -3329,7 +3099,7 @@ function setupSocket(socket){
     s.categories.forEach((category,index)=>category.order=index);
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated', { message: 'Categoria excluída' });
   });
 
@@ -3354,7 +3124,7 @@ function setupSocket(socket){
     s.categories.forEach((category,index)=>category.order=index);
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated', { message: 'Categoria movida' });
   });
 
@@ -3389,7 +3159,7 @@ function setupSocket(socket){
     );
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated',{message:'Canal renomeado'});
   });
 
@@ -3438,7 +3208,7 @@ function setupSocket(socket){
     list.forEach((channel,index)=>channel.order=index);
 
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
     socket.emit('category-updated', { message: 'Canal movido' });
   });
 
@@ -3461,7 +3231,7 @@ function setupSocket(socket){
       s.textChannels.push(channel);
       s.messages.set(channel.id, []);
       saveServersToDisk();
-      broadcastServerLists();
+      broadcastServerLists(s);
       socket.emit('channel-created', { serverId, type: 'text', channelId: channel.id });
       return;
     }
@@ -3479,7 +3249,7 @@ function setupSocket(socket){
 
       s.voiceChannels.push(channel);
       saveServersToDisk();
-      broadcastServerLists();
+      broadcastServerLists(s);
       socket.emit('channel-created', {
         serverId,
         type: isStage ? 'stage' : 'voice',
@@ -3510,18 +3280,17 @@ function setupSocket(socket){
       ACTIVE_RUNTIME?.deleteChannelData(serverId,safeChannelId);
       s.textChannels.forEach((channel,idx)=>channel.order=idx);
 
-      for(const client of io.sockets.sockets.values()){
-        if(client.data.textServerId===serverId && client.data.textChannelId===safeChannelId){
-          if(client.data.textRoom) client.leave(client.data.textRoom);
-          client.data.textRoom=null;
-          client.data.textServerId=null;
-          client.data.textChannelId=null;
-        }
+      const textRoom=`text:${serverId}:${safeChannelId}`;
+      for(const socketId of [...(ACTIVE_RUNTIME?.roomSockets?.get(textRoom)||[])]){
+        const client=ACTIVE_RUNTIME?.sockets?.get(socketId);
+        if(!client) continue;
+        client.leave(textRoom);
+        client.data.textRoom=null;client.data.textServerId=null;client.data.textChannelId=null;
       }
 
       recordAudit(serverId,'delete-channel',socket.data.username || 'Usuário',removed?.name || safeChannelId);
       saveServersToDisk();
-      broadcastServerLists();
+      broadcastServerLists(s);
 
       io.to(socket.id).emit('channel-deleted',{
         serverId,
@@ -3559,7 +3328,7 @@ function setupSocket(socket){
 
     recordAudit(serverId,'delete-channel',socket.data.username || 'Usuário',removed?.name || safeChannelId);
     saveServersToDisk();
-    broadcastServerLists();
+    broadcastServerLists(s);
 
     io.to(socket.id).emit('channel-deleted',{
       serverId,
@@ -3656,11 +3425,7 @@ function setupSocket(socket){
 
     socket.emit('dm-message',message);
 
-    for (const client of io.sockets.sockets.values()) {
-      if (client.data.userId===targetProfile.id) {
-        client.emit('dm-message',message);
-      }
-    }
+    for(const client of ACTIVE_RUNTIME?.socketsForUser?.(targetProfile.id)||[]) client.emit('dm-message',message);
   });
 
 
@@ -3715,14 +3480,12 @@ function setupSocket(socket){
 
     // Persistência vem primeiro: a mensagem já foi salva no histórico.
     // Esta etapa apenas atualiza em tempo real quem estiver conectado agora.
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(serverData,client)){
-        if(!client.rooms.has(room)){
-          client.join(room);
-        }
-      }else if(client.rooms.has(room)){
-        client.leave(room);
-      }
+    const eligible=new Set(serverSockets(serverData).map(client=>client.id));
+    for(const client of serverSockets(serverData)){
+      if(!client.rooms.has(room)) client.join(room);
+    }
+    for(const socketId of ACTIVE_RUNTIME?.roomSockets?.get(room)||[]){
+      if(!eligible.has(socketId)) ACTIVE_RUNTIME?.sockets?.get(socketId)?.leave(room);
     }
 
     io.to(room).emit('chat-message',message);
@@ -3881,9 +3644,7 @@ function setupSocket(socket){
 
     await persistChatMessage(message);
 
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(serverData,client)) client.emit('public-chat-message',message);
-    }
+    emitToServerMembers(serverData,'public-chat-message',message);
   });
 
   socket.on('mega-edit-public',async({serverId,channelId,messageId,text})=>{
@@ -3899,9 +3660,7 @@ function setupSocket(socket){
     message.edited=true;
     ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
     await persistChatMessage(message);
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client)) client.emit('public-chat-message-edited',message);
-    }
+    emitToServerMembers(s,'public-chat-message-edited',message);
   });
 
   socket.on('mega-delete-public',async({serverId,channelId,messageId})=>{
@@ -3916,9 +3675,7 @@ function setupSocket(socket){
     if(message.userId!==socket.data.userId&&!hasServerPermission(s,socket,'manageServer'))return;
     if(index>=0)history.splice(index,1);
     await deletePersistedChatMessage(message);
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client)) client.emit('public-chat-message-deleted',{serverId:safeServerId,channelId:safeChannelId,messageId});
-    }
+    emitToServerMembers(s,'public-chat-message-deleted',{serverId:safeServerId,channelId:safeChannelId,messageId});
   });
 
   socket.on('mega-pin-message',({serverId,channelId,messageId})=>{
@@ -4111,17 +3868,7 @@ function setupSocket(socket){
     ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
     await persistChatMessage(message);
 
-    for(const client of io.sockets.sockets.values()){
-      if(
-        client.data.userId &&
-        (
-          client.data.userId===s.ownerId ||
-          (s.members || []).includes(client.data.userId)
-        )
-      ){
-        client.emit('chat-message-updated',message);
-      }
-    }
+    emitToServerMembers(s,'chat-message-updated',message);
   });
 
   socket.on('chat-delete',async({serverId,channelId,messageId})=>{
@@ -4138,21 +3885,7 @@ function setupSocket(socket){
     if(index>=0)history.splice(index,1);
     await deletePersistedChatMessage(message);
 
-    for(const client of io.sockets.sockets.values()){
-      if(
-        client.data.userId &&
-        (
-          client.data.userId===s.ownerId ||
-          (s.members || []).includes(client.data.userId)
-        )
-      ){
-        client.emit('chat-message-deleted',{
-          serverId:safeServerId,
-          channelId:safeChannelId,
-          messageId
-        });
-      }
-    }
+    emitToServerMembers(s,'chat-message-deleted',{serverId:safeServerId,channelId:safeChannelId,messageId});
   });
 
   socket.on('chat-react',async({serverId,channelId,messageId,emoji})=>{
@@ -4174,17 +3907,7 @@ function setupSocket(socket){
     ACTIVE_RUNTIME?.rememberChatMessages(safeServerId,safeChannelId,[message]);
     await persistChatMessage(message);
 
-    for(const client of io.sockets.sockets.values()){
-      if(
-        client.data.userId &&
-        (
-          client.data.userId===s.ownerId ||
-          (s.members || []).includes(client.data.userId)
-        )
-      ){
-        client.emit('chat-message-updated',message);
-      }
-    }
+    emitToServerMembers(s,'chat-message-updated',message);
   });
 
   function leaveVoiceRoom() {
@@ -4275,7 +3998,7 @@ function setupSocket(socket){
       s.bans=[...new Set([...(s.bans||[]),userId])].slice(0,500);
     }else return;
     recordAudit(s.id,action,socket.data.username||'Usuário',userId);
-    saveServersToDisk();broadcastServerLists();broadcastServerUpdate(s);
+    saveServersToDisk();broadcastServerLists(s,{extraUserIds:[userId]});broadcastServerUpdate(s);
   });
 
   socket.on('mega-get-audit',({serverId})=>{
@@ -4315,9 +4038,7 @@ function setupSocket(socket){
     if(url&&!/^https:\/\//i.test(url))return;
     s.watchParty={url,position:Number(payload?.position||0),playing:!!payload?.playing,updatedAt:Date.now(),by:socket.data.userId};
     saveServersToDisk();
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client))client.emit('mega-watch-state',{serverId:s.id,watchParty:s.watchParty});
-    }
+    emitToServerMembers(s,'mega-watch-state',{serverId:s.id,watchParty:s.watchParty});
   });
 
   socket.on('mega-whiteboard-stroke',payload=>{
@@ -4327,9 +4048,7 @@ function setupSocket(socket){
     const safe={from:{x:Number(stroke.from.x),y:Number(stroke.from.y)},to:{x:Number(stroke.to.x),y:Number(stroke.to.y)}};
     if(![safe.from.x,safe.from.y,safe.to.x,safe.to.y].every(Number.isFinite))return;
     s.whiteboard=[...(s.whiteboard||[]),safe].slice(-2000);
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-whiteboard-stroke',{serverId:s.id,stroke:safe});
-    }
+    emitToServerMembers(s,'mega-whiteboard-stroke',{serverId:s.id,stroke:safe},{excludeId:socket.id});
   });
 
   socket.on('mega-whiteboard-get',({serverId})=>{
@@ -4340,25 +4059,19 @@ function setupSocket(socket){
   socket.on('mega-whiteboard-clear',({serverId})=>{
     const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
     s.whiteboard=[];saveServersToDisk();
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client))client.emit('mega-whiteboard-state',{serverId:s.id,strokes:[]});
-    }
+    emitToServerMembers(s,'mega-whiteboard-state',{serverId:s.id,strokes:[]});
   });
 
   socket.on('mega-recording-notice',({serverId})=>{
     const s=servers.get(String(serverId||''));if(!s||!requireServerAccess(s,socket))return;
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client)&&client.id!==socket.id){
-        client.emit('mega-recording-notice',{serverId:s.id,username:socket.data.username||'Usuário'});
-      }
-    }
+    emitToServerMembers(s,'mega-recording-notice',{serverId:s.id,username:socket.data.username||'Usuário'},{excludeId:socket.id});
   });
 
   socket.on('mega-call-file',payload=>{
     const s=servers.get(String(payload?.serverId||''));if(!s||!requireServerAccess(s,socket))return;
     const data=String(payload?.data||'');if(!/^data:[^;]+;base64,/i.test(data)||data.length>600000)return;
     const message={serverId:s.id,username:socket.data.username||'Usuário',name:String(payload?.name||'arquivo').slice(0,100),type:String(payload?.type||'application/octet-stream').slice(0,100),data};
-    for(const client of io.sockets.sockets.values()){if(requireServerAccess(s,client)&&client.id!==socket.id)client.emit('mega-call-file',message)}
+    emitToServerMembers(s,'mega-call-file',message,{excludeId:socket.id});
   });
 
 
@@ -4464,9 +4177,7 @@ function setupSocket(socket){
 
     saveServersToDisk();
 
-    for(const client of io.sockets.sockets.values()){
-      if(requireServerAccess(s,client))client.emit('public-chat-message',message);
-    }
+    emitToServerMembers(s,'public-chat-message',message);
 
     reply({ok:true,messageId:message.id});
   });
@@ -4871,18 +4582,12 @@ function setupSocket(socket){
       groupName:group.name || 'Grupo privado'
     });
 
-    for(const client of io.sockets.sockets.values()){
-      if(
-        client.id!==socket.id &&
-        client.data.userId &&
-        allowedUserIds.includes(client.data.userId)
-      ){
+    for(const userId of allowedUserIds){
+      for(const client of ACTIVE_RUNTIME?.socketsForUser?.(userId)||[]){
+        if(client.id===socket.id) continue;
         client.emit('incoming-private-group-call',{
-          callId,
-          groupId:safeGroupId,
-          groupName:group.name || 'Grupo privado',
-          fromUserId:socket.data.userId,
-          fromUsername:socket.data.username || 'Usuário'
+          callId,groupId:safeGroupId,groupName:group.name || 'Grupo privado',
+          fromUserId:socket.data.userId,fromUsername:socket.data.username || 'Usuário'
         });
       }
     }
@@ -4918,16 +4623,13 @@ function setupSocket(socket){
       return;
     }
 
-    const target = [...io.sockets.sockets.values()].find(candidate => {
-      if(candidate.id===socket.id || !candidate.data.userId) return false;
-
-      if(targetUserId){
-        return String(candidate.data.userId)===String(targetUserId);
-      }
-
-      return String(candidate.data.username || '').toLowerCase() ===
-        String(targetUsername || '').toLowerCase();
-    });
+    const targetProfile=targetUserId
+      ? profiles.get(String(targetUserId||'').slice(0,100))
+      : findProfileByUsername(targetUsername);
+    const target=(targetProfile
+      ? (ACTIVE_RUNTIME?.socketsForUser?.(targetProfile.id)||[])
+      : []
+    ).find(candidate=>candidate.id!==socket.id) || null;
 
     if(!target){
       socket.emit('private-call-error',{error:'Esse amigo está offline'});
@@ -5170,10 +4872,8 @@ function setupSocket(socket){
     s.members=(s.members||[]).filter(id=>id!==targetId);
     recordAudit(serverId,'kick',socket.data.username,targetId);
     saveServersToDisk();
-    broadcastServerLists();
-    for(const client of io.sockets.sockets.values()){
-      if(client.data.userId===targetId) client.emit('removed-from-server',{serverId});
-    }
+    broadcastServerLists(s,{extraUserIds:[targetId]});
+    for(const client of ACTIVE_RUNTIME?.socketsForUser?.(targetId)||[]) client.emit('removed-from-server',{serverId});
   });
 
   socket.on('leave-voice', leaveVoiceRoom);
@@ -5258,7 +4958,11 @@ export class AcordRealtime extends DurableObject{
     this.ctx=ctx;
     this.env=env;
     this.sockets=new Map();
+    this.roomSockets=new Map();
+    this.userSockets=new Map();
     this.persistChain=Promise.resolve();
+    this.persistScheduled=null;
+    this.persistDirty=false;
     this.lastPersistAt=0;
     this.lastPersistError='';
     this.sqlReady=false;
@@ -5276,6 +4980,76 @@ export class AcordRealtime extends DurableObject{
       }
       this.rebuildSockets();
     });
+  }
+
+  addSocketToRoom(socket,room){
+    const key=String(room||'');
+    if(!key || !socket?.id) return;
+    if(!this.roomSockets.has(key)) this.roomSockets.set(key,new Set());
+    this.roomSockets.get(key).add(socket.id);
+  }
+
+  removeSocketFromRoom(socket,room){
+    const key=String(room||'');
+    const set=this.roomSockets.get(key);
+    if(!set) return;
+    set.delete(socket?.id);
+    if(!set.size) this.roomSockets.delete(key);
+  }
+
+  updateSocketUser(socket,previousUserId,nextUserId){
+    const previous=String(previousUserId||'');
+    const next=String(nextUserId||'');
+    if(previous){
+      const set=this.userSockets.get(previous);
+      set?.delete(socket?.id);
+      if(set && !set.size) this.userSockets.delete(previous);
+    }
+    if(next && socket?.id){
+      if(!this.userSockets.has(next)) this.userSockets.set(next,new Set());
+      this.userSockets.get(next).add(socket.id);
+    }
+  }
+
+  indexSocket(socket){
+    if(!socket?.id) return;
+    for(const room of socket.rooms) this.addSocketToRoom(socket,room);
+    this.updateSocketUser(socket,'',socket.data?.userId);
+  }
+
+  unindexSocket(socket){
+    if(!socket?.id) return;
+    for(const room of socket.rooms) this.removeSocketFromRoom(socket,room);
+    this.updateSocketUser(socket,socket.data?.userId,'');
+  }
+
+  socketsForUser(userId){
+    const ids=this.userSockets.get(String(userId||''));
+    if(!ids) return [];
+    return [...ids].map(id=>this.sockets.get(id)).filter(Boolean);
+  }
+
+  cleanupEphemeralState(){
+    const now=Date.now();
+    for(const [hash,session] of sessions){
+      if(Number(session?.expiresAt||0)<now-SESSION_GRACE_MS) sessions.delete(hash);
+    }
+    for(const [callId,call] of privateCalls){
+      if(Number(call?.expiresAt||0)<=now) privateCalls.delete(callId);
+    }
+    for(const [token,session] of phoneCameraSessions){
+      if(Number(session?.expiresAt||0)<=now) phoneCameraSessions.delete(token);
+    }
+    for(const [roomKey,room] of sharedControlRooms){
+      if(room?.request && Number(room.request.expiresAt||0)<=now) room.request=null;
+      if(room?.grants instanceof Map){
+        for(const [peerId,grant] of room.grants){
+          if(Number(grant?.expiresAt||0)<=now) room.grants.delete(peerId);
+        }
+      }
+      if(!room?.hostSocketId && !room?.request && !(room?.grants?.size)) sharedControlRooms.delete(roomKey);
+    }
+    try{this.ctx.storage.sql.exec(`DELETE FROM auth_rate WHERE updated_at<?`,now-(24*60*60*1000));}catch{}
   }
 
   prepareSql(){
@@ -5312,6 +5086,7 @@ export class AcordRealtime extends DurableObject{
       )
     `);
     sql.exec(`CREATE INDEX IF NOT EXISTS idx_dm_users_at ON dm_messages(from_user_id,to_user_id,at)`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_dm_reverse_at ON dm_messages(to_user_id,from_user_id,at)`);
 
     sql.exec(`
       CREATE TABLE IF NOT EXISTS group_messages (
@@ -5333,6 +5108,7 @@ export class AcordRealtime extends DurableObject{
         updated_at INTEGER NOT NULL
       )
     `);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_media_updated_at ON media_objects(updated_at)`);
 
     sql.exec(`
       CREATE TABLE IF NOT EXISTS auth_rate (
@@ -5343,6 +5119,7 @@ export class AcordRealtime extends DurableObject{
         updated_at INTEGER NOT NULL
       )
     `);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_auth_rate_updated_at ON auth_rate(updated_at)`);
 
     this.sqlReady=true;
   }
@@ -5846,11 +5623,14 @@ export class AcordRealtime extends DurableObject{
   }
 
   broadcastRoom(room,event,data,excludeId=null){
-    for(const socket of this.sockets.values()){
-      if(excludeId && socket.id===excludeId) continue;
-      if(socket.rooms.has(room)) socket.emit(event,data);
+    const ids=this.roomSockets.get(String(room||''));
+    if(!ids) return;
+    for(const socketId of ids){
+      if(excludeId && socketId===excludeId) continue;
+      this.sockets.get(socketId)?.emit(event,data);
     }
   }
+
 
   rebuildSockets(){
     for(const ws of this.ctx.getWebSockets()){
@@ -5863,6 +5643,7 @@ export class AcordRealtime extends DurableObject{
 
       const socket=new SocketCompat(this,ws,meta);
       this.sockets.set(socket.id,socket);
+      this.indexSocket(socket);
       setupSocket(socket);
     }
   }
@@ -5890,18 +5671,29 @@ export class AcordRealtime extends DurableObject{
   }
 
   queuePersist(){
-    const snapshot=serializeSnapshot();
-    const json=JSON.stringify(snapshot);
+    this.persistDirty=true;
+    if(this.persistScheduled) return this.persistScheduled;
 
-    this.persistChain=this.persistChain
+    const task=this.persistChain
       .catch(()=>{})
-      .then(()=>this.writeSnapshot(json));
+      .then(async()=>{
+        const delay=Math.max(0,250-(Date.now()-this.lastPersistAt));
+        if(delay) await new Promise(resolve=>setTimeout(resolve,delay));
+        if(!this.persistDirty) return true;
+        this.persistDirty=false;
+        this.cleanupEphemeralState();
+        rebuildStateIndexes();
+        const json=JSON.stringify(serializeSnapshot());
+        return this.writeSnapshot(json);
+      });
 
-    try{
-      this.ctx.waitUntil(this.persistChain);
-    }catch{}
-
-    return this.persistChain;
+    this.persistScheduled=task.finally(()=>{
+      this.persistScheduled=null;
+      if(this.persistDirty) this.queuePersist();
+    });
+    this.persistChain=this.persistScheduled;
+    try{this.ctx.waitUntil(this.persistScheduled);}catch{}
+    return this.persistScheduled;
   }
 
   async writeSnapshot(json){
@@ -5962,7 +5754,10 @@ export class AcordRealtime extends DurableObject{
       return Response.json({
         ok:true,
         storage:'durable-object-sqlite',
-        architecture:'sqlite-normalized-v6',
+        architecture:'sqlite-indexed-v7',
+        stateIndexRevision:stateIndexes.revision,
+        indexedRooms:this.roomSockets.size,
+        indexedUsers:this.userSockets.size,
         accounts:accounts.size,
         servers:servers.size,
         directMessages:dmRows,
@@ -6117,6 +5912,7 @@ export class AcordRealtime extends DurableObject{
 
     const socket=new SocketCompat(this,server,meta);
     this.sockets.set(socket.id,socket);
+    this.indexSocket(socket);
 
     this.sendPacket(server,{t:'hello',id:socket.id});
     setupSocket(socket);
@@ -6125,6 +5921,11 @@ export class AcordRealtime extends DurableObject{
   }
 
   async webSocketMessage(ws,message){
+    const messageSize=typeof message==='string'?message.length:Number(message?.byteLength||message?.length||0);
+    if(messageSize>2_500_000){
+      try{ws.close(1009,'Payload muito grande')}catch{}
+      return;
+    }
     let meta=null;
     try{meta=ws.deserializeAttachment()}catch{}
     const socket=this.sockets.get(String(meta?.id||''));
@@ -6150,6 +5951,7 @@ export class AcordRealtime extends DurableObject{
     try{await socket.dispatch('disconnecting',{code,reason,wasClean},null)}catch{}
     try{await socket.dispatch('disconnect',{code,reason,wasClean},null)}catch{}
 
+    this.unindexSocket(socket);
     this.sockets.delete(socket.id);
     this.queuePersist();
   }
@@ -6188,37 +5990,51 @@ export default{
     // Compatibilidade sem redirecionamento: clientes antigos recebem os assets
     // atuais diretamente, evitando loops e versões misturadas no startup.
     const legacyAssets={
-      '/index-v61.html':'/index-v66.html',
-      '/index-v62.html':'/index-v66.html',
-      '/index-v63.html':'/index-v66.html',
-      '/index-v64.html':'/index-v66.html',
-      '/index-v65.html':'/index-v66.html',
-      '/runtime-v64.js':'/runtime-v66.js',
-      '/runtime-v65.js':'/runtime-v66.js',
-      '/bootstrap-v62.js':'/bootstrap-v66.js',
-      '/bootstrap-v63.js':'/bootstrap-v66.js',
-      '/bootstrap-v64.js':'/bootstrap-v66.js',
-      '/bootstrap-v65.js':'/bootstrap-v66.js',
-      '/bundle-v61.js':'/bundle-v66.js',
-      '/bundle-v62.js':'/bundle-v66.js',
-      '/bundle-v63.js':'/bundle-v66.js',
-      '/bundle-v64.js':'/bundle-v66.js',
-      '/bundle-v65.js':'/bundle-v66.js',
-      '/app-v61.css':'/app-v66.css',
-      '/app-v62.css':'/app-v66.css',
-      '/app-v63.css':'/app-v66.css',
-      '/app-v64.css':'/app-v66.css',
-      '/app-v65.css':'/app-v66.css',
-      '/phone-camera-v61.html':'/phone-camera-v66.html',
-      '/phone-camera-v62.html':'/phone-camera-v66.html',
-      '/phone-camera-v63.html':'/phone-camera-v66.html',
-      '/phone-camera-v64.html':'/phone-camera-v66.html',
-      '/phone-camera-v65.html':'/phone-camera-v66.html',
-      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v66.js',
-      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v66.js',
-      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v66.js',
-      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v66.js',
-      '/phone-camera-bundle-v65.js':'/phone-camera-bundle-v66.js'
+      '/index-v61.html':'/index-v68.html',
+      '/index-v62.html':'/index-v68.html',
+      '/index-v63.html':'/index-v68.html',
+      '/index-v64.html':'/index-v68.html',
+      '/index-v65.html':'/index-v68.html',
+      '/index-v66.html':'/index-v68.html',
+      '/index-v67.html':'/index-v68.html',
+      '/runtime-v64.js':'/runtime-v68.js',
+      '/runtime-v65.js':'/runtime-v68.js',
+      '/runtime-v66.js':'/runtime-v68.js',
+      '/runtime-v67.js':'/runtime-v68.js',
+      '/bootstrap-v62.js':'/bootstrap-v68.js',
+      '/bootstrap-v63.js':'/bootstrap-v68.js',
+      '/bootstrap-v64.js':'/bootstrap-v68.js',
+      '/bootstrap-v65.js':'/bootstrap-v68.js',
+      '/bootstrap-v66.js':'/bootstrap-v68.js',
+      '/bootstrap-v67.js':'/bootstrap-v68.js',
+      '/bundle-v61.js':'/bundle-v68.js',
+      '/bundle-v62.js':'/bundle-v68.js',
+      '/bundle-v63.js':'/bundle-v68.js',
+      '/bundle-v64.js':'/bundle-v68.js',
+      '/bundle-v65.js':'/bundle-v68.js',
+      '/bundle-v66.js':'/bundle-v68.js',
+      '/bundle-v67.js':'/bundle-v68.js',
+      '/app-v61.css':'/app-v68.css',
+      '/app-v62.css':'/app-v68.css',
+      '/app-v63.css':'/app-v68.css',
+      '/app-v64.css':'/app-v68.css',
+      '/app-v65.css':'/app-v68.css',
+      '/app-v66.css':'/app-v68.css',
+      '/app-v67.css':'/app-v68.css',
+      '/phone-camera-v61.html':'/phone-camera-v68.html',
+      '/phone-camera-v62.html':'/phone-camera-v68.html',
+      '/phone-camera-v63.html':'/phone-camera-v68.html',
+      '/phone-camera-v64.html':'/phone-camera-v68.html',
+      '/phone-camera-v65.html':'/phone-camera-v68.html',
+      '/phone-camera-v66.html':'/phone-camera-v68.html',
+      '/phone-camera-v67.html':'/phone-camera-v68.html',
+      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v65.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v66.js':'/phone-camera-bundle-v68.js',
+      '/phone-camera-bundle-v67.js':'/phone-camera-bundle-v68.js'
     };
     if(request.method==='GET' && legacyAssets[url.pathname]){
       const assetUrl=new URL(legacyAssets[url.pathname],url);
@@ -6236,7 +6052,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v66.html',url);
+      const assetUrl=new URL('/index-v68.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -6253,7 +6069,7 @@ export default{
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
         dataVersion:24,
-        appVersion:'6.6.0',
+        appVersion:'6.8.0',
         ...state
       });
     }
@@ -6415,12 +6231,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v66.html',url);
+      const assetUrl=new URL('/phone-camera-v68.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v66.html',url);
+      const assetUrl=new URL('/index-v68.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
