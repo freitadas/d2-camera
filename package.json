@@ -7,12 +7,12 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
-    "test": "node scripts/build-assets.mjs --check && node tests/smoke.mjs && node tests/security.mjs && node tests/scalability.mjs",
+    "test": "node build-assets.mjs --check && node test-smoke.mjs && node test-security.mjs && node test-scalability.mjs",
     "verify": "npm test && npm run check",
-    "test:security": "node tests/security.mjs",
-    "test:security:e2e": "node tests/security-e2e.mjs",
-    "build:assets": "node scripts/build-assets.mjs",
-    "check:generated": "node scripts/build-assets.mjs --check"
+    "test:security": "node test-security.mjs",
+    "test:security:e2e": "node test-security-e2e.mjs",
+    "build:assets": "node build-assets.mjs",
+    "check:generated": "node build-assets.mjs --check"
   },
   "devDependencies": {
     "wrangler": "4.68.0"

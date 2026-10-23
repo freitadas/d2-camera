@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const root=path.dirname(fileURLToPath(import.meta.url));
 const check=process.argv.includes('--check');
 const groups=[
-  {out:'bundle-v68.js',dir:'src/client',files:['01-core-auth.js','02-app-chat.js','03-calls-control.js','04-features-runtime.js']},
-  {out:'app-v68.css',dir:'src/styles',files:['01-foundation.css','02-layout.css','03-components.css','04-calls-themes.css']}
+  {out:'bundle-v68.js',dir:'.',files:['01-core-auth.js','02-app-chat.js','03-calls-control.js','04-features-runtime.js']},
+  {out:'app-v68.css',dir:'.',files:['01-foundation.css','02-layout.css','03-components.css','04-calls-themes.css']}
 ];
 
 let failed=false;

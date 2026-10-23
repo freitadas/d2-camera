@@ -2,12 +2,12 @@
 
 ## Fontes editáveis
 
-- `src/client/`: frontend dividido por domínio. O arquivo publicado `bundle-v68.js` é gerado pela concatenação ordenada desses arquivos.
-- `src/styles/`: CSS dividido por domínio. O arquivo publicado `app-v68.css` é gerado pela concatenação ordenada desses arquivos.
-- `src/worker/state-indexes.js`: índices de leitura para usuários, amizades, solicitações, servidores, convites e grupos.
-- `src/worker/socket-compat.js`: transporte WebSocket compatível e roteamento de salas.
-- `src/worker/socket-rate-limiter.js`: limites de eventos por socket.
-- `src/worker/auth-utils.js`: utilitários de autenticação/criptografia.
+- arquivos `01-core-auth.js`, `02-app-chat.js`, `03-calls-control.js` e `04-features-runtime.js` na raiz: frontend dividido por domínio. O arquivo publicado `bundle-v68.js` é gerado pela concatenação ordenada desses arquivos.
+- arquivos CSS `01-foundation.css`, `02-layout.css`, `03-components.css` e `04-calls-themes.css` na raiz: CSS dividido por domínio. O arquivo publicado `app-v68.css` é gerado pela concatenação ordenada desses arquivos.
+- `state-indexes.js`: índices de leitura para usuários, amizades, solicitações, servidores, convites e grupos.
+- `socket-compat.js`: transporte WebSocket compatível e roteamento de salas.
+- `socket-rate-limiter.js`: limites de eventos por socket.
+- `auth-utils.js`: utilitários de autenticação/criptografia.
 
 ## Build e testes
 

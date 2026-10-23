@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import * as crypto from "node:crypto";
-import { StateIndexes } from "./src/worker/state-indexes.js";
-import { SocketCompat, createIoCompat } from "./src/worker/socket-compat.js";
-import { normalizeAccountUsername, usernameKey, passwordDigest, verifyAccountPassword, tokenHash, readCookie } from "./src/worker/auth-utils.js";
+import { StateIndexes } from "./state-indexes.js";
+import { SocketCompat, createIoCompat } from "./socket-compat.js";
+import { normalizeAccountUsername, usernameKey, passwordDigest, verifyAccountPassword, tokenHash, readCookie } from "./auth-utils.js";
 
 const id=()=>crypto.randomBytes(12).toString('hex');
 
