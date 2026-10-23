@@ -5,8 +5,8 @@ import {fileURLToPath} from 'node:url';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const check=process.argv.includes('--check');
 const groups=[
-  {out:'bundle-v681.js',dir:'.',files:['01-core-auth.js','02-app-chat.js','03-calls-control.js','04-features-runtime.js']},
-  {out:'app-v681.css',dir:'.',files:['01-foundation.css','02-layout.css','03-components.css','04-calls-themes.css']}
+  {out:'bundle-v682.js',dir:'.',files:['01-core-auth.js','02-app-chat.js','03-calls-control.js','04-features-runtime.js']},
+  {out:'app-v682.css',dir:'.',files:['01-foundation.css','02-layout.css','03-components.css','04-calls-themes.css']}
 ];
 
 let failed=false;

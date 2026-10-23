@@ -1845,6 +1845,7 @@ async function stopScreen(){
   }
   const oldTrack = state.screenTrack;
   state.screenTrack = null;
+  state.sharedControl.autoStartedScreen=false;
 
   if(oldTrack){
     oldTrack.onended = null;
@@ -1895,7 +1896,7 @@ function updateShareQualityButtons(){
   });
 }
 
-async function applyScreenSenderQuality(track,quality){
+async function applyScreenSenderQuality(track,quality,{interactive=false}={}){
   const preset = screenSharePreset(quality);
 
   try{
@@ -1919,6 +1920,7 @@ async function applyScreenSenderQuality(track,quality){
       params.encodings = params.encodings?.length ? params.encodings : [{}];
       params.encodings[0].maxBitrate = preset.maxBitrate;
       params.encodings[0].maxFramerate = preset.frameRate.max || preset.frameRate.ideal || 30;
+      if(interactive) params.degradationPreference='maintain-framerate';
       await sender.setParameters(params);
     }catch(error){
       console.warn('Não foi possível aplicar bitrate da tela:',error);
@@ -1945,80 +1947,132 @@ function closeSharePicker(){
   $('#sharePickerWrap').classList.add('hidden');
 }
 
+async function installScreenShareStream(stream,{interactive=false,autoStarted=false}={}){
+  if(!stream) throw new Error('Fluxo de tela indisponível.');
+
+  const nextTrack=stream.getVideoTracks()[0]||null;
+  const nextAudio=stream.getAudioTracks()[0]||null;
+  if(!nextTrack) throw new Error('Nenhuma faixa de tela foi selecionada.');
+
+  const previousStream=state.screenStream;
+  const previousTrack=state.screenTrack;
+
+  state.screenStream=stream;
+  state.screenTrack=nextTrack;
+  state.screenAudioTrack=nextAudio;
+  state.sharedControl.autoStartedScreen=!!autoStarted;
+
+  try{
+    nextTrack.contentHint=interactive?'motion':'detail';
+  }catch{}
+
+  await replaceVideoForAll(nextTrack);
+  await applyScreenSenderQuality(nextTrack,state.screenShareQuality,{interactive});
+  await startScreenAudioMix();
+
+  const preview=new MediaStream([nextTrack]);
+  ensureCard('local',state.username+' — compartilhando tela',preview,true);
+
+  $('#screenBtn').textContent='⏹ Parar tela';
+  $('#screenBtn').classList.add('sharing');
+  $('#cameraBtn').disabled=true;
+  const qualityLabel=
+    state.screenShareQuality==='720p'
+      ? '720p'
+      : (state.screenShareQuality==='1080p60'?'1080p 60 FPS':'1080p');
+  $('#voiceStatus').textContent=(interactive?'Controle compartilhado · ':'Compartilhando tela · ')+qualityLabel;
+
+  nextTrack.onended=()=>{
+    if(state.screenTrack===nextTrack){
+      stopScreen().catch(console.error);
+    }
+  };
+
+  if(previousTrack && previousTrack!==nextTrack){
+    previousTrack.onended=null;
+  }
+  if(previousStream && previousStream!==stream){
+    previousStream.getTracks().forEach(track=>{
+      if(track!==nextTrack && track!==nextAudio && track.readyState!=='ended'){
+        try{track.stop()}catch{}
+      }
+    });
+  }
+  return true;
+}
+
 async function startScreenShare(displaySurface){
   closeSharePicker();
 
   try{
-    const preset = screenSharePreset(state.screenShareQuality);
-
-    const videoOptions = {
+    const preset=screenSharePreset(state.screenShareQuality);
+    const videoOptions={
       width:preset.width,
       height:preset.height,
       frameRate:preset.frameRate
     };
+    if(displaySurface) videoOptions.displaySurface=displaySurface;
 
-    if(displaySurface){
-      videoOptions.displaySurface = displaySurface;
-    }
-
-    state.screenStream = await navigator.mediaDevices.getDisplayMedia({
+    const stream=await navigator.mediaDevices.getDisplayMedia({
       video:videoOptions,
       audio:true,
       selfBrowserSurface:'exclude',
       surfaceSwitching:'include'
     });
-
-    state.screenTrack = state.screenStream.getVideoTracks()[0];
-    state.screenAudioTrack = state.screenStream.getAudioTracks()[0] || null;
-
-    if(!state.screenTrack){
-      throw new Error('Nenhuma faixa de tela foi selecionada.');
-    }
-
-    try{
-      state.screenTrack.contentHint = 'detail';
-    }catch{}
-
-    await replaceVideoForAll(state.screenTrack);
-    await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality);
-    await startScreenAudioMix();
-
-    const preview = new MediaStream([state.screenTrack]);
-    ensureCard(
-      'local',
-      state.username+' — compartilhando tela',
-      preview,
-      true
-    );
-
-    $('#screenBtn').textContent = '⏹ Parar tela';
-    $('#screenBtn').classList.add('sharing');
-    $('#cameraBtn').disabled = true;
-    const qualityLabel =
-      state.screenShareQuality === '720p'
-        ? '720p'
-        : (
-            state.screenShareQuality === '1080p60'
-              ? '1080p 60 FPS'
-              : '1080p'
-          );
-
-    $('#voiceStatus').textContent = 'Compartilhando tela · ' + qualityLabel;
-
-    state.screenTrack.onended = ()=>{
-      if(state.screenTrack){
-        stopScreen().catch(console.error);
-      }
-    };
+    return await installScreenShareStream(stream,{interactive:false,autoStarted:false});
   }catch(error){
-    state.screenStream = null;
-    state.screenTrack = null;
-
-    if(error?.name !== 'NotAllowedError'){
+    if(error?.name!=='NotAllowedError'){
       console.error('Erro ao compartilhar tela:',error);
       toast(friendlyMediaError(error,'compartilhamento de tela'));
     }
+    return false;
   }
+}
+
+async function startSharedControlDesktopCapture(){
+  const bridge=sharedControlBridge();
+  if(!bridge?.getPrimaryDisplaySource) return false;
+
+  const source=await bridge.getPrimaryDisplaySource().catch(()=>null);
+  if(!source?.ok || !source.id){
+    toast(source?.error||'Não foi possível localizar o monitor principal');
+    return false;
+  }
+
+  const preset=screenSharePreset(state.screenShareQuality);
+  const width=Number(preset.width?.ideal||preset.width?.max||1920);
+  const height=Number(preset.height?.ideal||preset.height?.max||1080);
+  const fps=Number(preset.frameRate?.max||preset.frameRate?.ideal||30);
+
+  const videoMandatory={
+    chromeMediaSource:'desktop',
+    chromeMediaSourceId:String(source.id),
+    maxWidth:Math.max(1280,width),
+    maxHeight:Math.max(720,height),
+    maxFrameRate:Math.max(30,fps)
+  };
+
+  let stream=null;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:{mandatory:{chromeMediaSource:'desktop'}},
+      video:{mandatory:videoMandatory}
+    });
+  }catch(audioError){
+    console.warn('Áudio do sistema indisponível no Controle compartilhado; continuando com vídeo.',audioError);
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({
+        audio:false,
+        video:{mandatory:videoMandatory}
+      });
+    }catch(error){
+      console.error('Falha na captura automática do monitor:',error);
+      toast(friendlyMediaError(error,'Controle compartilhado'));
+      return false;
+    }
+  }
+
+  return installScreenShareStream(stream,{interactive:true,autoStarted:true});
 }
 
 async function toggleScreen(){
@@ -2079,6 +2133,7 @@ function sharedControlBridge(){
     available:true,
     platform:__acordDesktopBridgeState.platform||'win32',
     setHostEnabled:enabled=>sharedControlBridgeRequest('setHostEnabled',{enabled:!!enabled}),
+    getPrimaryDisplaySource:()=>sharedControlBridgeRequest('getPrimaryDisplaySource',{},5000),
     injectInput:event=>window.postMessage({__acordDesktopBridgeRequest:true,action:'injectInput',payload:{event}},'*'),
     releaseAll:()=>window.postMessage({__acordDesktopBridgeRequest:true,action:'releaseAll',payload:{}},'*')
   };
@@ -2339,36 +2394,58 @@ async function setSharedControlHostEnabled(enabled){
       toast(sharedControlDesktopHint()?'A ponte nativa do Acord Desktop não carregou. Feche e abra o Acord novamente.':'Para hospedar o Controle compartilhado, abra o Acord Desktop no Windows');
       return;
     }
-    if(!state.screenTrack || state.screenTrack.readyState!=='live'){
-      toast('Compartilhe o monitor inteiro antes de ativar o Controle compartilhado');
-      openSharePicker();
-      return;
+
+    const live=!!state.screenTrack && state.screenTrack.readyState==='live';
+    const surface=live?String(state.screenTrack.getSettings?.().displaySurface||''):'';
+    const alreadyWholeMonitor=live && (!surface || surface==='monitor');
+
+    if(!alreadyWholeMonitor){
+      const captured=await startSharedControlDesktopCapture();
+      if(!captured) return;
+    }else{
+      state.sharedControl.autoStartedScreen=false;
+      try{state.screenTrack.contentHint='motion'}catch{}
+      await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality,{interactive:true});
     }
-    const surface=String(state.screenTrack.getSettings?.().displaySurface||'');
-    if(surface && surface!=='monitor'){
-      toast('Para controlar o PC inteiro, compartilhe a tela/monitor, não somente uma janela');
-      return;
-    }
+
     const nativeResult=await bridge.setHostEnabled(true).catch(()=>({ok:false,error:'Falha ao ativar o controle do Windows'}));
-    if(!nativeResult?.ok){toast(nativeResult?.error||'Não foi possível ativar o Controle compartilhado');return}
+    if(!nativeResult?.ok){
+      if(state.sharedControl.autoStartedScreen){
+        state.sharedControl.autoStartedScreen=false;
+        await stopScreen().catch(()=>{});
+      }
+      toast(nativeResult?.error||'Não foi possível ativar o Controle compartilhado');
+      return;
+    }
+
     socket.timeout(5000).emit('shared-control-host-set',{enabled:true},async(error,result)=>{
       if(error || !result?.ok){
         await bridge.setHostEnabled(false).catch(()=>{});
+        bridge.releaseAll?.();
+        if(state.sharedControl.autoStartedScreen){
+          state.sharedControl.autoStartedScreen=false;
+          await stopScreen().catch(()=>{});
+        }
         toast(result?.error||'Não foi possível publicar o Controle compartilhado');
         return;
       }
-      toast('Controle compartilhado ativo');
+      toast('Controle compartilhado ativo · monitor principal transmitido automaticamente');
       socket.emit('shared-control-sync');
     });
     return;
   }
 
+  const stopAutoScreen=!!state.sharedControl.autoStartedScreen;
+  state.sharedControl.autoStartedScreen=false;
   socket.timeout(4000).emit('shared-control-host-set',{enabled:false},()=>{});
   await bridge?.setHostEnabled(false).catch(()=>{});
   bridge?.releaseAll?.();
   state.sharedControl.accessToken='';
   state.sharedControl.accessExpiresAt=0;
   applySharedControlSnapshot({active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[],grantDetails:[],requestDetails:[]});
+  if(stopAutoScreen && state.screenTrack){
+    await stopScreen().catch(()=>{});
+  }
   toast('Controle compartilhado desativado');
 }
 
@@ -2450,7 +2527,7 @@ function sendSharedControlInput(event){
 function queueSharedControlPointerMove(value){
   state.sharedControl.pendingPointerMove=value;
   if(state.sharedControl.pointerMoveTimer) return;
-  const wait=Math.max(0,40-(Date.now()-state.sharedControl.lastPointerSentAt));
+  const wait=Math.max(0,16-(Date.now()-state.sharedControl.lastPointerSentAt));
   state.sharedControl.pointerMoveTimer=setTimeout(()=>{
     state.sharedControl.pointerMoveTimer=null;
     const next=state.sharedControl.pendingPointerMove;

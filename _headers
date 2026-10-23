@@ -13,19 +13,19 @@
 /index.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/index-v681.html
+/index-v682.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/runtime-v681.js
+/runtime-v682.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/bootstrap-v681.js
+/bootstrap-v682.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/bundle-v681.js
+/bundle-v682.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/app-v681.css
+/app-v682.css
   Cache-Control: no-store, no-cache, must-revalidate
 
 /socket.io.js
@@ -34,10 +34,10 @@
 /sw.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/phone-camera-v681.html
+/phone-camera-v682.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/phone-camera-bundle-v681.js
+/phone-camera-bundle-v682.js
   Cache-Control: no-store, no-cache, must-revalidate
 
 /manifest.webmanifest
