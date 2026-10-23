@@ -15,7 +15,7 @@
       login.style.pointerEvents='auto';
     }
 
-    if(app && !window.__ACORD_BOOT_READY){
+    if(app && window.__ACORD_APP_READY!==true){
       app.classList.add('hidden');
     }
 
@@ -32,14 +32,14 @@
     forceLogin();
 
     setTimeout(()=>{
-      if(!window.__ACORD_BOOT_READY){
-        forceLogin('O Acord ainda está carregando. Você pode tentar entrar novamente.');
+      if(window.__ACORD_APP_READY!==true){
+        forceLogin(window.__ACORD_BOOT_READY ? '' : 'O Acord ainda está carregando. Você pode tentar entrar novamente.');
       }
     },3500);
 
     setTimeout(()=>{
-      if(!window.__ACORD_BOOT_READY){
-        forceLogin('Não foi possível concluir a inicialização. Reabra o Acord se necessário.');
+      if(window.__ACORD_APP_READY!==true){
+        forceLogin(window.__ACORD_BOOT_READY ? '' : 'Não foi possível concluir a inicialização. Reabra o Acord se necessário.');
       }
     },9000);
   }
