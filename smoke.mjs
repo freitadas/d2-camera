@@ -30,12 +30,12 @@ if(missing.length) fail('Listeners apontam para IDs ausentes: '+missing.join(', 
 
 if(!/<div id="login" class="login">/.test(html)) fail('Login deve nascer visível.');
 if(!/<div id="appShell" class="app hubMode hidden">/.test(html)) fail('App principal deve nascer oculto.');
-if(!html.includes('/runtime-v64.js?v=6.4.1')||!html.includes('/bootstrap-v64.js?v=6.4.1')||!html.includes('/bundle-v64.js?v=6.4.1')) fail('Scripts v6.4 ausentes.');
-if(html.indexOf('/runtime-v64.js?v=6.4.1')>html.indexOf('/bootstrap-v64.js?v=6.4.1')||html.indexOf('/bootstrap-v64.js?v=6.4.1')>html.indexOf('/bundle-v64.js?v=6.4.1')) fail('Ordem de startup inválida.');
+if(!html.includes('/runtime-v64.js?v=6.4.2')||!html.includes('/bootstrap-v64.js?v=6.4.2')||!html.includes('/bundle-v64.js?v=6.4.2')) fail('Scripts v6.4 ausentes.');
+if(html.indexOf('/runtime-v64.js?v=6.4.2')>html.indexOf('/bootstrap-v64.js?v=6.4.2')||html.indexOf('/bootstrap-v64.js?v=6.4.2')>html.indexOf('/bundle-v64.js?v=6.4.2')) fail('Ordem de startup inválida.');
 if(bundle.includes("localStorage.setItem('acord-auth-token'")) fail('Token não pode ser persistido em localStorage.');
 
 const server=read('index.js');
-for(const marker of ['__Host-acord_session','verifyRecoveryProof','auth_rate','recoveryProof','appVersion:\'6.4.1\'']){
+for(const marker of ['__Host-acord_session','verifyRecoveryProof','auth_rate','recoveryProof','appVersion:\'6.4.2\'']){
   if(!server.includes(marker)) fail('Proteção ausente: '+marker);
 }
 const wrangler=JSON.parse(read('wrangler.jsonc'));
@@ -44,7 +44,7 @@ if(wrangler.assets?.html_handling!=='none') fail('html_handling deve permanecer 
 if(!html.includes('class="activeCallDock hidden"')) fail('Dock de call temático ausente.');
 if(html.includes('background:rgba(13,27,23,.97)')) fail('Dock de call ainda usa fundo verde fixo.');
 const css=read('app-v64.css');
-for(const marker of ['.activeCallDock{','background:color-mix(in srgb,var(--coral)','body.locked{overflow:hidden!important;background:#000!important;filter:none!important}','.fakeFullscreen video{object-fit:contain!important;background:#000!important;filter:none!important']){
+for(const marker of ['.activeCallDock{','background:color-mix(in srgb,var(--coral)','body.locked{','--bg0:#050607;','--mint:#c4cad2;','filter:saturate(.94) contrast(1.01) brightness(1.01)!important;','.fakeFullscreen video{object-fit:contain!important;background:#000!important;filter:none!important']){
   if(!css.includes(marker)) fail('Correção visual de call/tela ausente: '+marker);
 }
-console.log(JSON.stringify({ok:true,version:'6.4.1',ids:ids.length,directListenerIds:directIds.size},null,2));
+console.log(JSON.stringify({ok:true,version:'6.4.2',ids:ids.length,directListenerIds:directIds.size},null,2));

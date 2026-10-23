@@ -61,7 +61,7 @@
   }catch{}
 
   const api={
-    version:'6.4.1',
+    version:'6.4.2',
     startedAt:Date.now(),
     entries,
     mark,

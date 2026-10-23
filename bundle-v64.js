@@ -240,8 +240,8 @@ const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
 
-window.__ACORD_BUILD='6.4.1';
-document.documentElement.dataset.acordBuild='6.4.1';
+window.__ACORD_BUILD='6.4.2';
+document.documentElement.dataset.acordBuild='6.4.2';
 
 window.addEventListener('error',event=>{
   console.error('Acord runtime:',event.error||event.message);
@@ -2180,7 +2180,7 @@ function startLabTimer(minutes){
 
 function labsDiagnosticText(){
   return [
-    'Acord v6.4.1',
+    'Acord v6.4.2',
     'Usuário: '+(state.username||''),
     'Servidor: '+(currentServer()?.name||'nenhum'),
     'Canal: '+(currentText()?.name||'nenhum'),
@@ -10636,23 +10636,22 @@ document.querySelectorAll('[data-share-kind]').forEach(button=>{
   });
 });
 
+function setShareFullscreenState(card=null){
+  document.querySelectorAll('.fakeFullscreen').forEach(x=>x.classList.remove('fakeFullscreen'));
+  const enabled=!!card;
+  if(card) card.classList.add('fakeFullscreen');
+  document.body.classList.toggle('locked',enabled);
+  document.documentElement.classList.toggle('shareFullscreenActive',enabled);
+}
+
 $('#videoGrid').addEventListener('click',e=>{
   const card = e.target.closest('.videoCard');
   if(!card) return;
   const open = card.classList.contains('fakeFullscreen');
-  document.querySelectorAll('.fakeFullscreen').forEach(x=>x.classList.remove('fakeFullscreen'));
-  if(open){
-    document.body.classList.remove('locked');
-  }else{
-    card.classList.add('fakeFullscreen');
-    document.body.classList.add('locked');
-  }
+  setShareFullscreenState(open ? null : card);
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){
-    document.querySelectorAll('.fakeFullscreen').forEach(x=>x.classList.remove('fakeFullscreen'));
-    document.body.classList.remove('locked');
-  }
+  if(e.key==='Escape') setShareFullscreenState(null);
 });
 
 

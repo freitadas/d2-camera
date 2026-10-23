@@ -1171,8 +1171,30 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
 .fakeFullscreen{position:fixed!important;inset:0 0 76px 0!important;width:100%!important;height:auto!important;z-index:100!important;border:0!important;outline:0!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important;box-shadow:none!important;isolation:isolate!important}
 .fakeFullscreen::before,.fakeFullscreen::after{display:none!important}
 .fakeFullscreen video{object-fit:contain!important;background:#000!important;filter:none!important;opacity:1!important;mix-blend-mode:normal!important}
-body.locked{overflow:hidden!important;background:#000!important;filter:none!important}
+body.locked{
+  overflow:hidden!important;
+  background:#000!important;
+  filter:none!important;
+  /* Durante a ampliação da tela compartilhada, use fundos neutros.
+     O destaque do usuário (--coral/--coral2) é preservado. */
+  --bg0:#050607;
+  --bg1:#0a0b0d;
+  --bg2:#111317;
+  --bg3:#181b20;
+  --bg4:#22262c;
+  --line:#30353d;
+  --text:#f4f6f8;
+  --muted:#adb4bd;
+  --low:#737c87;
+  --mint:#c4cad2;
+  --mintbg:#1a1d22;
+}
 body.locked .fakeFullscreen,body.locked .fakeFullscreen *{filter:none!important;mix-blend-mode:normal!important}
+body.locked .fakeFullscreen video{
+  color-scheme:normal!important;
+  image-rendering:auto!important;
+  filter:saturate(.94) contrast(1.01) brightness(1.01)!important;
+}
 
 /* A barra de call acompanha a cor escolhida pelo usuário (tema/paleta/cor personalizada). */
 .activeCallDock{
