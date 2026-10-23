@@ -14,6 +14,7 @@ const friendships=[];
 const privateGroups=new Map();
 const privateCalls=new Map();
 const phoneCameraSessions=new Map();
+const sharedControlRooms=new Map();
 
 const SESSION_LIFETIME_MS=1000*60*60*24*365;
 const SESSION_GRACE_MS=1000*60*60*24*7;
@@ -1360,7 +1361,13 @@ class SocketCompat{
   to(room){
     return {
       emit:(event,data)=>{
-        this.runtime.broadcastRoom(String(room||''),event,data,this.id);
+        const target=String(room||'');
+        const direct=this.runtime.sockets.get(target);
+        if(direct && direct.id!==this.id){
+          direct.emit(event,data);
+          return;
+        }
+        this.runtime.broadcastRoom(target,event,data,this.id);
       }
     };
   }
@@ -1445,7 +1452,13 @@ function createIoCompat(runtime){
     to(room){
       return {
         emit(event,data){
-          runtime.broadcastRoom(String(room||''),event,data,null);
+          const target=String(room||'');
+          const direct=runtime.sockets.get(target);
+          if(direct){
+            direct.emit(event,data);
+            return;
+          }
+          runtime.broadcastRoom(target,event,data,null);
         }
       };
     }
@@ -1509,6 +1522,165 @@ function setupSocket(socket){
     const room = socket.data.voiceRoom;
     return !!room && room === target.data.voiceRoom;
   }
+
+
+  function sharedControlSnapshot(room){
+    const session=sharedControlRooms.get(String(room||''));
+    if(!session) return {active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[]};
+    return {
+      active:true,
+      hostId:session.hostId,
+      hostName:session.hostName||'Usuário',
+      grantedIds:[...session.grants.keys()],
+      requestedIds:[...session.requests]
+    };
+  }
+
+  function emitSharedControlState(room){
+    if(!room) return;
+    io.to(room).emit('shared-control-state',sharedControlSnapshot(room));
+  }
+
+  function cleanupSharedControlForSocket(room,socketId){
+    const safeRoom=String(room||'');
+    const safeId=String(socketId||'');
+    const session=sharedControlRooms.get(safeRoom);
+    if(!session) return;
+    if(session.hostId===safeId){
+      sharedControlRooms.delete(safeRoom);
+      io.to(safeRoom).emit('shared-control-state',{active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[]});
+      return;
+    }
+    const hadAccess=session.grants.has(safeId) || session.requests.has(safeId);
+    session.grants.delete(safeId);
+    session.requests.delete(safeId);
+    if(hadAccess){
+      io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:safeId});
+    }
+    emitSharedControlState(safeRoom);
+  }
+
+  function sanitizeSharedControlInput(raw){
+    if(!raw || typeof raw!=='object') return null;
+    const type=String(raw.type||'');
+    if(type==='pointer-move'){
+      const x=Number(raw.x),y=Number(raw.y);
+      if(!Number.isFinite(x)||!Number.isFinite(y)) return null;
+      return {type,x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
+    }
+    if(type==='pointer-button'){
+      const button=Math.max(0,Math.min(2,Number(raw.button)||0));
+      return {type,button,down:!!raw.down};
+    }
+    if(type==='wheel'){
+      const deltaY=Math.max(-1200,Math.min(1200,Number(raw.deltaY)||0));
+      return {type,deltaY};
+    }
+    if(type==='key'){
+      const code=String(raw.code||'').slice(0,32);
+      if(!/^(Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2])|Space|Enter|Escape|Backspace|Tab|Arrow(?:Left|Up|Right|Down)|Home|End|PageUp|PageDown|Insert|Delete|Shift(?:Left|Right)|Control(?:Left|Right)|Alt(?:Left|Right)|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Backquote)$/.test(code)) return null;
+      return {type,code,down:!!raw.down};
+    }
+    if(type==='release-all') return {type};
+    return null;
+  }
+
+  socket.on('shared-control-sync',()=>{
+    const room=socket.data.voiceRoom;
+    if(room) socket.emit('shared-control-state',sharedControlSnapshot(room));
+  });
+
+  socket.on('shared-control-host-set',({enabled}={},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const room=socket.data.voiceRoom;
+    if(!room){reply({ok:false,error:'Entre em uma call primeiro'});return}
+    const current=sharedControlRooms.get(room);
+    if(!enabled){
+      if(current?.hostId===socket.id){
+        sharedControlRooms.delete(room);
+        emitSharedControlState(room);
+      }
+      reply({ok:true,active:false});
+      return;
+    }
+    if(current && current.hostId!==socket.id){
+      reply({ok:false,error:'Outro participante já está compartilhando o controle nesta call'});
+      return;
+    }
+    sharedControlRooms.set(room,{
+      hostId:socket.id,
+      hostUserId:String(socket.data.userId||''),
+      hostName:socket.data.username||'Usuário',
+      grants:current?.grants||new Map(),
+      requests:current?.requests||new Set(),
+      createdAt:current?.createdAt||Date.now()
+    });
+    emitSharedControlState(room);
+    reply({ok:true,active:true});
+  });
+
+  socket.on('shared-control-request',(_,ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const room=socket.data.voiceRoom;
+    const session=room?sharedControlRooms.get(room):null;
+    if(!room||!session){reply({ok:false,error:'Nenhum Controle compartilhado ativo nesta call'});return}
+    if(session.hostId===socket.id){reply({ok:false,error:'Você já é o host do Controle compartilhado'});return}
+    session.requests.add(socket.id);
+    const host=io.sockets.sockets.get(session.hostId);
+    host?.emit('shared-control-requested',{peerId:socket.id,username:socket.data.username||'Usuário'});
+    emitSharedControlState(room);
+    reply({ok:true});
+  });
+
+  socket.on('shared-control-grant',({peerId}={},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const room=socket.data.voiceRoom;
+    const session=room?sharedControlRooms.get(room):null;
+    const safePeerId=String(peerId||'');
+    if(!session||session.hostId!==socket.id){reply({ok:false,error:'Somente o host pode liberar o controle'});return}
+    const peer=io.sockets.sockets.get(safePeerId);
+    if(!peer||peer.data.voiceRoom!==room||safePeerId===socket.id){reply({ok:false,error:'Participante indisponível'});return}
+    session.grants.set(safePeerId,{mouse:true,keyboard:true,grantedAt:Date.now()});
+    session.requests.delete(safePeerId);
+    peer.emit('shared-control-granted',{hostId:socket.id,hostName:socket.data.username||'Usuário'});
+    emitSharedControlState(room);
+    reply({ok:true});
+  });
+
+  socket.on('shared-control-revoke',({peerId}={},ack)=>{
+    const reply=typeof ack==='function'?ack:()=>{};
+    const room=socket.data.voiceRoom;
+    const session=room?sharedControlRooms.get(room):null;
+    const safePeerId=String(peerId||'');
+    if(!session||session.hostId!==socket.id){reply({ok:false,error:'Somente o host pode revogar o controle'});return}
+    session.grants.delete(safePeerId);
+    session.requests.delete(safePeerId);
+    io.to(safePeerId).emit('shared-control-revoked',{hostId:socket.id});
+    emitSharedControlState(room);
+    reply({ok:true});
+  });
+
+  socket.on('shared-control-cancel',()=>{
+    const room=socket.data.voiceRoom;
+    const session=room?sharedControlRooms.get(room):null;
+    if(!session||session.hostId===socket.id) return;
+    session.grants.delete(socket.id);
+    session.requests.delete(socket.id);
+    io.to(session.hostId).emit('shared-control-peer-released',{peerId:socket.id});
+    emitSharedControlState(room);
+  });
+
+  socket.on('shared-control-input',({hostId,event}={})=>{
+    const room=socket.data.voiceRoom;
+    const session=room?sharedControlRooms.get(room):null;
+    if(!session||session.hostId!==String(hostId||'')||session.hostId===socket.id) return;
+    if(!session.grants.has(socket.id)) return;
+    const host=io.sockets.sockets.get(session.hostId);
+    if(!host||host.data.voiceRoom!==room) return;
+    const safe=sanitizeSharedControlInput(event);
+    if(!safe) return;
+    host.emit('shared-control-input',{from:socket.id,event:safe});
+  });
 
   broadcastOnlineUsers();
 
@@ -3882,6 +4054,7 @@ function setupSocket(socket){
     const room = socket.data.voiceRoom;
     if (!room) return;
 
+    cleanupSharedControlForSocket(room,socket.id);
     socket.leave(room);
     socket.to(room).emit('user-left', { id: socket.id });
 
@@ -4899,6 +5072,7 @@ function setupSocket(socket){
   });
 
 socket.on('disconnect', () => {
+    if(socket.data.voiceRoom) cleanupSharedControlForSocket(socket.data.voiceRoom,socket.id);
     for(const [callId,call] of privateCalls){
       if(call.type==='group'){
         // A call em grupo continua disponível para os demais membros.
@@ -5827,23 +6001,30 @@ export default{
     // Compatibilidade sem redirecionamento: clientes antigos recebem os assets
     // atuais diretamente, evitando loops e versões misturadas no startup.
     const legacyAssets={
-      '/index-v61.html':'/index-v64.html',
-      '/index-v62.html':'/index-v64.html',
-      '/index-v63.html':'/index-v64.html',
-      '/bootstrap-v62.js':'/bootstrap-v64.js',
-      '/bootstrap-v63.js':'/bootstrap-v64.js',
-      '/bundle-v61.js':'/bundle-v64.js',
-      '/bundle-v62.js':'/bundle-v64.js',
-      '/bundle-v63.js':'/bundle-v64.js',
-      '/app-v61.css':'/app-v64.css',
-      '/app-v62.css':'/app-v64.css',
-      '/app-v63.css':'/app-v64.css',
-      '/phone-camera-v61.html':'/phone-camera-v64.html',
-      '/phone-camera-v62.html':'/phone-camera-v64.html',
-      '/phone-camera-v63.html':'/phone-camera-v64.html',
-      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v64.js',
-      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v64.js',
-      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v64.js'
+      '/index-v61.html':'/index-v65.html',
+      '/index-v62.html':'/index-v65.html',
+      '/index-v63.html':'/index-v65.html',
+      '/index-v64.html':'/index-v65.html',
+      '/runtime-v64.js':'/runtime-v65.js',
+      '/bootstrap-v62.js':'/bootstrap-v65.js',
+      '/bootstrap-v63.js':'/bootstrap-v65.js',
+      '/bootstrap-v64.js':'/bootstrap-v65.js',
+      '/bundle-v61.js':'/bundle-v65.js',
+      '/bundle-v62.js':'/bundle-v65.js',
+      '/bundle-v63.js':'/bundle-v65.js',
+      '/bundle-v64.js':'/bundle-v65.js',
+      '/app-v61.css':'/app-v65.css',
+      '/app-v62.css':'/app-v65.css',
+      '/app-v63.css':'/app-v65.css',
+      '/app-v64.css':'/app-v65.css',
+      '/phone-camera-v61.html':'/phone-camera-v65.html',
+      '/phone-camera-v62.html':'/phone-camera-v65.html',
+      '/phone-camera-v63.html':'/phone-camera-v65.html',
+      '/phone-camera-v64.html':'/phone-camera-v65.html',
+      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v65.js',
+      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v65.js',
+      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v65.js',
+      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v65.js'
     };
     if(request.method==='GET' && legacyAssets[url.pathname]){
       const assetUrl=new URL(legacyAssets[url.pathname],url);
@@ -5861,7 +6042,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v64.html',url);
+      const assetUrl=new URL('/index-v65.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -5878,7 +6059,7 @@ export default{
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
         dataVersion:24,
-        appVersion:'6.4.2',
+        appVersion:'6.5.0',
         ...state
       });
     }
@@ -6036,12 +6217,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v64.html',url);
+      const assetUrl=new URL('/phone-camera-v65.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v64.html',url);
+      const assetUrl=new URL('/index-v65.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 

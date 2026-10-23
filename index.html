@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Acord</title>
-<link rel="stylesheet" href="/app-v64.css?v=6.4.2">
+<link rel="stylesheet" href="/app-v65.css?v=6.5.0">
 </head>
 <body>
 
@@ -843,10 +843,35 @@
           <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
           <button id="cameraBtn" class="control off">Câmera</button>
           <button id="screenBtn" class="control">Compartilhar</button>
+          <button id="sharedControlBtn" class="control sharedControlControl" type="button">Controle compartilhado</button>
           <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
           <button id="callRepairQuickBtn" class="control callRepairQuick">Reparar call</button>
           <button id="callSettingsBtn" class="control">Dispositivos</button>
           <button id="leaveVoiceBtn" class="control danger">Sair</button>
+        </div>
+
+        <div id="sharedControlPanel" class="sharedControlPanel hidden">
+          <div class="sharedControlHead">
+            <div>
+              <strong>Controle compartilhado</strong>
+              <span id="sharedControlStatus">Inativo</span>
+            </div>
+            <button id="sharedControlCloseBtn" class="sharePickerClose" type="button">×</button>
+          </div>
+          <p class="sharedControlHelp">Compartilhe o mesmo computador com pessoas da call. O host libera ou revoga o controle individualmente. Pressione Esc para soltar o controle local.</p>
+          <div id="sharedControlHostBox" class="sharedControlSection">
+            <button id="sharedControlHostToggleBtn" class="btn primary small" type="button">Ativar neste PC</button>
+            <button id="sharedControlStopAllBtn" class="btn danger small hidden" type="button">Parar todos</button>
+            <small id="sharedControlDesktopHint">Para hospedar, use o Acord Desktop no Windows e compartilhe o monitor principal.</small>
+          </div>
+          <div id="sharedControlGuestBox" class="sharedControlSection hidden">
+            <button id="sharedControlRequestBtn" class="btn primary small" type="button">Solicitar controle</button>
+            <button id="sharedControlTakeBtn" class="btn primary small hidden" type="button">Controlar agora</button>
+            <button id="sharedControlReleaseBtn" class="btn secondary small hidden" type="button">Liberar meu acesso</button>
+          </div>
+          <div class="sharedControlPeopleTitle">Participantes</div>
+          <div id="sharedControlParticipants" class="sharedControlParticipants"></div>
+          <div class="sharedControlSafety">O controle só funciona enquanto o host mantiver esta sessão ativa. Tecla Windows e combinações de sistema ficam bloqueadas.</div>
         </div>
         <div id="callSettingsPanel" class="callSettingsPanel hidden">
           <div class="callSettingsTitle" style="font-weight:900;margin-bottom:10px;">Configurações da call</div>
@@ -1326,8 +1351,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="/runtime-v64.js?v=6.4.2"></script>
-<script src="/bootstrap-v64.js?v=6.4.2"></script>
-<script src="/bundle-v64.js?v=6.4.2"></script>
+<script src="/runtime-v65.js?v=6.5.0"></script>
+<script src="/bootstrap-v65.js?v=6.5.0"></script>
+<script src="/bundle-v65.js?v=6.5.0"></script>
 </body>
 </html>
