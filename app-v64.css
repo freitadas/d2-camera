@@ -1168,9 +1168,60 @@ input:focus{border-color:var(--coral);box-shadow:0 0 0 3px rgba(255,107,74,.08)}
   .settingsGrid{grid-template-columns:1fr}
 }
 
-.fakeFullscreen{position:fixed!important;inset:0 0 76px 0!important;width:100%!important;height:auto!important;z-index:100!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important}
-.fakeFullscreen video{object-fit:contain!important}
-body.locked{overflow:hidden!important}
+.fakeFullscreen{position:fixed!important;inset:0 0 76px 0!important;width:100%!important;height:auto!important;z-index:100!important;border:0!important;outline:0!important;border-radius:0!important;aspect-ratio:auto!important;background:#000!important;box-shadow:none!important;isolation:isolate!important}
+.fakeFullscreen::before,.fakeFullscreen::after{display:none!important}
+.fakeFullscreen video{object-fit:contain!important;background:#000!important;filter:none!important;opacity:1!important;mix-blend-mode:normal!important}
+body.locked{overflow:hidden!important;background:#000!important;filter:none!important}
+body.locked .fakeFullscreen,body.locked .fakeFullscreen *{filter:none!important;mix-blend-mode:normal!important}
+
+/* A barra de call acompanha a cor escolhida pelo usuário (tema/paleta/cor personalizada). */
+.activeCallDock{
+  position:fixed;
+  left:50%;
+  bottom:16px;
+  transform:translateX(-50%);
+  z-index:1500000;
+  min-width:min(520px,calc(100% - 28px));
+  max-width:720px;
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:1px solid color-mix(in srgb,var(--coral) 48%,var(--line));
+  border-radius:16px;
+  background:color-mix(in srgb,var(--coral) 12%,var(--bg1) 88%);
+  box-shadow:0 18px 55px rgba(0,0,0,.38),0 0 0 1px color-mix(in srgb,var(--coral) 8%,transparent),0 0 28px color-mix(in srgb,var(--coral) 10%,transparent);
+  backdrop-filter:blur(16px);
+}
+.activeCallDockDot{
+  width:10px;height:10px;flex:0 0 auto;border-radius:50%;
+  background:var(--coral);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--coral) 14%,transparent),0 0 14px color-mix(in srgb,var(--coral) 42%,transparent);
+}
+.activeCallDockMeta{flex:1;min-width:0}
+.activeCallDockMeta strong{display:block;font-size:12px;color:var(--coral)}
+.activeCallDockMeta span{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.activeCallDockReturn{
+  border-color:color-mix(in srgb,var(--coral) 28%,var(--line))!important;
+  background:color-mix(in srgb,var(--coral) 9%,var(--bg2))!important;
+}
+.activeCallDockReturn:hover{
+  border-color:color-mix(in srgb,var(--coral) 58%,var(--line))!important;
+  background:color-mix(in srgb,var(--coral) 17%,var(--bg3))!important;
+}
+.activeCallDockLeave{
+  border-color:transparent!important;
+  background:color-mix(in srgb,var(--coral) 86%,var(--danger) 14%)!important;
+  color:#fff!important;
+}
+.activeCallDockLeave:hover{
+  background:color-mix(in srgb,var(--coral2) 88%,var(--danger) 12%)!important;
+}
+@media(max-width:620px){
+  .activeCallDock{min-width:0;width:calc(100% - 20px);bottom:10px;gap:7px;padding:9px 10px}
+  .activeCallDockMeta span{max-width:130px}
+  .activeCallDock .btn{padding-left:9px!important;padding-right:9px!important}
+}
 
 .toast{position:fixed;right:18px;bottom:18px;z-index:3000000;background:var(--bg3);border:1px solid var(--line);color:var(--text);padding:11px 14px;border-radius:10px;box-shadow:0 12px 35px rgba(0,0,0,.3);font-size:13px}
 .installAppBtn{

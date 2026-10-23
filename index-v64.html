@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Acord</title>
-<link rel="stylesheet" href="/app-v64.css">
+<link rel="stylesheet" href="/app-v64.css?v=6.4.1">
 </head>
 <body>
 
@@ -1261,32 +1261,16 @@
   </div>
 </div>
 
-<div id="activeCallDock" class="hidden" style="
-  position:fixed;
-  left:50%;
-  bottom:16px;
-  transform:translateX(-50%);
-  z-index:1500000;
-  min-width:min(520px,calc(100% - 28px));
-  max-width:720px;
-  background:rgba(13,27,23,.97);
-  border:1px solid var(--line);
-  border-radius:16px;
-  box-shadow:0 18px 55px rgba(0,0,0,.38);
-  padding:10px 12px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-">
-  <div style="width:10px;height:10px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(65,217,154,.10);"></div>
+<div id="activeCallDock" class="activeCallDock hidden">
+  <div class="activeCallDockDot" aria-hidden="true"></div>
 
-  <div style="flex:1;min-width:0;">
-    <strong style="display:block;font-size:12px;color:var(--mint);">Voz conectada</strong>
-    <span id="activeCallDockText" style="display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Call ativa</span>
+  <div class="activeCallDockMeta">
+    <strong>Voz conectada</strong>
+    <span id="activeCallDockText">Call ativa</span>
   </div>
 
-  <button id="returnToCallBtn" class="btn secondary small" type="button">Voltar à call</button>
-  <button id="dockLeaveCallBtn" class="btn danger small" type="button">Sair</button>
+  <button id="returnToCallBtn" class="btn secondary small activeCallDockReturn" type="button">Voltar à call</button>
+  <button id="dockLeaveCallBtn" class="btn danger small activeCallDockLeave" type="button">Sair</button>
 </div>
 
 <div id="privateGroupModalWrap" class="modalWrap hidden">
@@ -1342,8 +1326,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="/runtime-v64.js"></script>
-<script src="/bootstrap-v64.js"></script>
-<script src="/bundle-v64.js"></script>
+<script src="/runtime-v64.js?v=6.4.1"></script>
+<script src="/bootstrap-v64.js?v=6.4.1"></script>
+<script src="/bundle-v64.js?v=6.4.1"></script>
 </body>
 </html>

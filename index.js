@@ -5878,7 +5878,7 @@ export default{
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
         dataVersion:24,
-        appVersion:'6.4.0',
+        appVersion:'6.4.1',
         ...state
       });
     }
