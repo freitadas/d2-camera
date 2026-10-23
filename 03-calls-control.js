@@ -2029,42 +2029,58 @@ async function startScreenShare(displaySurface){
   }
 }
 
-async function startSharedControlDesktopCapture(){
-  const bridge=sharedControlBridge();
-  if(!bridge?.getPrimaryDisplaySource) return false;
+function sharedControlWithTimeout(promise,ms,message){
+  let timer=null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(message||'Operação excedeu o tempo limite')),ms)})
+  ]).finally(()=>{if(timer)clearTimeout(timer)});
+}
 
-  const source=await bridge.getPrimaryDisplaySource().catch(()=>null);
-  if(!source?.ok || !source.id){
-    toast(source?.error||'Não foi possível localizar o monitor principal');
+async function startSharedControlDesktopCapture(){
+  if(!sharedControlDesktopAvailable()) return false;
+  if(!navigator.mediaDevices?.getDisplayMedia){
+    toast('Captura de tela indisponível nesta instalação do Acord Desktop');
     return false;
   }
 
   const preset=screenSharePreset(state.screenShareQuality);
-  const width=Number(preset.width?.ideal||preset.width?.max||1920);
-  const height=Number(preset.height?.ideal||preset.height?.max||1080);
-  const fps=Number(preset.frameRate?.max||preset.frameRate?.ideal||30);
-
-  const videoMandatory={
-    chromeMediaSource:'desktop',
-    chromeMediaSourceId:String(source.id),
-    maxWidth:Math.max(1280,width),
-    maxHeight:Math.max(720,height),
-    maxFrameRate:Math.max(30,fps)
+  const videoOptions={
+    width:preset.width,
+    height:preset.height,
+    frameRate:preset.frameRate,
+    displaySurface:'monitor'
   };
 
   let stream=null;
   try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      audio:{mandatory:{chromeMediaSource:'desktop'}},
-      video:{mandatory:videoMandatory}
-    });
+    // Electron Desktop: o processo principal seleciona automaticamente o monitor
+    // primário por setDisplayMediaRequestHandler. Isso evita a rota legada
+    // chromeMediaSourceId, que é mais frágil em versões novas do Chromium/Electron.
+    stream=await sharedControlWithTimeout(
+      navigator.mediaDevices.getDisplayMedia({
+        video:videoOptions,
+        audio:true,
+        selfBrowserSurface:'exclude',
+        surfaceSwitching:'exclude',
+        systemAudio:'include'
+      }),
+      12000,
+      'A captura automática do monitor não respondeu'
+    );
   }catch(audioError){
-    console.warn('Áudio do sistema indisponível no Controle compartilhado; continuando com vídeo.',audioError);
+    console.warn('Captura com áudio do sistema indisponível; tentando somente vídeo.',audioError);
     try{
-      stream=await navigator.mediaDevices.getUserMedia({
-        audio:false,
-        video:{mandatory:videoMandatory}
-      });
+      stream=await sharedControlWithTimeout(
+        navigator.mediaDevices.getDisplayMedia({
+          video:videoOptions,
+          audio:false,
+          selfBrowserSurface:'exclude',
+          surfaceSwitching:'exclude'
+        }),
+        12000,
+        'A captura automática do monitor não respondeu'
+      );
     }catch(error){
       console.error('Falha na captura automática do monitor:',error);
       toast(friendlyMediaError(error,'Controle compartilhado'));
@@ -2271,20 +2287,22 @@ function renderSharedControlPanel(){
   $('#sharedControlBtn')?.classList.toggle('active',sc.active||sc.controlling);
 
   if(!sc.active){
-    if(status) status.textContent='Inativo';
+    if(status) status.textContent=sc.activating?'Ativando…':'Inativo';
     hostBox?.classList.remove('hidden');
     guestBox?.classList.add('hidden');
     if(hostToggle){
-      hostToggle.textContent='Ativar neste PC';
+      hostToggle.textContent=sc.activating?'Ativando…':'Ativar neste PC';
       hostToggle.classList.remove('danger');
       hostToggle.classList.add('primary');
-      hostToggle.disabled=!state.joinedVoiceId;
+      hostToggle.disabled=!!sc.activating || !state.joinedVoiceId;
     }
     stopAll?.classList.add('hidden');
     if(hint){
-      hint.textContent=sharedControlDesktopAvailable()
-        ? 'Compartilhe o monitor inteiro e ative para liberar permissões temporárias de mouse ou teclado.'
-        : 'Para hospedar, use o Acord Desktop no Windows. No navegador você pode solicitar controle.';
+      hint.textContent=sc.activating
+        ? 'Preparando o Controle compartilhado e capturando o monitor principal automaticamente…'
+        : (sharedControlDesktopAvailable()
+          ? 'Clique em Ativar neste PC. O Acord Desktop captura o monitor principal automaticamente.'
+          : 'Para hospedar, use o Acord Desktop no Windows. No navegador você pode solicitar controle.');
     }
   }else if(isHost){
     if(status) status.textContent='Ativo neste PC · autorizações expiram em 10 minutos';
@@ -2387,6 +2405,7 @@ function closeSharedControlPanel(){
 
 async function setSharedControlHostEnabled(enabled){
   if(!state.joinedVoiceId){toast('Entre em uma call primeiro');return}
+  if(state.sharedControl.activating) return;
   const bridge=sharedControlBridge();
 
   if(enabled){
@@ -2395,46 +2414,61 @@ async function setSharedControlHostEnabled(enabled){
       return;
     }
 
-    const live=!!state.screenTrack && state.screenTrack.readyState==='live';
-    const surface=live?String(state.screenTrack.getSettings?.().displaySurface||''):'';
-    const alreadyWholeMonitor=live && (!surface || surface==='monitor');
+    state.sharedControl.activating=true;
+    renderSharedControlPanel();
+    let nativeStarted=false;
+    let autoCaptureStarted=false;
+    try{
+      const nativeResult=await sharedControlWithTimeout(
+        bridge.setHostEnabled(true),
+        6000,
+        'O módulo de controle do Windows não respondeu'
+      ).catch(error=>({ok:false,error:error?.message||'Falha ao ativar o controle do Windows'}));
+      if(!nativeResult?.ok) throw new Error(nativeResult?.error||'Não foi possível ativar o controle do Windows');
+      nativeStarted=true;
 
-    if(!alreadyWholeMonitor){
-      const captured=await startSharedControlDesktopCapture();
-      if(!captured) return;
-    }else{
-      state.sharedControl.autoStartedScreen=false;
-      try{state.screenTrack.contentHint='motion'}catch{}
-      await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality,{interactive:true});
-    }
+      const live=!!state.screenTrack && state.screenTrack.readyState==='live';
+      const surface=live?String(state.screenTrack.getSettings?.().displaySurface||''):'';
+      const alreadyWholeMonitor=live && (!surface || surface==='monitor');
 
-    const nativeResult=await bridge.setHostEnabled(true).catch(()=>({ok:false,error:'Falha ao ativar o controle do Windows'}));
-    if(!nativeResult?.ok){
-      if(state.sharedControl.autoStartedScreen){
+      if(!alreadyWholeMonitor){
+        const captured=await startSharedControlDesktopCapture();
+        if(!captured) throw new Error('Não foi possível iniciar a transmissão automática do monitor');
+        autoCaptureStarted=true;
+      }else{
+        state.sharedControl.autoStartedScreen=false;
+        try{state.screenTrack.contentHint='motion'}catch{}
+        await applyScreenSenderQuality(state.screenTrack,state.screenShareQuality,{interactive:true});
+      }
+
+      const publishResult=await new Promise(resolve=>{
+        socket.timeout(6000).emit('shared-control-host-set',{enabled:true},(error,result)=>{
+          resolve(error?{ok:false,error:'O servidor não respondeu à ativação'}:(result||{ok:false,error:'Resposta inválida do servidor'}));
+        });
+      });
+      if(!publishResult?.ok) throw new Error(publishResult?.error||'Não foi possível publicar o Controle compartilhado');
+
+      toast('Controle compartilhado ativo · monitor principal transmitido automaticamente');
+      socket.emit('shared-control-sync');
+    }catch(error){
+      console.error('Falha ao ativar Controle compartilhado:',error);
+      if(nativeStarted){
+        await bridge.setHostEnabled(false).catch(()=>{});
+        bridge.releaseAll?.();
+      }
+      if((autoCaptureStarted||state.sharedControl.autoStartedScreen) && state.screenTrack){
         state.sharedControl.autoStartedScreen=false;
         await stopScreen().catch(()=>{});
       }
-      toast(nativeResult?.error||'Não foi possível ativar o Controle compartilhado');
-      return;
+      toast(error?.message||'Não foi possível ativar o Controle compartilhado');
+    }finally{
+      state.sharedControl.activating=false;
+      renderSharedControlPanel();
     }
-
-    socket.timeout(5000).emit('shared-control-host-set',{enabled:true},async(error,result)=>{
-      if(error || !result?.ok){
-        await bridge.setHostEnabled(false).catch(()=>{});
-        bridge.releaseAll?.();
-        if(state.sharedControl.autoStartedScreen){
-          state.sharedControl.autoStartedScreen=false;
-          await stopScreen().catch(()=>{});
-        }
-        toast(result?.error||'Não foi possível publicar o Controle compartilhado');
-        return;
-      }
-      toast('Controle compartilhado ativo · monitor principal transmitido automaticamente');
-      socket.emit('shared-control-sync');
-    });
     return;
   }
 
+  state.sharedControl.activating=false;
   const stopAutoScreen=!!state.sharedControl.autoStartedScreen;
   state.sharedControl.autoStartedScreen=false;
   socket.timeout(4000).emit('shared-control-host-set',{enabled:false},()=>{});

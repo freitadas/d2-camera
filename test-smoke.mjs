@@ -8,11 +8,11 @@ const root=here;
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const fail=message=>{throw new Error(message)};
 
-for(const file of ['index.js','runtime-v682.js','bootstrap-v682.js','bundle-v682.js','phone-camera-bundle-v682.js','sw.js']){
+for(const file of ['index.js','runtime-v683.js','bootstrap-v683.js','bundle-v683.js','phone-camera-bundle-v683.js','sw.js']){
   execFileSync(process.execPath,['--check',path.join(root,file)],{stdio:'pipe'});
 }
 
-const html=read('index-v682.html');
+const html=read('index-v683.html');
 const ids=[...html.matchAll(/\sid=["']([^"']+)["']/g)].map(m=>m[1]);
 const unique=new Set(ids);
 if(unique.size!==ids.length){
@@ -20,7 +20,7 @@ if(unique.size!==ids.length){
   fail('IDs duplicados: '+dup.join(', '));
 }
 
-const bundle=read('bundle-v682.js');
+const bundle=read('bundle-v683.js');
 const directIds=new Set([
   ...[...bundle.matchAll(/\$\(['"]#([^'"]+)['"]\)\.addEventListener/g)].map(m=>m[1]),
   ...[...bundle.matchAll(/document\.getElementById\(['"]([^'"]+)['"]\)\?*\.addEventListener/g)].map(m=>m[1])
@@ -30,13 +30,13 @@ if(missing.length) fail('Listeners apontam para IDs ausentes: '+missing.join(', 
 
 if(!/<div id="login" class="login">/.test(html)) fail('Login deve nascer visível.');
 if(!/<div id="appShell" class="app hubMode hidden">/.test(html)) fail('App principal deve nascer oculto.');
-if(!html.includes('/runtime-v682.js?v=6.8.2')||!html.includes('/bootstrap-v682.js?v=6.8.2')||!html.includes('/bundle-v682.js?v=6.8.2')) fail('Scripts da versão atual ausentes.');
-if(html.indexOf('/runtime-v682.js?v=6.8.2')>html.indexOf('/bootstrap-v682.js?v=6.8.2')||html.indexOf('/bootstrap-v682.js?v=6.8.2')>html.indexOf('/bundle-v682.js?v=6.8.2')) fail('Ordem de startup inválida.');
+if(!html.includes('/runtime-v683.js?v=6.8.3')||!html.includes('/bootstrap-v683.js?v=6.8.3')||!html.includes('/bundle-v683.js?v=6.8.3')) fail('Scripts da versão atual ausentes.');
+if(html.indexOf('/runtime-v683.js?v=6.8.3')>html.indexOf('/bootstrap-v683.js?v=6.8.3')||html.indexOf('/bootstrap-v683.js?v=6.8.3')>html.indexOf('/bundle-v683.js?v=6.8.3')) fail('Ordem de startup inválida.');
 if(bundle.includes("localStorage.setItem('acord-auth-token'")) fail('Token não pode ser persistido em localStorage.');
 
 const server=read('index.js');
 const socketCompat=read('socket-compat.js');
-for(const marker of ['__Host-acord_session','verifyRecoveryProof','auth_rate','recoveryProof','appVersion:\'6.8.2\'']){
+for(const marker of ['__Host-acord_session','verifyRecoveryProof','auth_rate','recoveryProof','appVersion:\'6.8.3\'']){
   if(!server.includes(marker)) fail('Proteção ausente: '+marker);
 }
 
@@ -56,11 +56,12 @@ if(wrangler.assets?.html_handling!=='none') fail('html_handling deve permanecer 
 
 if(!html.includes('class="activeCallDock hidden"')) fail('Dock de call temático ausente.');
 if(html.includes('background:rgba(13,27,23,.97)')) fail('Dock de call ainda usa fundo verde fixo.');
-const css=read('app-v682.css');
+const css=read('app-v683.css');
 for(const marker of ['.activeCallDock{','background:color-mix(in srgb,var(--coral)','body.locked{','--bg0:#050607;','--mint:#c4cad2;','filter:saturate(.94) contrast(1.01) brightness(1.01)!important;','.fakeFullscreen video{object-fit:contain!important;background:#000!important;filter:none!important','.videoCard.sharedControlCapture video{cursor:crosshair;object-fit:contain!important']){
   if(!css.includes(marker)) fail('Correção visual de call/tela ausente: '+marker);
 }
 if(bundle.includes('Compartilhe o monitor inteiro antes de ativar o Controle compartilhado')) fail('Controle compartilhado ainda exige compartilhamento manual.');
 if(!bundle.includes('startSharedControlDesktopCapture')) fail('Captura automática do monitor ausente.');
-if(!bundle.includes("chromeMediaSource:'desktop'")) fail('Captura direta do monitor Electron ausente.');
-console.log(JSON.stringify({ok:true,version:'6.8.2',ids:ids.length,directListenerIds:directIds.size},null,2));
+if(!bundle.includes('navigator.mediaDevices.getDisplayMedia')) fail('Captura automática moderna do monitor ausente.');
+if(bundle.includes("chromeMediaSource:'desktop'")) fail('Controle compartilhado ainda usa captura legada chromeMediaSource.');
+console.log(JSON.stringify({ok:true,version:'6.8.3',ids:ids.length,directListenerIds:directIds.size},null,2));
