@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#08120f">
+<meta name="application-name" content="Acord">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Acord">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>Acord</title>
+<link rel="stylesheet" href="/app-v66.css?v=6.6.0">
+</head>
+<body>
+
+<div id="login" class="login">
+  <div class="loginShell">
+
+    <section class="loginBrandPanel">
+      <div>
+        <div class="loginBrandTop">
+          <div class="loginMark">e</div>
+          <div class="loginBrandName">Acord</div>
+        </div>
+
+        <div class="loginHero">
+          <div class="loginBadge">● SEU ESPAÇO DE CONVERSA</div>
+          <h1>Entre, chame a galera e fique conectado.</h1>
+          <p>
+            Um lugar simples para criar servidores, conversar por texto,
+            entrar em calls, abrir a câmera e compartilhar sua tela.
+          </p>
+
+          <div class="loginFeatures">
+            <div class="loginFeature">
+              <strong>✉ Chats</strong>
+              Crie seus próprios canais.
+            </div>
+            <div class="loginFeature">
+              <strong>🎤 Calls</strong>
+              Voz rápida com seus amigos.
+            </div>
+            <div class="loginFeature">
+              <strong>🖥 Tela</strong>
+              Compartilhe quando quiser.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="loginSignature">Acord · converse do seu jeito</div>
+    </section>
+
+    <section class="loginCard">
+      <div class="smallLogo">
+        <div class="loginMark">e</div>
+        <div class="loginBrandName">Acord</div>
+      </div>
+
+      <div class="authSwitch">
+        <button id="authLoginTab" class="authTab active" type="button">Entrar</button>
+        <button id="authRegisterTab" class="authTab" type="button">Criar conta</button>
+      </div>
+
+      <h2 id="authTitle">Entrar no Acord</h2>
+      <p id="authText">Entre com seu nome único e sua senha.</p>
+
+      <div class="authField">
+        <label class="loginLabel" for="authUsername">Nome único</label>
+        <input id="authUsername" maxlength="30" placeholder="Ex.: Davi" autocomplete="username">
+      </div>
+
+      <div class="authField">
+        <label class="loginLabel" for="authPassword">Senha</label>
+        <div class="passwordField">
+          <input id="authPassword" type="password" maxlength="128" placeholder="Sua senha" autocomplete="current-password">
+          <button id="showAuthPasswordBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+        </div>
+      </div>
+
+      <div id="authConfirmWrap" class="authField hidden">
+        <label class="loginLabel" for="authPasswordConfirm">Confirmar senha</label>
+        <div class="passwordField">
+          <input id="authPasswordConfirm" type="password" maxlength="128" placeholder="Repita a senha" autocomplete="new-password">
+          <button id="showAuthConfirmBtn" class="passwordToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">◉</button>
+        </div>
+      </div>
+
+      <button id="loginBtn" class="btn primary" style="width:100%;margin-top:14px;">Entrar</button>
+      <div id="authError" class="authError"></div>
+      <div id="bootStatus" class="bootStatus">Carregando o Acord…</div>
+
+      <div class="loginPrivacy"><b>Conta pessoal:</b> cada nome é exclusivo e não pode se repetir.</div>
+    </section>
+
+  </div>
+</div>
+
+<div id="appShell" class="app hubMode hidden">
+  <aside class="rail">
+    <button id="homeHubBtn" class="serverIcon homeHubIcon active" type="button" title="Início do Acord">
+      <svg class="homeHubMonitor" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <radialGradient id="hubGlow" cx="50%" cy="45%" r="65%">
+            <stop offset="0%" stop-color="#1edd9f"/>
+            <stop offset="100%" stop-color="#0a4c3e"/>
+          </radialGradient>
+          <linearGradient id="hubScreen" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--coral2)"/>
+            <stop offset="100%" stop-color="var(--coral)"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#hubGlow)"/>
+        <rect x="10" y="13" width="44" height="31" rx="8" fill="url(#hubScreen)"/>
+        <circle cx="24" cy="28" r="4.2" fill="#055246"/>
+        <circle cx="40" cy="28" r="4.2" fill="#055246"/>
+        <path d="M22 35.5c5.1 4.4 14.9 4.4 20 0" fill="none" stroke="#055246" stroke-width="2.8" stroke-linecap="round"/>
+        <path d="M26 44h12l1.8 7H24.2Z" fill="var(--coral)"/>
+        <rect x="21" y="51" width="22" height="4" rx="2" fill="var(--coral)"/>
+      </svg>
+    </button>
+
+    <div class="railSep"></div>
+    <div id="serverRail"></div>
+    <div class="railSep"></div>
+    <button id="createServerBtn" class="addServer" title="Criar servidor">+</button>
+  </aside>
+
+  <aside class="sidebar">
+    <div class="sideHead">
+      <div class="brand serverBrand">
+        <span class="brandDot"></span>
+        <span class="serverBrandText">
+          <span id="serverTitle" class="serverTitle">Acord</span>
+          <span id="serverHeroMeta" class="serverHeroMeta">Servidor</span>
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="inviteBtn" class="inviteBtn">Convite</button>
+        <button id="serverSettingsBtn" class="inviteBtn" title="Configurações do servidor">⚙</button>
+        <button id="deleteServerBtn" class="inviteBtn" title="Apagar servidor">🗑</button>
+      </div>
+    </div>
+
+    <div class="sideScroll">
+      <button id="serverConcordeBtn" class="navBtn concordeServerBtn" type="button">⚙ Conta e segurança</button>
+      <button id="serverRolesBtn" class="navBtn uiLegacyHidden" type="button">Cargos</button>
+
+      <div class="groupHead">
+        <span>Canais</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 2px 9px;">
+        <button id="createTextQuickBtn" class="btn secondary small" type="button"># Texto</button>
+        <button id="createVoiceQuickBtn" class="btn secondary small" type="button">🔊 Voz</button>
+        <button id="createStageQuickBtn" class="btn secondary small uiLegacyHidden" type="button">◉ Palco</button>
+      </div>
+
+      <button id="createCategoryQuickBtn" class="navBtn uiLegacyHidden" type="button" style="font-size:12px;">▣ Criar categoria</button>
+
+      <div id="channelTree"></div>
+    </div>
+
+    <button id="profileBtn" class="userbar" type="button" style="width:100%;border:0;color:inherit;text-align:left;cursor:pointer;">
+      <div id="userAvatar" class="avatar">V</div>
+      <div class="userMeta" style="flex:1;">
+        <strong id="userName">Você</strong>
+        <span id="userBioMini">● Online · Editar perfil</span>
+      </div>
+      <span style="color:var(--low);font-size:16px;">⚙</span>
+    </button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topLeft">
+        <div id="topTitle" class="topTitle">Acord</div>
+        <div id="topSub" class="topSub">chat, amigos e calls</div>
+      </div>
+      <div class="topActions">
+        <span id="connectionStatus" class="connectionStatus" data-state="connecting">Conectando…</span>
+        <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small" type="button">↓ Windows</button>
+        <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <section id="homeView" class="view home">
+        <div class="homeCard">
+          <div class="homeMark">e</div>
+          <h1 id="welcomeTitle">Seu espaço no Acord</h1>
+          <p>Converse com amigos, organize seus servidores e entre em calls sem precisar procurar funções espalhadas pela tela.</p>
+          <div class="quick">
+            <button id="homeCreateServer" class="btn primary">+ Novo servidor</button>
+            <button id="homeCreateText" class="btn secondary"># Novo canal</button>
+            <button id="homeCreateVoice" class="btn secondary">☎ Nova call</button>
+            <button id="windowsDownloadBtn" class="btn downloadBtn" type="button">
+              <span class="downloadIcon">↓</span>
+              <span class="downloadCopy">
+                <strong>Baixar Acord para Windows</strong>
+                <small>Instalador independente · .exe</small>
+              </span>
+            </button>
+            <button id="homeCreateRole" class="btn secondary uiLegacyHidden">🛡 Criar cargo</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="friendsView" class="view hidden">
+        <div class="friendsHome">
+          <div class="friendsHomeTop">
+            <strong class="hubTitle">Início</strong>
+            <button id="hubFriendsBtn" class="friendTab active" type="button">Amigos</button>
+            <button id="hubMessagesBtn" class="friendTab" type="button">Mensagens</button>
+            <button id="hubGroupsBtn" class="friendTab" type="button">Grupos</button>
+            <span style="width:1px;height:22px;background:var(--line);margin:0 3px;"></span>
+            <button id="friendsOnlineTab" class="friendTab active" type="button">Disponível</button>
+            <button id="friendsAllTab" class="friendTab" type="button">Todos</button>
+            <button id="friendsPendingTab" class="friendTab" type="button">Pendentes</button>
+            <button id="createPrivateGroupBtn" class="friendTab subtleAction" type="button">+ Grupo</button>
+            <button id="friendsProfileBtn" class="friendTab uiLegacyHidden" type="button">Perfil</button>
+            <button id="concordePlusBtn" class="friendTab settingsShortcut" type="button">⚙ Configurações</button>
+            <button id="addFriendBtn" class="friendTab add" type="button">+ Adicionar</button>
+          </div>
+
+          <div class="friendsSearchWrap">
+            <input id="friendsSearch" placeholder="Buscar conversa">
+          </div>
+
+          <div class="friendsListArea">
+            <div id="friendsCountTitle" class="friendsSectionTitle">Online</div>
+            <div id="friendsList"></div>
+          </div>
+
+          <button id="friendsAccountBar" class="friendsAccountBar" type="button" title="Abrir meu perfil">
+            <div id="friendsAccountAvatar" class="avatar">V</div>
+            <div class="friendsAccountMeta">
+              <strong id="friendsAccountName">Você</strong>
+              <span id="friendsAccountStatus">● Online · Editar perfil</span>
+            </div>
+            <span class="friendsAccountGear">⚙</span>
+          </button>
+        </div>
+      </section>
+
+
+
+      <section id="megaView" class="view hidden">
+        <div class="megaShell">
+          <aside class="megaNav">
+            <strong>Configurações</strong>
+            <button class="megaNavBtn active" data-mega-page="profile">Conta e privacidade</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="chat">Chat</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="server">Servidor</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="community">Eventos e enquetes</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="watch">Assistir junto</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="whiteboard">Quadro branco</button>
+            <button class="megaNavBtn" data-mega-page="call">Call</button>
+            <button class="megaNavBtn uiLegacyHidden" data-mega-page="tools">Ferramentas e bots</button>
+            <button class="megaNavBtn essentialNavBtn" data-mega-page="essential">Segurança e dados</button>
+          </aside>
+          <div class="megaBody">
+            <section id="megaPageProfile" class="megaPage active">
+              <h2>Conta e privacidade</h2>
+              <div class="megaGrid">
+                <label>Status personalizado<input id="megaCustomStatus" maxlength="80" placeholder="Ex.: Estudando"></label>
+                <label class="uiLegacyHidden">Pronomes<input id="megaPronouns" maxlength="40"></label>
+                <label class="uiLegacyHidden">Atividade atual<input id="megaActivity" maxlength="80" placeholder="Ex.: Jogando, estudando..."></label>
+                <label class="uiLegacyHidden">Steam<input id="megaSteam" placeholder="https://steamcommunity.com/..."></label>
+                <label class="uiLegacyHidden">Spotify<input id="megaSpotify" placeholder="https://open.spotify.com/..."></label>
+                <label class="uiLegacyHidden">YouTube<input id="megaYoutube" placeholder="https://youtube.com/..."></label>
+                <label>Quem pode mandar DM<select id="megaPrivacyDm"><option value="everyone">Todos</option><option value="friends">Amigos</option><option value="nobody">Ninguém</option></select></label>
+                <label>Quem pode ligar<select id="megaPrivacyCalls"><option value="everyone">Todos</option><option value="friends">Amigos</option><option value="nobody">Ninguém</option></select></label>
+              </div>
+              <button id="megaSaveProfile" class="btn primary">Salvar perfil</button>
+            </section>
+
+            <section id="megaPageChat" class="megaPage">
+              <h2>Chat avançado</h2>
+              <div class="megaGrid">
+                <button id="megaEmojiBtn" class="btn secondary">😀 Inserir emoji</button>
+                <button id="megaGifBtn" class="btn secondary">GIF por URL</button>
+                <button id="megaPinsBtn" class="btn secondary">📌 Ver fixadas</button>
+                <button id="megaUnreadClearBtn" class="btn secondary">Marcar tudo como lido</button>
+              </div>
+              <p class="megaNote">Menções @usuário, respostas, edição, exclusão, anexos, links e contadores de não lidas ficam integrados ao chat público.</p>
+            </section>
+
+            <section id="megaPageServer" class="megaPage">
+              <h2>Servidor e moderação</h2>
+              <div class="megaGrid">
+                <label>Regras<textarea id="megaServerRules" maxlength="4000" rows="6"></textarea></label>
+                <label>Banner do servidor<input id="megaServerBanner" type="file" accept="image/*"></label>
+                <label>Validade do convite<select id="megaInviteExpiry"><option value="0">Sem expiração</option><option value="3600000">1 hora</option><option value="86400000">24 horas</option><option value="604800000">7 dias</option></select></label>
+                <label>Canal atual<select id="megaChannelMode"><option value="normal">Normal</option><option value="readonly">Somente leitura</option><option value="announcement">Anúncios</option></select></label>
+                <label>Cargo permitido no canal<select id="megaChannelRole"><option value="">Todos os membros</option></select></label>
+                <label>Membro para moderar<select id="megaModerationMember"></select></label>
+              </div>
+              <div class="megaActions">
+                <button id="megaSaveServer" class="btn primary">Salvar servidor</button>
+                <button id="megaMuteMember" class="btn secondary">Silenciar</button>
+                <button id="megaKickMember" class="btn secondary">Expulsar</button>
+                <button id="megaBanMember" class="btn danger">Banir</button>
+                <button id="megaAuditBtn" class="btn secondary">Ver log de moderação</button>
+              </div>
+              <div id="megaAuditList" class="megaList"></div>
+            </section>
+
+            <section id="megaPageCommunity" class="megaPage">
+              <h2>Eventos e enquetes</h2>
+              <div class="megaGrid">
+                <label>Evento<input id="megaEventTitle" maxlength="80" placeholder="Nome do evento"></label>
+                <label>Data e hora<input id="megaEventDate" type="datetime-local"></label>
+                <button id="megaCreateEvent" class="btn primary">Criar evento</button>
+                <label>Pergunta da enquete<input id="megaPollQuestion" maxlength="160"></label>
+                <label>Opções (separe por |)<input id="megaPollOptions" placeholder="Sim | Não | Talvez"></label>
+                <button id="megaCreatePoll" class="btn primary">Criar enquete</button>
+              </div>
+              <div id="megaCommunityList" class="megaList"></div>
+            </section>
+
+            <section id="megaPageWatch" class="megaPage">
+              <h2>Assistir junto</h2>
+              <label>Link do vídeo<input id="megaWatchUrl" placeholder="Cole um link do YouTube ou outro vídeo"></label>
+              <div class="megaActions">
+                <button id="megaWatchLoad" class="btn primary">Compartilhar link</button>
+                <button id="megaWatchPlay" class="btn secondary">▶ Sincronizar play</button>
+                <button id="megaWatchPause" class="btn secondary">⏸ Sincronizar pausa</button>
+              </div>
+              <a id="megaWatchOpen" class="btn secondary megaLink hidden" target="_blank" rel="noopener">Abrir vídeo</a>
+              <div id="megaWatchStatus" class="megaNote"></div>
+            </section>
+
+            <section id="megaPageWhiteboard" class="megaPage">
+              <h2>Quadro branco compartilhado</h2>
+              <canvas id="megaWhiteboard" width="900" height="500"></canvas>
+              <div class="megaActions">
+                <button id="megaWhiteboardClear" class="btn secondary">Limpar quadro</button>
+              </div>
+            </section>
+
+            <section id="megaPageCall" class="megaPage">
+              <h2>Call</h2>
+              <div class="megaGrid">
+                <label>Qualidade da câmera<select id="megaCameraQuality"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+                <label><span>Desfoque visual local</span><input id="megaBlurPreview" type="checkbox"></label>
+                <button id="megaMediaTest" class="btn secondary">Testar câmera e microfone</button>
+                <button id="megaCallRepairBtn" class="btn primary">Corrigir minha call</button>
+                <button id="megaCallDiagBtn" class="btn secondary">Diagnóstico completo</button>
+                <button id="megaCaptionsBtn" class="btn secondary">Legendas ao vivo</button>
+                <button id="megaRecordBtn" class="btn secondary">⏺ Gravar minha mídia</button>
+                <label>Compartilhar arquivo na call<input id="megaCallFile" type="file"></label>
+              </div>
+              <video id="megaMediaPreview" autoplay muted playsinline class="megaMediaPreview"></video>
+              <div id="megaCaptionBox" class="megaCaptionBox">Legendas desativadas.</div>
+              <div id="megaConnectionInfo" class="megaNote"></div>
+              <p class="megaNote">TURN é usado automaticamente quando configurado no servidor por variáveis de ambiente.</p>
+            </section>
+
+            <section id="megaPageTools" class="megaPage">
+              <h2>Ferramentas e bots</h2>
+              <div class="megaGrid">
+                <label>Pomodoro (minutos)<input id="megaPomodoroMinutes" type="number" min="1" max="180" value="25"></label>
+                <button id="megaPomodoroStart" class="btn primary">Iniciar Pomodoro</button>
+                <div id="megaPomodoroDisplay" class="megaTimer">25:00</div>
+                <label>Comando do bot<input id="megaBotCommand" placeholder="/roll, /coin, /8ball pergunta"></label>
+                <button id="megaBotRun" class="btn secondary">Executar bot</button>
+                <label>Chave Tenor (opcional)<input id="megaTenorKey" placeholder="Para busca de GIFs"></label>
+              </div>
+
+              <div id="megaBotOutput" class="megaList"></div>
+            </section>
+
+            <section id="megaPageEssential" class="megaPage">
+              <div class="essentialHead">
+                <div>
+                  <h2>Essenciais</h2>
+                  <p>Conta, segurança, dados, busca, conexão e modo celular.</p>
+                </div>
+                <span id="essentialConnectionBadge" class="essentialBadge">Verificando...</span>
+              </div>
+
+              <div id="essentialActionStatus" class="essentialActionStatus">Pronto para usar.</div>
+              <div class="essentialGrid">
+                <div class="essentialCard">
+                  <h3>Modo celular</h3>
+                  <p>Interface otimizada para toque, telas pequenas e uso como aplicativo.</p>
+                  <label>Interface
+                    <select id="essentialMobileMode">
+                      <option value="auto">Automático</option>
+                      <option value="mobile">Sempre usar modo celular</option>
+                      <option value="desktop">Sempre usar modo desktop</option>
+                    </select>
+                  </label>
+                  <label class="essentialCheck">
+                    <input id="essentialDataSaver" type="checkbox">
+                    <span>Economizar dados em chamadas</span>
+                  </label>
+                  <div class="essentialActions">
+                    <button id="essentialInstallBtn" class="btn primary" type="button">Instalar no celular</button>
+                    <button id="essentialApplyMobileBtn" class="btn secondary" type="button">Aplicar</button>
+                  </div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Conta e sessões</h3>
+                  <p>Proteja sua conta e encerre acessos antigos.</p>
+                  <div class="essentialActions">
+                    <button id="essentialSessionsBtn" class="btn secondary" type="button">Ver sessões</button>
+                    <button id="essentialLogoutOthersBtn" class="btn secondary" type="button">Sair de outros dispositivos</button>
+                  </div>
+                  <label>Senha atual<input id="essentialOldPassword" type="password" autocomplete="current-password"></label>
+                  <label>Nova senha<input id="essentialNewPassword" type="password" autocomplete="new-password" minlength="6"></label>
+                  <button id="essentialChangePasswordBtn" class="btn primary" type="button">Alterar senha</button>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Backup dos seus dados</h3>
+                  <p>Conta local, servidores em cache, amigos e preferências importantes.</p>
+                  <div class="essentialActions">
+                    <button id="essentialBackupBtn" class="btn primary" type="button">Baixar backup</button>
+                    <button id="essentialRefreshBackupBtn" class="btn secondary" type="button">Atualizar backup</button>
+                    <label class="btn secondary essentialFileBtn">Importar backup
+                      <input id="essentialRestoreFile" type="file" accept=".json,application/json">
+                    </label>
+                  </div>
+                  <div id="essentialPersistenceStatus" class="essentialMini"></div>
+                </div>
+
+                <div class="essentialCard essentialWide">
+                  <h3>Busca global</h3>
+                  <p>Procure mensagens, canais e pessoas nos servidores aos quais você tem acesso.</p>
+                  <div class="essentialSearchRow">
+                    <input id="essentialSearchInput" placeholder="O que você procura?">
+                    <button id="essentialSearchBtn" class="btn primary" type="button">Buscar</button>
+                  </div>
+                  <div id="essentialSearchResults" class="essentialResults"></div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Conexão</h3>
+                  <p>Veja se o Concorde está conectado e tente recuperar a conexão.</p>
+                  <div id="essentialConnectionInfo" class="essentialMini">Verificando...</div>
+                  <div class="essentialActions">
+                    <button id="essentialPingBtn" class="btn secondary" type="button">Testar conexão</button>
+                    <button id="essentialReconnectBtn" class="btn secondary" type="button">Reconectar</button>
+                  </div>
+                </div>
+
+                <div class="essentialCard">
+                  <h3>Bloqueio e denúncia</h3>
+                  <p>Bloqueie localmente uma pessoa ou envie uma denúncia ligada ao servidor atual.</p>
+                  <label>Usuário<input id="essentialBlockUser" placeholder="nome do usuário"></label>
+                  <div class="essentialActions">
+                    <button id="essentialBlockBtn" class="btn secondary" type="button">Bloquear</button>
+                    <button id="essentialUnblockBtn" class="btn secondary" type="button">Desbloquear</button>
+                  </div>
+                  <label>Motivo da denúncia<textarea id="essentialReportReason" maxlength="500" rows="3"></textarea></label>
+                  <button id="essentialReportBtn" class="btn danger" type="button">Denunciar</button>
+                </div>
+              </div>
+
+              <div id="essentialOutput" class="essentialOutput hidden"></div>
+            </section>
+            <section id="megaPageLabs" class="megaPage">
+              <div class="labsHead">
+                <div>
+                  <h2>✦ Concorde 100+</h2>
+                  <p>100 recursos extras para personalização, chat, servidores, produtividade, acessibilidade, mídia e diagnóstico.</p>
+                </div>
+                <div class="labsCount"><strong id="labsEnabledCount">0</strong><span>preferências ativas</span></div>
+              </div>
+              <div class="labsToolbar">
+                <input id="labsSearch" placeholder="Buscar entre os 100 recursos">
+                <select id="labsCategory">
+                  <option value="all">Todas as categorias</option>
+                  <option value="visual">Visual</option>
+                  <option value="chat">Chat</option>
+                  <option value="tools">Produtividade</option>
+                  <option value="server">Servidor</option>
+                  <option value="system">Sistema e acessibilidade</option>
+                </select>
+              </div>
+              <div id="labsActionStatus" class="labsActionStatus">Pronto para usar.</div>
+              <div id="labsFeatureGrid" class="labsFeatureGrid"></div>
+              <div id="labsOutput" class="labsOutput hidden"></div>
+            </section>
+
+            <section id="megaPageCreative" class="megaPage">
+              <div class="creativeHead">
+                <div>
+                  <h2>🚀 Concorde Criativo</h2>
+                  <p>100 recursos úteis para comunidades, amigos, estudos, jogos, reuniões e servidores.</p>
+                </div>
+                <div class="creativeBadge"><strong>100</strong><span>recursos</span></div>
+              </div>
+              <div class="creativeToolbar">
+                <input id="creativeSearch" placeholder="Buscar recurso criativo">
+                <select id="creativeCategory">
+                  <option value="all">Todas as categorias</option>
+                  <option value="social">Social</option>
+                  <option value="call">Calls</option>
+                  <option value="chat">Chat</option>
+                  <option value="server">Servidor</option>
+                  <option value="productivity">Produtividade</option>
+                  <option value="media">Mídia</option>
+                  <option value="safety">Segurança</option>
+                </select>
+              </div>
+              <div id="creativeStatus" class="creativeStatus">Pronto para usar.</div>
+              <div id="creativeGrid" class="creativeGrid"></div>
+              <div id="creativePanel" class="creativePanel hidden"></div>
+            </section>
+
+          </div>
+        </div>
+      </section>
+
+
+      <section id="dmView" class="view hidden">
+        <div style="height:100%;display:grid;grid-template-columns:250px minmax(0,1fr);min-height:0;">
+          <aside style="border-right:1px solid var(--line);background:var(--bg1);padding:12px;overflow:auto;">
+            <div style="font-weight:900;margin:5px 5px 12px;">Conversas</div>
+            <input id="dmSearch" placeholder="Buscar amigo" style="margin-bottom:10px;">
+            <div id="dmContacts"></div>
+          </aside>
+
+          <div style="display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;">
+              <div style="min-width:0;flex:1;">
+                <strong id="dmTitle">Selecione um amigo</strong>
+                <div id="dmSubtitle" style="font-size:11px;color:var(--muted);margin-top:3px;">Conversa privada</div>
+              </div>
+              <button id="dmCallBtn" class="btn primary small hidden" type="button">Ligar</button>
+              <button id="groupCallBtn" class="btn primary small hidden" type="button">Ligar grupo</button>
+              <button id="groupDeleteBtn" class="btn secondary small hidden" type="button">🗑 Excluir grupo</button>
+            </div>
+
+            <div id="dmMessages" class="messages"></div>
+
+            <div class="compose">
+              <input id="dmInput" maxlength="1000" placeholder="Selecione um amigo para conversar" disabled>
+              <button id="dmSendBtn" class="btn primary" disabled>Enviar</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="serverSettingsView" class="view hidden">
+        <div class="serverSettings">
+
+          <aside class="settingsMenu">
+            <div id="settingsServerName" class="settingsServerName">Servidor</div>
+
+            <button class="settingsNavBtn active" data-settings-page="profile">⚙ Perfil do servidor</button>
+
+            <div class="settingsGroup">Pessoas</div>
+            <button class="settingsNavBtn" data-settings-page="members">👥 Membros</button>
+            <button class="settingsNavBtn" data-settings-page="roles">🛡 Cargos</button>
+            <button class="settingsNavBtn" data-settings-page="invites">✉ Convites</button>
+
+            <div class="settingsGroup">Moderação</div>
+            <button class="settingsNavBtn" data-settings-page="security">🔒 Segurança</button>
+
+            <div class="settingsGroup">Servidor</div>
+            <button class="settingsNavBtn danger" data-settings-page="delete">🗑 Excluir servidor</button>
+          </aside>
+
+          <div class="settingsBody">
+
+            <div id="settingsProfilePage" class="settingsPanel">
+              <h2>Perfil do servidor</h2>
+              <p>Personalize a identidade do seu servidor no Acord.</p>
+
+              <div class="settingsGrid">
+
+                <div class="settingsCard">
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsName">Nome do servidor</label>
+                    <input id="serverSettingsName" maxlength="30" placeholder="Nome do servidor">
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel">Ícone</label>
+                    <div style="display:flex;align-items:center;gap:16px;">
+                      <div id="serverSettingsIconPreview" class="serverIconPreview">e</div>
+                      <div style="flex:1;">
+                        <input id="serverSettingsIconInput" type="file" accept="image/*">
+                        <button id="serverSettingsRemoveIcon" class="btn secondary small" type="button" style="margin-top:8px;">Remover ícone</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel">Faixa / cor do servidor</label>
+                    <div id="serverAccentChoices" class="accentChoices">
+                      <button class="accentChoice" data-accent="#ff6b4a" style="background:#ff6b4a"></button>
+                      <button class="accentChoice" data-accent="#41d99a" style="background:#41d99a"></button>
+                      <button class="accentChoice" data-accent="#b56cff" style="background:#b56cff"></button>
+                      <button class="accentChoice" data-accent="#3ea6ff" style="background:#3ea6ff"></button>
+                      <button class="accentChoice" data-accent="#ffd84a" style="background:#ffd84a"></button>
+                      <button class="accentChoice" data-accent="#ff4f81" style="background:#ff4f81"></button>
+                      <button class="accentChoice" data-accent="#31d7d0" style="background:#31d7d0"></button>
+                      <button class="accentChoice" data-accent="#ff9c42" style="background:#ff9c42"></button>
+                      <button class="accentChoice" data-accent="#74d14c" style="background:#74d14c"></button>
+                      <button class="accentChoice" data-accent="#7b8794" style="background:#7b8794"></button>
+                    </div>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsDescription">Descrição</label>
+                    <textarea id="serverSettingsDescription" maxlength="240" placeholder="Conte para as pessoas sobre o seu servidor..." style="width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+                  </div>
+
+                  <div class="settingsField">
+                    <label class="settingsLabel" for="serverSettingsTags">Características</label>
+                    <input id="serverSettingsTags" maxlength="120" placeholder="Ex.: Jogos, Amigos, Comunidade">
+                    <div style="font-size:11px;color:var(--low);margin-top:6px;">Separe por vírgulas. Máximo de 5.</div>
+                  </div>
+
+                  <button id="saveServerSettingsBtn" class="btn primary">Salvar alterações</button>
+                </div>
+
+                <div>
+                  <div style="color:var(--low);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Prévia</div>
+                  <div class="serverPreview">
+                    <div id="serverPreviewBanner" class="serverPreviewBanner"></div>
+                    <div class="serverPreviewInner">
+                      <div id="serverPreviewIcon" class="serverPreviewIcon">e</div>
+                      <div id="serverPreviewName" class="serverPreviewName">Servidor</div>
+                      <div id="serverPreviewDescription" class="serverPreviewDescription">Seu servidor no Acord.</div>
+                      <div id="serverPreviewTags" class="serverTags"></div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div id="settingsMembersPage" class="settingsPanel hidden">
+              <h2>Membros</h2>
+              <p>Veja membros online e offline. Clique em uma pessoa para abrir o perfil e gerenciar cargos.</p>
+              <div id="settingsMembersList"></div>
+            </div>
+
+            <div id="settingsRolesPage" class="settingsPanel hidden">
+              <h2>Cargos</h2>
+              <p>Gerencie os cargos já existentes do servidor.</p>
+              <button id="settingsOpenRolesBtn" class="btn primary">Abrir gerenciamento de cargos</button>
+            </div>
+
+            <div id="settingsInvitesPage" class="settingsPanel hidden">
+              <h2>Convites</h2>
+              <p>Envie um link para seus amigos entrarem neste servidor.</p>
+              <div class="settingsCard">
+                <button id="settingsCopyInviteBtn" class="btn primary">Copiar convite do servidor</button>
+              </div>
+            </div>
+
+            <div id="settingsSecurityPage" class="settingsPanel hidden">
+              <h2>Segurança</h2>
+              <p>Ferramentas básicas de controle do seu servidor.</p>
+              <div class="settingsCard">
+                <strong>Proteção do Acord</strong>
+                <p style="color:var(--muted);font-size:13px;line-height:1.55;margin-bottom:0;">
+                  Somente pessoas com o link do convite conseguem abrir este servidor.
+                  Mais permissões por cargo poderão ser adicionadas depois.
+                </p>
+              </div>
+            </div>
+
+            <div id="settingsDeletePage" class="settingsPanel hidden">
+              <h2>Excluir servidor</h2>
+              <p>Essa ação remove o servidor e seus canais do Acord.</p>
+              <div class="settingsDangerBox">
+                <strong style="color:#ff9696;">Zona de perigo</strong>
+                <p style="color:var(--muted);font-size:13px;line-height:1.5;">
+                  Depois de excluir, não será possível recuperar pelo aplicativo.
+                </p>
+                <button id="settingsDeleteServerBtn" class="btn danger">Excluir servidor</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <section id="rolesView" class="view hidden">
+        <div style="height:100%;display:grid;grid-template-rows:auto 1fr;">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div>
+              <strong>Cargos</strong>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px;">Crie cargos, escolha a cor e atribua aos membros.</div>
+            </div>
+            <button id="addRoleBtn" class="btn primary small">+ Criar cargo</button>
+          </div>
+          <div style="overflow:auto;padding:18px;">
+            <div id="rolesList" style="display:grid;gap:10px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="chatView" class="view chatView hidden">
+        <div class="chatHead"># <span id="chatTitle">geral</span><span>chat de texto</span></div>
+        <div id="messages" class="messages"></div>
+        <div id="replyBar" class="replyBar hidden">
+          <span id="replyBarText">Respondendo...</span>
+          <button id="replyCancelBtn" class="btn secondary small" type="button">×</button>
+        </div>
+        <input id="chatImageInput" class="hidden" type="file" accept="image/*,.pdf,.zip,.doc,.docx,.txt,.mp3,.wav,.mp4">
+        <div id="chatComposeArea" class="chatComposeArea">
+          <div id="chatEmojiPicker" class="chatMediaPicker hidden" role="dialog" aria-label="Escolher emoji">
+            <div class="chatPickerHead">
+              <strong>Emojis</strong>
+              <button id="chatEmojiCloseBtn" class="chatPickerClose" type="button">×</button>
+            </div>
+            <div class="chatEmojiGrid" id="chatEmojiGrid"></div>
+          </div>
+
+          <div id="chatGifPicker" class="chatMediaPicker chatGifPicker hidden" role="dialog" aria-label="Inserir GIF">
+            <div class="chatPickerHead">
+              <strong>GIF</strong>
+              <button id="chatGifCloseBtn" class="chatPickerClose" type="button">×</button>
+            </div>
+
+            <div class="chatGifSearchRow">
+              <input id="chatGifSearchInput" type="search" placeholder="Buscar GIF" autocomplete="off">
+              <button id="chatGifSearchBtn" class="btn primary small" type="button">Buscar</button>
+            </div>
+
+            <div id="chatGifSearchHint" class="chatGifHint">
+              Você também pode colar o link direto de um GIF.
+            </div>
+
+            <div id="chatGifResults" class="chatGifResults"></div>
+
+            <div class="chatGifUrlRow">
+              <input id="chatGifUrlInput" type="url" placeholder="https://...gif">
+              <button id="chatGifInsertUrlBtn" class="btn secondary small" type="button">Inserir</button>
+            </div>
+          </div>
+
+          <div id="chatComposeForm" class="compose" style="grid-template-columns:auto auto auto 1fr auto;">
+            <button id="chatImageBtn" class="btn secondary" type="button" title="Anexar arquivo">📎</button>
+            <button id="chatEmojiBtn" class="btn secondary" type="button" title="Emoji">😀</button>
+            <button id="chatGifBtn" class="btn secondary" type="button" title="GIF">GIF</button>
+            <input id="messageInput" maxlength="2000" placeholder="Escreva uma mensagem..." autocomplete="off">
+            <button id="sendBtn" class="btn primary" type="button">Enviar</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="voiceView" class="view voiceView hidden">
+        <div class="voiceHead">
+          <div class="voiceInfo">
+            <strong>)) <span id="voiceTitle">Geral</span></strong>
+            <span id="voiceStatus">Fora da chamada</span>
+          </div>
+          <div class="voiceHeadActions">
+            <button id="preCallTestBtn" class="btn secondary small" type="button">Testar áudio/vídeo</button>
+            <button id="joinVoiceBtn" class="btn primary small">Entrar na voz</button>
+          </div>
+        </div>
+
+        <div id="localMusicPanel" class="localMusicPanel hidden">
+          <div class="localMusicShell">
+            <div class="localMusicHead">
+              <div class="localMusicTitle">🎵 Minha música</div>
+              <div class="localMusicOnly">SÓ VOCÊ OUVE</div>
+            </div>
+
+            <div class="localMusicBody">
+              <input id="localMusicFiles" class="hidden" type="file" accept="audio/*" multiple>
+
+              <div class="localMusicAdd">
+                <button id="localMusicChooseBtn" class="localMusicChoose" type="button">+ Escolher música</button>
+                <input id="localMusicUrl" type="url" placeholder="Ou cole um link direto de áudio...">
+                <button id="localMusicAddUrlBtn" class="btn secondary small" type="button">Adicionar</button>
+              </div>
+
+              <div class="localMusicNow">
+                <div class="localMusicNowLabel">Tocando agora</div>
+                <div id="localMusicTrack" class="localMusicTrack">Nenhuma música selecionada</div>
+
+                <div class="localMusicTimeline">
+                  <span id="localMusicCurrent">0:00</span>
+                  <input id="localMusicSeek" type="range" min="0" max="1000" value="0">
+                  <span id="localMusicDuration">0:00</span>
+                </div>
+
+                <div class="localMusicControls">
+                  <button id="localMusicPrevBtn" type="button">⏮</button>
+                  <button id="localMusicPlayBtn" type="button">▶</button>
+                  <button id="localMusicNextBtn" type="button">⏭</button>
+
+                  <div class="localMusicVolume">
+                    <span>🔊</span>
+                    <input id="localMusicVolume" type="range" min="0" max="100" value="70">
+                    <span id="localMusicVolumeValue">70%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="musicExtraControls">
+                <button id="musicShuffleBtn" type="button">🔀 Aleatório</button>
+                <button id="musicRepeatBtn" type="button">🔁 Repetir</button>
+                <button id="musicFavoriteBtn" type="button">☆ Favoritar</button>
+              </div>
+              <div id="localMusicList" class="localMusicList">
+                <div class="localMusicEmpty">Sua fila está vazia.</div>
+              </div>
+            </div>
+          </div>
+
+          <audio id="localMusicAudio" preload="metadata"></audio>
+        </div>
+
+        <div id="callToolbar" class="callToolbar">
+          <div class="callLayoutGroup">
+            <button id="callLayoutGridBtn" class="callLayoutBtn active" type="button">Grade</button>
+            <button id="callLayoutFocusBtn" class="callLayoutBtn" type="button">Foco</button>
+            <button id="callLayoutPresentationBtn" class="callLayoutBtn" type="button">Apresentação</button>
+          </div>
+          <div class="callStatusGroup">
+            <span id="callNetworkBadge" class="callStatusBadge">Conexão: —</span>
+            <span id="callTurnBadge" class="callStatusBadge">TURN: verificando</span>
+          </div>
+        </div>
+        <div id="videoGrid" class="videoGrid layoutGrid"></div>
+        <div id="callReconnectOverlay" class="callReconnectOverlay hidden">
+          <div class="callReconnectCard">
+            <strong id="callReconnectTitle">Reconectando...</strong>
+            <span id="callReconnectText">Tentando recuperar áudio e vídeo.</span>
+          </div>
+        </div>
+
+        <div id="voiceControls" class="controls hidden">
+          <button id="micBtn" class="control">Microfone</button>
+          <button id="musicBtn" class="control">Música</button>
+          <button id="deafenBtn" class="control">Áudio</button>
+          <button id="audioGateBtn" class="control audioGate hidden">🔊 Ativar áudio</button>
+          <button id="cameraBtn" class="control off">Câmera</button>
+          <button id="screenBtn" class="control">Compartilhar</button>
+          <button id="sharedControlBtn" class="control sharedControlControl" type="button">Controle compartilhado</button>
+          <button id="stageHandBtn" class="control stageHandBtn hidden">Pedir para falar</button>
+          <button id="callRepairQuickBtn" class="control callRepairQuick">Reparar call</button>
+          <button id="callSettingsBtn" class="control">Dispositivos</button>
+          <button id="leaveVoiceBtn" class="control danger">Sair</button>
+        </div>
+
+        <div id="sharedControlPanel" class="sharedControlPanel hidden">
+          <div class="sharedControlHead">
+            <div>
+              <strong>Controle compartilhado</strong>
+              <span id="sharedControlStatus">Inativo</span>
+            </div>
+            <button id="sharedControlCloseBtn" class="sharePickerClose" type="button">×</button>
+          </div>
+          <p class="sharedControlHelp">Compartilhe o mesmo computador com pessoas da call. O host libera ou revoga o controle individualmente. Pressione Esc para soltar o controle local.</p>
+          <div id="sharedControlHostBox" class="sharedControlSection">
+            <button id="sharedControlHostToggleBtn" class="btn primary small" type="button">Ativar neste PC</button>
+            <button id="sharedControlStopAllBtn" class="btn danger small hidden" type="button">Parar todos</button>
+            <small id="sharedControlDesktopHint">Para hospedar, use o Acord Desktop no Windows e compartilhe o monitor principal.</small>
+          </div>
+          <div id="sharedControlGuestBox" class="sharedControlSection hidden">
+            <div class="sharedControlPerms" aria-label="Permissões solicitadas">
+              <label><input id="sharedControlMousePerm" type="checkbox" checked> Mouse</label>
+              <label><input id="sharedControlKeyboardPerm" type="checkbox" checked> Teclado</label>
+              <label title="Permissão isolada preparada. O controle virtual de gamepad requer componente nativo adicional no Windows."><input id="sharedControlGamepadPerm" type="checkbox" disabled> Gamepad</label>
+            </div>
+            <button id="sharedControlRequestBtn" class="btn primary small" type="button">Solicitar controle</button>
+            <button id="sharedControlTakeBtn" class="btn primary small hidden" type="button">Controlar agora</button>
+            <button id="sharedControlReleaseBtn" class="btn secondary small hidden" type="button">Liberar meu acesso</button>
+          </div>
+          <div class="sharedControlPeopleTitle">Participantes</div>
+          <div id="sharedControlParticipants" class="sharedControlParticipants"></div>
+          <div class="sharedControlSafety">Autorizações expiram em 10 minutos, são revogadas ao sair/reconectar e ficam separadas por mouse e teclado. Tecla Windows e combinações de sistema ficam bloqueadas.</div>
+        </div>
+        <div id="callSettingsPanel" class="callSettingsPanel hidden">
+          <div class="callSettingsTitle" style="font-weight:900;margin-bottom:10px;">Configurações da call</div>
+          <div class="callSettingsGrid">
+            <label>Microfone<select id="micDeviceSelect"></select></label>
+            <label>Câmera<select id="cameraDeviceSelect"></select></label>
+            <label>Saída de áudio<select id="speakerDeviceSelect"><option value="">Padrão do sistema</option></select></label>
+            <label>Qualidade da câmera<select id="callCameraQualitySelect"><option value="360p">360p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+            <label>FPS da tela<select id="callScreenFpsSelect"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+            <label>Perfil da call<select id="callQualityMode"><option value="auto">Automático</option><option value="quality">Priorizar qualidade</option><option value="balanced">Equilibrado</option><option value="weak">Conexão fraca</option></select></label>
+            <div class="callMeterWrap"><span>Nível do microfone</span><div class="callMeter"><div id="callMicMeterBar"></div></div><small id="callMicMeterText">0%</small></div>
+            <div class="callToggle"><span>Supressão de ruído</span><input id="noiseSuppressionToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Cancelamento de eco</span><input id="echoCancellationToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Ganho automático</span><input id="autoGainToggle" type="checkbox" checked style="width:auto;"></div>
+            <div class="callToggle"><span>Push-to-talk (segure Espaço)</span><input id="pushToTalkToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Reconexão automática</span><input id="callAutoReconnectToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Retomar call após recarregar</span><input id="callAutoRejoinToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Qualidade adaptativa</span><input id="callAdaptiveToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Entrar mutado</span><input id="callMuteOnJoinToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Confirmar antes de sair</span><input id="callConfirmLeaveToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Sons da call</span><input id="callSoundsToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Modo áudio apenas</span><input id="callAudioOnlyToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Espelhar minha câmera</span><input id="callMirrorSelfToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Ocultar minha prévia</span><input id="callHideSelfToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Manter tela ligada</span><input id="callWakeLockToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callToggle"><span>Call em tela cheia no celular</span><input id="callMobileFullscreenToggle" type="checkbox" style="width:auto;"></div>
+            <div class="callEssentialActions">
+              <button id="callRepairBtn" class="btn primary small" type="button">Corrigir minha call</button>
+              <button id="callDiagnosticsBtn" class="btn secondary small" type="button">Diagnóstico</button>
+              <button id="callSpeakerTestBtn" class="btn secondary small" type="button">Testar som</button>
+              <button id="callPipBtn" class="btn secondary small" type="button">Picture-in-Picture</button>
+              <button id="callFlipCameraBtn" class="btn secondary small" type="button">Trocar câmera</button>
+            </div>
+            <video id="callPreviewVideo" class="callPreviewVideo hidden" autoplay muted playsinline></video>
+            <div id="callHealthPanel" class="callHealthPanel">Call sem diagnóstico ainda.</div>
+
+            <div class="phoneCameraBox">
+              <div class="phoneCameraHead">
+                <div>
+                  <strong>📱 Usar câmera do celular</strong>
+                  <span>Abra o link no celular e use a câmera dele na call.</span>
+                </div>
+                <button id="phoneCameraCreateBtn" class="btn primary small" type="button">Conectar celular</button>
+              </div>
+              <div id="phoneCameraLinkWrap" class="phoneCameraQrWrap hidden">
+                <div class="phoneCameraQrCard">
+                  <img id="phoneCameraQr" alt="QR Code para conectar a câmera do celular">
+                  <div class="phoneCameraQrText">
+                    Aponte a câmera do celular para este QR Code.
+                  </div>
+                  <a id="phoneCameraDirectLink" class="phoneCameraDirectLink hidden" href="#" target="_blank" rel="noopener">
+                    Abrir link da câmera
+                  </a>
+                  <button id="phoneCameraCopyLinkBtn" class="btn secondary small phoneCameraCopyLinkBtn hidden" type="button">
+                    Copiar link
+                  </button>
+                </div>
+                <button id="phoneCameraStopBtn" class="btn danger small" type="button">Desconectar</button>
+              </div>
+              <div id="phoneCameraPreviewWrap" class="phoneCameraPreviewWrap hidden">
+                <video id="phoneCameraPreview" autoplay muted playsinline></video>
+              </div>
+              <div id="phoneCameraStatus" class="phoneCameraStatus">Nenhum celular conectado.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="rightbar">
+    <div class="rightbarHead">
+      <div id="rightTitle" class="rightTitle">Membros</div>
+      <span class="rightbarPeopleIcon">♟</span>
+    </div>
+    <div class="memberSearchWrap">
+      <span>⌕</span>
+      <input id="memberSearchInput" type="search" placeholder="Buscar membros" autocomplete="off">
+    </div>
+    <div id="members"></div>
+  </aside>
+</div>
+
+<div id="preCallWrap" class="preCallWrap hidden">
+  <div class="preCallCard">
+    <div class="preCallHead">
+      <div><h2>Antes de entrar</h2><p>Confira câmera, microfone e como você vai entrar na call.</p></div>
+      <button id="preCallCloseBtn" class="sharePickerClose" type="button">×</button>
+    </div>
+    <div class="preCallBody">
+      <div class="preCallVideoWrap">
+        <video id="preCallVideo" autoplay muted playsinline></video>
+        <div id="preCallVideoOff" class="preCallVideoOff hidden">Câmera desligada</div>
+      </div>
+      <div class="preCallControls">
+        <label>Microfone<select id="preCallMicSelect"></select></label>
+        <label>Câmera<select id="preCallCameraSelect"></select></label>
+        <div class="preCallMeter"><span>Microfone</span><div class="callMeter"><div id="preCallMicBar"></div></div><small id="preCallMicText">0%</small></div>
+        <label class="callToggle"><span>Entrar mutado</span><input id="preCallMuteToggle" type="checkbox"></label>
+        <label class="callToggle"><span>Entrar com câmera desligada</span><input id="preCallCameraOffToggle" type="checkbox"></label>
+      </div>
+    </div>
+    <div class="preCallFoot">
+      <button id="preCallCancelBtn" class="btn secondary" type="button">Cancelar</button>
+      <button id="preCallJoinBtn" class="btn primary" type="button">Entrar na call</button>
+    </div>
+  </div>
+</div>
+
+<div id="sharePickerWrap" class="sharePickerWrap hidden">
+  <div class="sharePicker">
+    <div class="sharePickerHead">
+      <div class="sharePickerBrand">
+        <div class="sharePickerLogo">e</div>
+        <div>
+          <h2>Compartilhar no Acord</h2>
+          <p>Escolha o tipo de conteúdo. Depois o Chrome abrirá a janela segura para você confirmar.</p>
+        </div>
+      </div>
+      <button id="sharePickerClose" class="sharePickerClose" type="button">×</button>
+    </div>
+
+    <div class="shareChoices">
+      <button class="shareChoice" data-share-kind="monitor" type="button">
+        <div class="shareChoiceIcon">🖥</div>
+        <strong>Tela inteira</strong>
+        <span>Mostre tudo o que aparece em um monitor.</span>
+      </button>
+
+      <button class="shareChoice" data-share-kind="window" type="button">
+        <div class="shareChoiceIcon">▣</div>
+        <strong>Uma janela</strong>
+        <span>Compartilhe somente um programa aberto.</span>
+      </button>
+
+      <button class="shareChoice" data-share-kind="browser" type="button">
+        <div class="shareChoiceIcon">▤</div>
+        <strong>Aba do navegador</strong>
+        <span>Ideal para sites, vídeos e apresentações.</span>
+      </button>
+    </div>
+
+    <div class="sharePickerQuality">
+      <div class="sharePickerQualityTitle">Qualidade da transmissão</div>
+      <div class="shareQualityChoices">
+        <button type="button" class="shareQualityBtn" data-share-quality="720p">
+          <strong>HD 720p</strong>
+          <span>Mais leve</span>
+        </button>
+        <button type="button" class="shareQualityBtn active" data-share-quality="1080p">
+          <strong>Full HD 1080p</strong>
+          <span>Recomendado</span>
+        </button>
+        <button type="button" class="shareQualityBtn" data-share-quality="1080p60">
+          <strong>1080p 60 FPS</strong>
+          <span>Mais fluido</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="sharePickerFoot">
+      A qualidade final também depende do navegador, da resolução da tela e da conexão dos participantes.
+    </div>
+  </div>
+</div>
+
+<div id="modalWrap" class="modalWrap hidden">
+  <div class="modal">
+    <h2 id="modalTitle">Criar</h2>
+    <p id="modalText"></p>
+    <input id="modalInput" maxlength="30">
+
+    <div id="roleColorWrap" class="hidden" style="margin-top:14px;">
+      <label for="roleColor" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Cor do cargo</label>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;">
+        <input id="roleColor" type="color" value="#ff6b4a" style="width:48px;height:38px;padding:2px;border:0;background:transparent;cursor:pointer;">
+        <span id="roleColorText" style="color:var(--muted);font-size:12px;">#ff6b4a</span>
+      </div>
+    </div>
+
+
+    <div id="rolePermissionsWrap" class="hidden" style="margin-top:14px;">
+      <div style="color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Permissões do cargo</div>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permAdministrator" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Administrador</b><br><span style="color:var(--low);">Acesso total ao servidor.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageServer" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar servidor</b><br><span style="color:var(--low);">Alterar nome, ícone e configurações.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;margin-bottom:6px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageChannels" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar canais</b><br><span style="color:var(--low);">Criar e organizar texto, voz e categorias.</span></span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;text-transform:none;letter-spacing:0;font-size:12px;">
+        <input id="permManageRoles" type="checkbox" style="width:auto;margin-top:2px;">
+        <span><b>Gerenciar cargos</b><br><span style="color:var(--low);">Criar, editar e atribuir cargos.</span></span>
+      </label>
+    </div>
+
+    <div class="modalActions">
+      <button id="modalCancel" class="btn secondary">Cancelar</button>
+      <button id="modalOk" class="btn primary">Criar</button>
+    </div>
+  </div>
+</div>
+
+<div id="profileModalWrap" class="modalWrap hidden">
+  <div class="modal">
+    <h2>Meu perfil</h2>
+    <p>Edite seu perfil, aparência e configurações pessoais.</p>
+
+    <div class="profileTabs">
+      <button id="profileInfoTabBtn" class="profileTabBtn active" type="button">Perfil</button>
+      <button id="profileAppearanceTabBtn" class="profileTabBtn" type="button">Aparência</button>
+      <button id="profileSettingsTabBtn" class="profileTabBtn" type="button">Configurações</button>
+    </div>
+
+    <div id="profileInfoTab" class="profileTabPanel active">
+      <div id="profileBannerPreview" class="profileBannerPreview"></div>
+      <label for="profileBannerInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Banner</label>
+      <input id="profileBannerInput" type="file" accept="image/*">
+
+      <div style="display:flex;align-items:center;gap:14px;margin:16px 0;">
+        <div id="profileAvatarPreview" class="avatar" style="width:74px;height:74px;border-radius:24px;font-size:24px;background-size:cover;background-position:center;">V</div>
+        <div style="flex:1;">
+          <label for="profilePhotoInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Foto</label>
+          <input id="profilePhotoInput" type="file" accept="image/*">
+          <button id="removeProfilePhotoBtn" class="btn secondary small" type="button" style="margin-top:7px;">Remover foto</button>
+        </div>
+      </div>
+
+      <label for="profileNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">@Nome único</label>
+      <input id="profileNameInput" maxlength="30" placeholder="Seu nome único">
+
+      <label for="profileDisplayNameInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Nome de exibição</label>
+      <input id="profileDisplayNameInput" maxlength="40" placeholder="Como você quer aparecer">
+
+      <label for="profileStatusSelect" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Status</label>
+      <select id="profileStatusSelect" style="width:100%;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;">
+        <option value="online">Online</option><option value="away">Ausente</option><option value="busy">Ocupado</option><option value="invisible">Invisível</option>
+      </select>
+
+      <label for="profileBioInput" style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 7px;">Sobre mim</label>
+      <textarea id="profileBioInput" maxlength="300" placeholder="Conte um pouco sobre você..." style="width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:12px;outline:none;"></textarea>
+    </div>
+
+    <div id="profileAppearanceTab" class="profileTabPanel">
+      <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Cor do site</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:12px;">
+        Essa opção é só para você. Escolha uma cor pronta ou use a cor personalizada logo abaixo.
+      </div>
+
+      <div id="profileThemeChoices" class="profileThemeChoices">
+        <button type="button" class="profileThemeBtn" data-profile-theme="default">
+          <span class="profileThemeDot default"></span>Padrão
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="black">
+          <span class="profileThemeDot black"></span>Preto
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="white">
+          <span class="profileThemeDot white"></span>Branco
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="blue">
+          <span class="profileThemeDot blue"></span>Azul
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="purple">
+          <span class="profileThemeDot purple"></span>Roxo
+        </button>
+        <button type="button" class="profileThemeBtn" data-profile-theme="custom">
+          <span id="profileThemeDotCustom" class="profileThemeDot" style="background:linear-gradient(135deg,#0f1116,var(--coral));"></span>Personalizada
+        </button>
+      </div>
+
+      <div class="customColorBox" id="siteColorCustomBox">
+        <div style="color:var(--text);font-size:13px;font-weight:900;margin-bottom:8px;">Cor personalizada do site</div>
+        <div style="color:var(--muted);font-size:11px;line-height:1.45;margin-bottom:10px;">
+          A cor escolhida vira a cor principal do site.
+        </div>
+
+        <div class="customColorTop">
+          <div id="customColorPreview" class="customColorPreview"></div>
+          <input id="customColorPicker" type="color" value="#ff6b4a" aria-label="Escolher cor">
+          <input id="customColorHex" maxlength="7" value="#ff6b4a" aria-label="Cor hexadecimal">
+        </div>
+
+        <div class="rgbFields">
+          <div class="rgbField"><input id="customColorR" type="number" min="0" max="255" value="255"><label for="customColorR">R</label></div>
+          <div class="rgbField"><input id="customColorG" type="number" min="0" max="255" value="107"><label for="customColorG">G</label></div>
+          <div class="rgbField"><input id="customColorB" type="number" min="0" max="255" value="74"><label for="customColorB">B</label></div>
+        </div>
+
+        <div class="customColorActions">
+          <button id="applyCustomColorBtn" type="button" class="btn primary small">Aplicar cor</button>
+          <button id="resetCustomColorBtn" type="button" class="btn secondary small">Remover</button>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;color:var(--text);font-size:14px;font-weight:900;">Paleta de cores</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin:5px 0 10px;">
+        A paleta muda as cores de destaque dos botões, chamadas e elementos do site.
+      </div>
+
+      <div id="profilePaletteChoices" class="profilePaletteChoices">
+        <button type="button" class="profilePaletteBtn" data-profile-palette="default">
+          <span class="profilePaletteSwatch paletteDefault"><span></span><span></span><span></span></span>
+          Padrão
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="ocean">
+          <span class="profilePaletteSwatch paletteOcean"><span></span><span></span><span></span></span>
+          Oceano
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="sunset">
+          <span class="profilePaletteSwatch paletteSunset"><span></span><span></span><span></span></span>
+          Pôr do sol
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="forest">
+          <span class="profilePaletteSwatch paletteForest"><span></span><span></span><span></span></span>
+          Floresta
+        </button>
+        <button type="button" class="profilePaletteBtn" data-profile-palette="candy">
+          <span class="profilePaletteSwatch paletteCandy"><span></span><span></span><span></span></span>
+          Candy
+        </button>
+      </div>
+
+
+    </div>
+
+    <div id="profileSettingsTab" class="profileTabPanel">
+      <div style="color:var(--text);font-size:14px;font-weight:900;margin-bottom:5px;">Atalhos da chamada</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:14px;">
+        Escolha uma tecla para controlar rapidamente o microfone e o áudio da call.
+        Clique em “Definir tecla” e depois pressione a tecla desejada.
+      </div>
+
+      <div class="hotkeySettingCard">
+        <div class="hotkeySettingText">
+          <strong>Mutar / desmutar microfone</strong>
+          <span>Ativa ou desativa seu microfone durante uma chamada.</span>
+        </div>
+        <div class="hotkeySettingControls">
+          <span id="micHotkeyValue" class="hotkeyValue">Não definido</span>
+          <button id="setMicHotkeyBtn" class="btn secondary small" type="button">Definir tecla</button>
+          <button id="clearMicHotkeyBtn" class="btn secondary small" type="button">Remover</button>
+        </div>
+      </div>
+
+      <div class="hotkeySettingCard">
+        <div class="hotkeySettingText">
+          <strong>Mutar / desmutar fone</strong>
+          <span>Silencia ou reativa todo o áudio das outras pessoas da call.</span>
+        </div>
+        <div class="hotkeySettingControls">
+          <span id="deafenHotkeyValue" class="hotkeyValue">Não definido</span>
+          <button id="setDeafenHotkeyBtn" class="btn secondary small" type="button">Definir tecla</button>
+          <button id="clearDeafenHotkeyBtn" class="btn secondary small" type="button">Remover</button>
+        </div>
+      </div>
+
+      <div id="hotkeyCaptureHint" class="hotkeyCaptureHint hidden">
+        Pressione uma tecla agora. Esc cancela.
+      </div>
+    </div>
+
+    <div class="accountDangerZone">
+      <button id="logoutAccountBtn" class="btn secondary" type="button">Sair da conta</button>
+      <button id="deleteAccountBtn" class="btn danger" type="button">Excluir conta</button>
+    </div>
+    <div class="modalActions">
+      <button id="profileCancelBtn" class="btn secondary">Cancelar</button>
+      <button id="profileSaveBtn" class="btn primary">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="memberProfileModalWrap" class="modalWrap hidden">
+  <div class="modal">
+    <div class="memberProfileCardTop">
+      <div id="memberProfileAvatar" class="avatar memberProfileAvatar">U</div>
+      <div style="min-width:0;flex:1;">
+        <h2 id="memberProfileName" style="margin:0;">Membro</h2>
+        <div id="memberProfileStatus" class="memberProfileStatus">Offline</div>
+      </div>
+    </div>
+    <div id="memberProfileBio" class="memberProfileBio">Sem bio.</div>
+    <div class="memberProfileRoles">
+      <div class="memberProfileRolesTitle">Cargos neste servidor</div>
+      <div id="memberProfileRolesList"></div>
+      <div id="memberProfileRolesHint" style="color:var(--low);font-size:10px;line-height:1.4;margin-top:8px;"></div>
+    </div>
+    <div class="modalActions">
+      <button id="memberProfileCloseBtn" class="btn primary" type="button">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div id="incomingCallWrap" class="modalWrap hidden">
+  <div class="modal">
+    <div style="width:56px;height:56px;border-radius:18px;background:var(--mintbg);color:var(--mint);display:grid;place-items:center;font-size:23px;margin-bottom:16px;">☎</div>
+    <h2>Chamada privada</h2>
+    <p><strong id="incomingCallerName" style="color:var(--text);">Um amigo</strong> está te ligando.</p>
+    <div class="modalActions">
+      <button id="declineCallBtn" class="btn danger">Recusar</button>
+      <button id="acceptCallBtn" class="btn primary">Aceitar</button>
+    </div>
+  </div>
+</div>
+
+<div id="activeCallDock" class="activeCallDock hidden">
+  <div class="activeCallDockDot" aria-hidden="true"></div>
+
+  <div class="activeCallDockMeta">
+    <strong>Voz conectada</strong>
+    <span id="activeCallDockText">Call ativa</span>
+  </div>
+
+  <button id="returnToCallBtn" class="btn secondary small activeCallDockReturn" type="button">Voltar à call</button>
+  <button id="dockLeaveCallBtn" class="btn danger small activeCallDockLeave" type="button">Sair</button>
+</div>
+
+<div id="privateGroupModalWrap" class="modalWrap hidden">
+  <div class="modal" style="width:min(520px,100%);">
+    <h2>Criar grupo privado</h2>
+    <p>Escolha até 9 amigos. Com você, o grupo pode ter no máximo 10 pessoas.</p>
+
+    <label style="display:block;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px;">Nome do grupo</label>
+    <input id="privateGroupNameInput" maxlength="40" placeholder="Ex.: Os cria">
+
+    <div style="margin-top:16px;color:var(--low);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;">Amigos</div>
+    <div id="privateGroupFriendsList" style="margin-top:8px;max-height:290px;overflow:auto;display:grid;gap:6px;"></div>
+
+    <div id="privateGroupCount" style="margin-top:10px;color:var(--muted);font-size:12px;">1/10 pessoas</div>
+
+    <div class="modalActions">
+      <button id="privateGroupCancelBtn" class="btn secondary">Cancelar</button>
+      <button id="privateGroupCreateBtn" class="btn primary">Criar grupo</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="mobileBackdrop" class="mobileBackdrop hidden"></div>
+<nav id="mobileNav" class="mobileNav" aria-label="Navegação celular">
+  <button id="mobileHomeBtn" type="button"><span>⌂</span><small>Início</small></button>
+  <button id="mobileServersBtn" type="button"><span>▦</span><small>Servidores</small></button>
+  <button id="mobileChatBtn" type="button"><span>#</span><small>Chat</small></button>
+  <button id="mobileCallBtn" type="button"><span>☎</span><small>Call</small></button>
+  <button id="mobileProfileBtn" type="button"><span>●</span><small>Perfil</small></button>
+</nav>
+
+<button id="installAppBtn" class="installAppBtn hidden uiLegacyHidden" type="button" aria-hidden="true" tabindex="-1">Instalação pelo navegador desativada</button>
+<div id="messageContextMenu" class="messageContextMenu hidden">
+  <button id="contextReplyBtn" type="button">Responder</button>
+  <button id="contextEditBtn" type="button">Editar</button>
+  <button id="contextDeleteBtn" class="danger" type="button">Excluir</button>
+</div>
+
+
+<div id="appDialogWrap" class="modalWrap hidden" role="presentation">
+  <div class="modal appDialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle">
+    <div id="appDialogIcon" class="appDialogIcon">✓</div>
+    <h2 id="appDialogTitle">Confirmar</h2>
+    <p id="appDialogMessage"></p>
+    <textarea id="appDialogInput" class="appDialogInput hidden" maxlength="4000"></textarea>
+    <div class="modalActions">
+      <button id="appDialogCancelBtn" class="btn secondary" type="button">Cancelar</button>
+      <button id="appDialogConfirmBtn" class="btn primary" type="button">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/runtime-v66.js?v=6.6.0"></script>
+<script src="/bootstrap-v66.js?v=6.6.0"></script>
+<script src="/bundle-v66.js?v=6.6.0"></script>
+</body>
+</html>

@@ -20,6 +20,8 @@ const SESSION_LIFETIME_MS=1000*60*60*24*365;
 const SESSION_GRACE_MS=1000*60*60*24*7;
 const SESSION_COOKIE='__Host-acord_session';
 const LEGACY_SESSION_COOKIE='acord_session';
+const SHARED_CONTROL_GRANT_MS=10*60*1000;
+const SHARED_CONTROL_REQUEST_MS=2*60*1000;
 
 let io=null;
 
@@ -477,6 +479,21 @@ function recordAudit(serverId,action,actor,target=''){
     at:Date.now()
   });
   if(auditLog.length>2000) auditLog.splice(0,auditLog.length-2000);
+}
+
+function recordSecurityAudit(socket,action,target='',outcome='ok',detail=''){
+  const username=String(socket?.data?.username||'anonymous').slice(0,30);
+  const ip=String(socket?.data?.clientIp||'unknown').slice(0,100);
+  const ipTag=crypto.createHash('sha256').update(ip).digest('hex').slice(0,12);
+  recordAudit(
+    '__security__',
+    'security:'+String(action||'event').slice(0,64),
+    username,
+    [String(outcome||'ok'),String(target||'').slice(0,50),String(detail||'').slice(0,80),'ip#'+ipTag].filter(Boolean).join('|').slice(0,80)
+  );
+  if(String(action||'')!=='shared-control-input'){
+    try{ACTIVE_RUNTIME?.queuePersist?.()}catch{}
+  }
 }
 
 function normalizeChannelList(list, fallbackName) {
@@ -1524,15 +1541,65 @@ function setupSocket(socket){
   }
 
 
+  function sanitizeSharedControlPermissions(raw){
+    const source=raw&&typeof raw==='object'?raw:{};
+    return {
+      mouse:source.mouse===true,
+      keyboard:source.keyboard===true,
+      gamepad:source.gamepad===true
+    };
+  }
+
+  function activeSharedControlGrant(session,peerId){
+    const safeId=String(peerId||'');
+    const grant=session?.grants?.get(safeId);
+    if(!grant) return null;
+    if(Number(grant.expiresAt||0)<=Date.now()){
+      session.grants.delete(safeId);
+      io.sockets.sockets.get(safeId)?.emit('shared-control-revoked',{hostId:session.hostId,reason:'expired'});
+      io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:safeId,reason:'expired'});
+      return null;
+    }
+    return grant;
+  }
+
+  function cleanupExpiredSharedControl(session){
+    if(!session) return;
+    const now=Date.now();
+    for(const [peerId,request] of [...session.requests.entries()]){
+      if(Number(request?.expiresAt||0)<=now) session.requests.delete(peerId);
+    }
+    for(const peerId of [...session.grants.keys()]) activeSharedControlGrant(session,peerId);
+  }
+
   function sharedControlSnapshot(room){
     const session=sharedControlRooms.get(String(room||''));
-    if(!session) return {active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[]};
+    if(!session) return {active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[],grantDetails:[],requestDetails:[]};
+    cleanupExpiredSharedControl(session);
     return {
       active:true,
       hostId:session.hostId,
       hostName:session.hostName||'Usuário',
       grantedIds:[...session.grants.keys()],
-      requestedIds:[...session.requests]
+      requestedIds:[...session.requests.keys()],
+      grantDetails:[...session.grants.entries()].map(([peerId,grant])=>({
+        peerId,
+        permissions:{
+          mouse:!!grant?.permissions?.mouse,
+          keyboard:!!grant?.permissions?.keyboard,
+          gamepad:!!grant?.permissions?.gamepad
+        },
+        expiresAt:Number(grant?.expiresAt||0)
+      })),
+      requestDetails:[...session.requests.entries()].map(([peerId,request])=>({
+        peerId,
+        permissions:{
+          mouse:!!request?.permissions?.mouse,
+          keyboard:!!request?.permissions?.keyboard,
+          gamepad:!!request?.permissions?.gamepad
+        },
+        expiresAt:Number(request?.expiresAt||0)
+      }))
     };
   }
 
@@ -1548,14 +1615,16 @@ function setupSocket(socket){
     if(!session) return;
     if(session.hostId===safeId){
       sharedControlRooms.delete(safeRoom);
-      io.to(safeRoom).emit('shared-control-state',{active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[]});
+      recordSecurityAudit(socket,'shared-control-host-stop',safeRoom,'ok','disconnect');
+      io.to(safeRoom).emit('shared-control-state',{active:false,hostId:'',hostName:'',grantedIds:[],requestedIds:[],grantDetails:[],requestDetails:[]});
       return;
     }
     const hadAccess=session.grants.has(safeId) || session.requests.has(safeId);
     session.grants.delete(safeId);
     session.requests.delete(safeId);
     if(hadAccess){
-      io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:safeId});
+      io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:safeId,reason:'disconnect'});
+      recordSecurityAudit(socket,'shared-control-access-drop',safeRoom,'ok','disconnect');
     }
     emitSharedControlState(safeRoom);
   }
@@ -1581,6 +1650,12 @@ function setupSocket(socket){
       if(!/^(Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2])|Space|Enter|Escape|Backspace|Tab|Arrow(?:Left|Up|Right|Down)|Home|End|PageUp|PageDown|Insert|Delete|Shift(?:Left|Right)|Control(?:Left|Right)|Alt(?:Left|Right)|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Backquote)$/.test(code)) return null;
       return {type,code,down:!!raw.down};
     }
+    if(type==='gamepad'){
+      const index=Math.max(0,Math.min(3,Number(raw.index)||0));
+      const buttons=Array.isArray(raw.buttons)?raw.buttons.slice(0,24).map(v=>Math.max(0,Math.min(1,Number(v)||0))):[];
+      const axes=Array.isArray(raw.axes)?raw.axes.slice(0,8).map(v=>Math.max(-1,Math.min(1,Number(v)||0))):[];
+      return {type,index,buttons,axes};
+    }
     if(type==='release-all') return {type};
     return null;
   }
@@ -1598,12 +1673,14 @@ function setupSocket(socket){
     if(!enabled){
       if(current?.hostId===socket.id){
         sharedControlRooms.delete(room);
+        recordSecurityAudit(socket,'shared-control-host-stop',room,'ok','manual');
         emitSharedControlState(room);
       }
       reply({ok:true,active:false});
       return;
     }
     if(current && current.hostId!==socket.id){
+      recordSecurityAudit(socket,'shared-control-host-start',room,'denied','host-conflict');
       reply({ok:false,error:'Outro participante já está compartilhando o controle nesta call'});
       return;
     }
@@ -1611,28 +1688,40 @@ function setupSocket(socket){
       hostId:socket.id,
       hostUserId:String(socket.data.userId||''),
       hostName:socket.data.username||'Usuário',
-      grants:current?.grants||new Map(),
-      requests:current?.requests||new Set(),
-      createdAt:current?.createdAt||Date.now()
+      grants:new Map(),
+      requests:new Map(),
+      createdAt:Date.now()
     });
+    recordSecurityAudit(socket,'shared-control-host-start',room,'ok');
     emitSharedControlState(room);
     reply({ok:true,active:true});
   });
 
-  socket.on('shared-control-request',(_,ack)=>{
+  socket.on('shared-control-request',({permissions}={},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
     const room=socket.data.voiceRoom;
     const session=room?sharedControlRooms.get(room):null;
     if(!room||!session){reply({ok:false,error:'Nenhum Controle compartilhado ativo nesta call'});return}
     if(session.hostId===socket.id){reply({ok:false,error:'Você já é o host do Controle compartilhado'});return}
-    session.requests.add(socket.id);
+    const safePermissions=sanitizeSharedControlPermissions(permissions);
+    if(!safePermissions.mouse&&!safePermissions.keyboard&&!safePermissions.gamepad){
+      reply({ok:false,error:'Selecione ao menos uma permissão'});return;
+    }
+    const request={
+      permissions:safePermissions,
+      requestId:crypto.randomBytes(12).toString('hex'),
+      requestedAt:Date.now(),
+      expiresAt:Date.now()+SHARED_CONTROL_REQUEST_MS
+    };
+    session.requests.set(socket.id,request);
     const host=io.sockets.sockets.get(session.hostId);
-    host?.emit('shared-control-requested',{peerId:socket.id,username:socket.data.username||'Usuário'});
+    host?.emit('shared-control-requested',{peerId:socket.id,username:socket.data.username||'Usuário',permissions:safePermissions,expiresAt:request.expiresAt});
+    recordSecurityAudit(socket,'shared-control-request',room,'ok',JSON.stringify(safePermissions));
     emitSharedControlState(room);
-    reply({ok:true});
+    reply({ok:true,expiresAt:request.expiresAt});
   });
 
-  socket.on('shared-control-grant',({peerId}={},ack)=>{
+  socket.on('shared-control-grant',({peerId,permissions}={},ack)=>{
     const reply=typeof ack==='function'?ack:()=>{};
     const room=socket.data.voiceRoom;
     const session=room?sharedControlRooms.get(room):null;
@@ -1640,11 +1729,27 @@ function setupSocket(socket){
     if(!session||session.hostId!==socket.id){reply({ok:false,error:'Somente o host pode liberar o controle'});return}
     const peer=io.sockets.sockets.get(safePeerId);
     if(!peer||peer.data.voiceRoom!==room||safePeerId===socket.id){reply({ok:false,error:'Participante indisponível'});return}
-    session.grants.set(safePeerId,{mouse:true,keyboard:true,grantedAt:Date.now()});
+    cleanupExpiredSharedControl(session);
+    const request=session.requests.get(safePeerId);
+    if(!request){reply({ok:false,error:'A solicitação expirou ou não existe'});return}
+    const requested=sanitizeSharedControlPermissions(request.permissions||{});
+    const selected=sanitizeSharedControlPermissions(permissions||requested);
+    const safePermissions={
+      mouse:!!(requested.mouse&&selected.mouse),
+      keyboard:!!(requested.keyboard&&selected.keyboard),
+      gamepad:!!(requested.gamepad&&selected.gamepad)
+    };
+    if(!safePermissions.mouse&&!safePermissions.keyboard&&!safePermissions.gamepad){
+      reply({ok:false,error:'Nenhuma permissão compatível foi selecionada'});return;
+    }
+    const accessToken=crypto.randomBytes(24).toString('hex');
+    const expiresAt=Date.now()+SHARED_CONTROL_GRANT_MS;
+    session.grants.set(safePeerId,{permissions:safePermissions,accessToken,grantedAt:Date.now(),expiresAt});
     session.requests.delete(safePeerId);
-    peer.emit('shared-control-granted',{hostId:socket.id,hostName:socket.data.username||'Usuário'});
+    peer.emit('shared-control-granted',{hostId:socket.id,hostName:socket.data.username||'Usuário',permissions:safePermissions,accessToken,expiresAt});
+    recordSecurityAudit(socket,'shared-control-grant',safePeerId,'ok',JSON.stringify(safePermissions));
     emitSharedControlState(room);
-    reply({ok:true});
+    reply({ok:true,expiresAt,permissions:safePermissions});
   });
 
   socket.on('shared-control-revoke',({peerId}={},ack)=>{
@@ -1655,7 +1760,9 @@ function setupSocket(socket){
     if(!session||session.hostId!==socket.id){reply({ok:false,error:'Somente o host pode revogar o controle'});return}
     session.grants.delete(safePeerId);
     session.requests.delete(safePeerId);
-    io.to(safePeerId).emit('shared-control-revoked',{hostId:socket.id});
+    io.sockets.sockets.get(safePeerId)?.emit('shared-control-revoked',{hostId:socket.id,reason:'host-revoked'});
+    io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:safePeerId,reason:'host-revoked'});
+    recordSecurityAudit(socket,'shared-control-revoke',safePeerId,'ok');
     emitSharedControlState(room);
     reply({ok:true});
   });
@@ -1666,20 +1773,37 @@ function setupSocket(socket){
     if(!session||session.hostId===socket.id) return;
     session.grants.delete(socket.id);
     session.requests.delete(socket.id);
-    io.to(session.hostId).emit('shared-control-peer-released',{peerId:socket.id});
+    io.sockets.sockets.get(session.hostId)?.emit('shared-control-peer-released',{peerId:socket.id,reason:'peer-release'});
+    recordSecurityAudit(socket,'shared-control-release',room,'ok');
     emitSharedControlState(room);
   });
 
-  socket.on('shared-control-input',({hostId,event}={})=>{
+  socket.on('shared-control-input',({hostId,event,accessToken}={})=>{
     const room=socket.data.voiceRoom;
     const session=room?sharedControlRooms.get(room):null;
     if(!session||session.hostId!==String(hostId||'')||session.hostId===socket.id) return;
-    if(!session.grants.has(socket.id)) return;
+    const grant=activeSharedControlGrant(session,socket.id);
+    if(!grant) return;
+    const supplied=String(accessToken||'');
+    const expected=String(grant.accessToken||'');
+    if(!supplied||!expected||supplied.length!==expected.length){
+      recordSecurityAudit(socket,'shared-control-input',room,'denied','missing-token');
+      return;
+    }
+    try{
+      if(!crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(expected))){
+        recordSecurityAudit(socket,'shared-control-input',room,'denied','bad-token');
+        return;
+      }
+    }catch{return}
     const host=io.sockets.sockets.get(session.hostId);
     if(!host||host.data.voiceRoom!==room) return;
     const safe=sanitizeSharedControlInput(event);
     if(!safe) return;
-    host.emit('shared-control-input',{from:socket.id,event:safe});
+    if((safe.type==='pointer-move'||safe.type==='pointer-button'||safe.type==='wheel')&&!grant.permissions.mouse) return;
+    if(safe.type==='key'&&!grant.permissions.keyboard) return;
+    if(safe.type==='gamepad'&&!grant.permissions.gamepad) return;
+    host.emit('shared-control-input',{from:socket.id,event:safe,permissions:grant.permissions,expiresAt:grant.expiresAt});
   });
 
   broadcastOnlineUsers();
@@ -1711,6 +1835,7 @@ function setupSocket(socket){
     try{
       const authRate=ACTIVE_RUNTIME?.allowAuthAttempt(socket,username)||{ok:true};
       if(!authRate.ok){
+        recordSecurityAudit(socket,'auth-register',String(username||''),'blocked','rate-limit');
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
         return;
       }
@@ -1779,6 +1904,7 @@ function setupSocket(socket){
       saveServersToDisk();
 
       ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
+      recordSecurityAudit(socket,'auth-register',safeUsername,'ok');
       socket.emit('auth-success',{
         token,
         profile:publicProfile(profile),
@@ -1793,6 +1919,7 @@ function setupSocket(socket){
       broadcastOnlineUsers();
     }catch(error){
       console.error('Erro ao criar conta:',error);
+      recordSecurityAudit(socket,'auth-register',String(username||''),'error','runtime');
       socket.emit('auth-error',{
         error:'Não foi possível criar a conta agora. Tente novamente.'
       });
@@ -1803,6 +1930,7 @@ function setupSocket(socket){
     try{
       const authRate=ACTIVE_RUNTIME?.allowAuthAttempt(socket,username)||{ok:true};
       if(!authRate.ok){
+        recordSecurityAudit(socket,'auth-login',String(username||''),'blocked','rate-limit');
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
         return;
       }
@@ -1832,6 +1960,7 @@ function setupSocket(socket){
         const sameRecoveryUser=recoveryUserId&&recoveryUsername&&usernameKey(recoveryUsername)===key;
         const recoveryVerified=!!ACTIVE_RUNTIME?.verifyRecoveryProof(recovery);
         if(!sameRecoveryUser || !recoveryVerified){
+          recordSecurityAudit(socket,'auth-login',safeUsername,'denied','invalid-recovery');
           socket.emit('auth-error',{error:'Conta não encontrada. A recuperação local não pôde ser validada com segurança.'});
           return;
         }
@@ -1851,6 +1980,7 @@ function setupSocket(socket){
         socket.data.cookieSession=false;
         saveServersToDisk();
         ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
+        recordSecurityAudit(socket,'auth-login',safeUsername,'ok','recovered-identity');
         socket.emit('auth-success',{token,profile:publicProfile(profiles.get(recoveryUserId)),recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(recoveryUserId,safeUsername)||'',accountRecovered:true,recoveredIdentity:true});
         emitAccountState(socket); sendServerList(socket); emitFriendState(recoveryUserId); emitGroupState(recoveryUserId); broadcastOnlineUsers();
         return;
@@ -1868,6 +1998,7 @@ function setupSocket(socket){
         account.recoveredSessionOnly=false;
         saveServersToDisk();
       }else if(!verifyAccountPassword(safePassword,account)){
+        recordSecurityAudit(socket,'auth-login',safeUsername,'denied','bad-password');
         socket.emit('auth-error',{error:'Senha incorreta.'});
         return;
       }
@@ -1910,6 +2041,7 @@ function setupSocket(socket){
       saveServersToDisk();
 
       ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
+      recordSecurityAudit(socket,'auth-login',safeUsername,'ok');
       socket.emit('auth-success',{token,profile:publicProfile(profile),recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(account.userId,account.username)||''});
       emitAccountState(socket);
       sendServerList(socket);
@@ -1918,6 +2050,7 @@ function setupSocket(socket){
       broadcastOnlineUsers();
     }catch(error){
       console.error('Erro ao entrar:',error);
+      recordSecurityAudit(socket,'auth-login',String(username||''),'error','runtime');
       socket.emit('auth-error',{
         error:'Não foi possível entrar agora. Tente novamente.'
       });
@@ -2080,6 +2213,7 @@ function setupSocket(socket){
       profile=userId ? profiles.get(userId) : null;
 
       if(!userId || !profile){
+        recordSecurityAudit(socket,'auth-restore','session','denied','invalid-session');
         socket.emit('auth-required',{reason:'invalid-session'});
         return;
       }
@@ -2090,6 +2224,7 @@ function setupSocket(socket){
       socket.data.cookieSession=false;
 
       saveServersToDisk();
+      recordSecurityAudit(socket,'auth-restore',profile.username,'ok',recoveredAfterUpdate?'recovered-after-update':'session');
 
       socket.emit('auth-success',{
         token:restoredToken,
@@ -2106,6 +2241,7 @@ function setupSocket(socket){
       broadcastOnlineUsers();
     }catch(error){
       console.error('Erro ao restaurar sessão:',error);
+      recordSecurityAudit(socket,'auth-restore','session','error','runtime');
       socket.emit('auth-restore-retry',{reason:'temporary-error'});
     }
   });
@@ -2146,6 +2282,7 @@ function setupSocket(socket){
       : String(socket.data.sessionHash||'');
     const session=hash?sessions.get(hash):null;
     if(session?.userId===socket.data.userId) sessions.delete(hash);
+    recordSecurityAudit(socket,'auth-logout',String(socket.data.userId||''),'ok');
     socket.data.userId=null;
     socket.data.username=null;
     socket.data.sessionHash=null;
@@ -4432,6 +4569,7 @@ function setupSocket(socket){
     }
 
     saveServersToDisk();
+    recordSecurityAudit(socket,'session-revoke-others',String(userId||''),'ok','revoked='+revoked);
     reply({ok:true,revoked});
   });
 
@@ -4458,6 +4596,7 @@ function setupSocket(socket){
     }
 
     if(!verifyAccountPassword(String(oldPassword||''),account)){
+      recordSecurityAudit(socket,'password-change',String(userId||''),'denied','bad-current-password');
       reply({ok:false,error:'Senha atual incorreta'});
       return;
     }
@@ -4478,6 +4617,7 @@ function setupSocket(socket){
     }
 
     saveServersToDisk();
+    recordSecurityAudit(socket,'password-change',String(userId||''),'ok','other-sessions-revoked');
     reply({ok:true});
   });
 
@@ -5520,19 +5660,33 @@ export class AcordRealtime extends DurableObject{
 
   async putMediaDataUrl(mediaKey,dataUrl){
     const value=String(dataUrl||'');
-    const match=value.match(/^data:([^;,]+);base64,/i);
+    const match=value.match(/^data:([^;,]+);base64,(.+)$/is);
     if(!match || value.length>1800000) return '';
     try{
       this.prepareSql();
+      const safeKey=String(mediaKey||'').slice(0,220);
+      const mime=String(match[1]||'application/octet-stream').slice(0,100);
+      let storedValue=value;
+
+      // Quando MEDIA_BUCKET estiver ligado no Cloudflare, novos objetos saem do
+      // SQLite e vão para R2. O banco mantém somente metadados/ponte de leitura.
+      if(this.env?.MEDIA_BUCKET?.put){
+        const binary=atob(match[2]);
+        const bytes=new Uint8Array(binary.length);
+        for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+        const objectKey='media/'+crypto.createHash('sha256').update(safeKey).digest('hex');
+        await this.env.MEDIA_BUCKET.put(objectKey,bytes,{httpMetadata:{contentType:mime}});
+        storedValue='r2:'+objectKey;
+      }
+
       this.ctx.storage.sql.exec(
         `INSERT OR REPLACE INTO media_objects(media_key,mime,data_url,updated_at)
          VALUES (?,?,?,?)`,
-        String(mediaKey||'').slice(0,220),
-        String(match[1]||'application/octet-stream').slice(0,100),
-        value,
+        safeKey,
+        mime,
+        storedValue,
         Date.now()
       );
-      const safeKey=String(mediaKey||'').slice(0,220);
       const signature=safeKey.startsWith('message:')?this.issueMediaSignature(safeKey):'';
       return '/api/media/'+encodeURIComponent(safeKey)+'?v='+Date.now()+(signature?'&sig='+encodeURIComponent(signature):'');
     }catch(error){
@@ -5815,6 +5969,8 @@ export class AcordRealtime extends DurableObject{
         chatMessages:chatRows,
         groupMessages:groupRows,
         mediaObjects:mediaRows,
+        mediaBackend:this.env?.MEDIA_BUCKET?'r2+sqlite-metadata':'sqlite-inline-fallback',
+        securityAuditEvents:auditLog.filter(item=>String(item?.serverId||'')==='__security__').length,
         friendships:friendships.length,
         privateGroups:privateGroups.size,
         sockets:this.sockets.size,
@@ -5824,6 +5980,23 @@ export class AcordRealtime extends DurableObject{
       },{
         headers:{'Cache-Control':'no-store'}
       });
+    }
+
+    if(url.pathname==='/security-audit'){
+      const configured=String(this.env?.ADMIN_AUDIT_TOKEN||'');
+      const supplied=String(request.headers.get('X-Acord-Audit-Token')||'');
+      if(!configured || !supplied || supplied.length!==configured.length){
+        return Response.json({ok:false,error:'Não autorizado'},{status:401,headers:{'Cache-Control':'no-store'}});
+      }
+      try{
+        if(!crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(configured))){
+          return Response.json({ok:false,error:'Não autorizado'},{status:401,headers:{'Cache-Control':'no-store'}});
+        }
+      }catch{
+        return Response.json({ok:false,error:'Não autorizado'},{status:401,headers:{'Cache-Control':'no-store'}});
+      }
+      const events=auditLog.filter(item=>String(item?.serverId||'')==='__security__').slice(-500);
+      return Response.json({ok:true,events},{headers:{'Cache-Control':'no-store'}});
     }
 
     if(url.pathname.startsWith('/media/')){
@@ -5852,6 +6025,20 @@ export class AcordRealtime extends DurableObject{
       }
 
       const raw=String(media.data_url);
+      if(raw.startsWith('r2:')){
+        const objectKey=raw.slice(3);
+        if(!this.env?.MEDIA_BUCKET?.get) return new Response('Armazenamento de mídia indisponível',{status:503});
+        const object=await this.env.MEDIA_BUCKET.get(objectKey);
+        if(!object) return new Response('Mídia não encontrada',{status:404});
+        return new Response(object.body,{
+          status:200,
+          headers:{
+            'Content-Type':String(media.mime||object.httpMetadata?.contentType||'application/octet-stream'),
+            'Cache-Control':mediaKey.startsWith('message:')?'private, max-age=3600':'public, max-age=31536000, immutable',
+            'X-Content-Type-Options':'nosniff'
+          }
+        });
+      }
       const match=raw.match(/^data:([^;,]+);base64,(.+)$/s);
 
       if(!match){
@@ -6001,30 +6188,37 @@ export default{
     // Compatibilidade sem redirecionamento: clientes antigos recebem os assets
     // atuais diretamente, evitando loops e versões misturadas no startup.
     const legacyAssets={
-      '/index-v61.html':'/index-v65.html',
-      '/index-v62.html':'/index-v65.html',
-      '/index-v63.html':'/index-v65.html',
-      '/index-v64.html':'/index-v65.html',
-      '/runtime-v64.js':'/runtime-v65.js',
-      '/bootstrap-v62.js':'/bootstrap-v65.js',
-      '/bootstrap-v63.js':'/bootstrap-v65.js',
-      '/bootstrap-v64.js':'/bootstrap-v65.js',
-      '/bundle-v61.js':'/bundle-v65.js',
-      '/bundle-v62.js':'/bundle-v65.js',
-      '/bundle-v63.js':'/bundle-v65.js',
-      '/bundle-v64.js':'/bundle-v65.js',
-      '/app-v61.css':'/app-v65.css',
-      '/app-v62.css':'/app-v65.css',
-      '/app-v63.css':'/app-v65.css',
-      '/app-v64.css':'/app-v65.css',
-      '/phone-camera-v61.html':'/phone-camera-v65.html',
-      '/phone-camera-v62.html':'/phone-camera-v65.html',
-      '/phone-camera-v63.html':'/phone-camera-v65.html',
-      '/phone-camera-v64.html':'/phone-camera-v65.html',
-      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v65.js',
-      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v65.js',
-      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v65.js',
-      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v65.js'
+      '/index-v61.html':'/index-v66.html',
+      '/index-v62.html':'/index-v66.html',
+      '/index-v63.html':'/index-v66.html',
+      '/index-v64.html':'/index-v66.html',
+      '/index-v65.html':'/index-v66.html',
+      '/runtime-v64.js':'/runtime-v66.js',
+      '/runtime-v65.js':'/runtime-v66.js',
+      '/bootstrap-v62.js':'/bootstrap-v66.js',
+      '/bootstrap-v63.js':'/bootstrap-v66.js',
+      '/bootstrap-v64.js':'/bootstrap-v66.js',
+      '/bootstrap-v65.js':'/bootstrap-v66.js',
+      '/bundle-v61.js':'/bundle-v66.js',
+      '/bundle-v62.js':'/bundle-v66.js',
+      '/bundle-v63.js':'/bundle-v66.js',
+      '/bundle-v64.js':'/bundle-v66.js',
+      '/bundle-v65.js':'/bundle-v66.js',
+      '/app-v61.css':'/app-v66.css',
+      '/app-v62.css':'/app-v66.css',
+      '/app-v63.css':'/app-v66.css',
+      '/app-v64.css':'/app-v66.css',
+      '/app-v65.css':'/app-v66.css',
+      '/phone-camera-v61.html':'/phone-camera-v66.html',
+      '/phone-camera-v62.html':'/phone-camera-v66.html',
+      '/phone-camera-v63.html':'/phone-camera-v66.html',
+      '/phone-camera-v64.html':'/phone-camera-v66.html',
+      '/phone-camera-v65.html':'/phone-camera-v66.html',
+      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v66.js',
+      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v66.js',
+      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v66.js',
+      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v66.js',
+      '/phone-camera-bundle-v65.js':'/phone-camera-bundle-v66.js'
     };
     if(request.method==='GET' && legacyAssets[url.pathname]){
       const assetUrl=new URL(legacyAssets[url.pathname],url);
@@ -6042,7 +6236,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v65.html',url);
+      const assetUrl=new URL('/index-v66.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -6059,13 +6253,17 @@ export default{
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
         dataVersion:24,
-        appVersion:'6.5.0',
+        appVersion:'6.6.0',
         ...state
       });
     }
 
     if(url.pathname==='/api/persistence-status'){
       return doFetch(env,'/status',request);
+    }
+
+    if(url.pathname==='/api/security-audit'){
+      return doFetch(env,'/security-audit',request);
     }
 
     if(url.pathname==='/api/session-cookie'){
@@ -6217,12 +6415,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v65.html',url);
+      const assetUrl=new URL('/phone-camera-v66.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v65.html',url);
+      const assetUrl=new URL('/index-v66.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 

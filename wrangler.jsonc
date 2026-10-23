@@ -12,6 +12,7 @@
     ],
     "html_handling": "none"
   },
+
   "durable_objects": {
     "bindings": [
       {
