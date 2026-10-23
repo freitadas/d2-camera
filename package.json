@@ -1,14 +1,19 @@
 {
   "name": "acord-cloudflare",
-  "version": "6.3.0",
+  "version": "6.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "wrangler deploy --dry-run --outdir .wrangler-dry-run"
+    "check": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
+    "test": "node tests/smoke.mjs",
+    "verify": "npm test && npm run check"
   },
   "devDependencies": {
-    "wrangler": "^4.68.0"
+    "wrangler": "4.68.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

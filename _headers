@@ -2,16 +2,31 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   X-Permitted-Cross-Domain-Policies: none
+  X-DNS-Prefetch-Control: off
   Referrer-Policy: no-referrer
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
   Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https://tenor.googleapis.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
-
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https://tenor.googleapis.com; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
 
 /index.html
-  Cache-Control: no-cache
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/index-v64.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/runtime-v64.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bootstrap-v64.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/bundle-v64.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/app-v64.css
+  Cache-Control: no-store, no-cache, must-revalidate
 
 /socket.io.js
   Cache-Control: no-store, no-cache, must-revalidate
@@ -19,61 +34,17 @@
 /sw.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/app.js
+/phone-camera-v64.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/phone-camera-bundle-v64.js
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/manifest.webmanifest
   Cache-Control: no-cache
 
-/app.css
-  Cache-Control: no-cache
+/icon-192.png
+  Cache-Control: public, max-age=604800, immutable
 
-/phone-camera.js
-  Cache-Control: no-cache
-
-/socket.io/*
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/index-v61.html
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/bundle-v61.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/app-v61.css
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/phone-camera-v61.html
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/phone-camera-bundle-v61.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-
-/index-v62.html
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/bootstrap-v62.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/bundle-v62.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/app-v62.css
-  Cache-Control: no-store, no-cache, must-revalidate
-
-
-/index-v63.html
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/bootstrap-v63.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/bundle-v63.js
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/app-v63.css
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/phone-camera-v63.html
-  Cache-Control: no-store, no-cache, must-revalidate
-
-/phone-camera-bundle-v63.js
-  Cache-Control: no-store, no-cache, must-revalidate
+/icon-512.png
+  Cache-Control: public, max-age=604800, immutable

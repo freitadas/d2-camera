@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import * as crypto from "node:crypto";
 
-const id=()=>crypto.randomBytes(5).toString('hex');
+const id=()=>crypto.randomBytes(12).toString('hex');
 
 const servers=new Map();
 const profiles=new Map();
@@ -17,6 +17,8 @@ const phoneCameraSessions=new Map();
 
 const SESSION_LIFETIME_MS=1000*60*60*24*365;
 const SESSION_GRACE_MS=1000*60*60*24*7;
+const SESSION_COOKIE='__Host-acord_session';
+const LEGACY_SESSION_COOKIE='acord_session';
 
 let io=null;
 
@@ -1511,17 +1513,6 @@ function setupSocket(socket){
   broadcastOnlineUsers();
 
 
-  const loginAttempts={windowStart:Date.now(),count:0};
-  function allowLoginAttempt(){
-    const now=Date.now();
-    if(now-loginAttempts.windowStart>60000){
-      loginAttempts.windowStart=now;
-      loginAttempts.count=0;
-    }
-    loginAttempts.count+=1;
-    return loginAttempts.count<=12;
-  }
-
   socket.on('auth-cookie',()=>{
     const userId=String(socket.data.userId||'').slice(0,100);
     const profile=userId?profiles.get(userId):null;
@@ -1533,7 +1524,8 @@ function setupSocket(socket){
 
     socket.emit('auth-success',{
       profile:publicProfile(profile),
-      cookieSession:true
+      cookieSession:true,
+      recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(userId,profile.username)||''
     });
 
     emitAccountState(socket);
@@ -1543,9 +1535,10 @@ function setupSocket(socket){
     broadcastOnlineUsers();
   });
 
-  socket.on('auth-register',({username,password})=>{
+  socket.on('auth-register',async ({username,password})=>{
     try{
-      if(!allowLoginAttempt()){
+      const authRate=ACTIVE_RUNTIME?.allowAuthAttempt(socket,username)||{ok:true};
+      if(!authRate.ok){
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
         return;
       }
@@ -1563,8 +1556,8 @@ function setupSocket(socket){
         return;
       }
 
-      if(safePassword.length<6 || safePassword.length>128){
-        socket.emit('auth-error',{error:'A senha precisa ter entre 6 e 128 caracteres.'});
+      if(safePassword.length<8 || safePassword.length>128){
+        socket.emit('auth-error',{error:'Para criar a conta, use uma senha entre 8 e 128 caracteres.'});
         return;
       }
 
@@ -1613,9 +1606,11 @@ function setupSocket(socket){
 
       saveServersToDisk();
 
+      ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
       socket.emit('auth-success',{
         token,
         profile:publicProfile(profile),
+        recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(userId,safeUsername)||'',
         migratedLegacy:!!legacy
       });
 
@@ -1634,7 +1629,8 @@ function setupSocket(socket){
 
   socket.on('auth-login',async ({username,password,recovery})=>{
     try{
-      if(!allowLoginAttempt()){
+      const authRate=ACTIVE_RUNTIME?.allowAuthAttempt(socket,username)||{ok:true};
+      if(!authRate.ok){
         socket.emit('auth-error',{error:'Muitas tentativas. Aguarde um minuto.'});
         return;
       }
@@ -1662,8 +1658,9 @@ function setupSocket(socket){
         const recoveryUserId=String(recovery?.userId||'').slice(0,100);
         const recoveryUsername=normalizeAccountUsername(recovery?.username);
         const sameRecoveryUser=recoveryUserId&&recoveryUsername&&usernameKey(recoveryUsername)===key;
-        if(!sameRecoveryUser){
-          socket.emit('auth-error',{error:'Conta não encontrada. Entre primeiro no aparelho que ainda possui seus dados ou crie uma nova conta.'});
+        const recoveryVerified=!!ACTIVE_RUNTIME?.verifyRecoveryProof(recovery);
+        if(!sameRecoveryUser || !recoveryVerified){
+          socket.emit('auth-error',{error:'Conta não encontrada. A recuperação local não pôde ser validada com segurança.'});
           return;
         }
         const conflicting=accounts.get(recoveryUserId);
@@ -1681,12 +1678,18 @@ function setupSocket(socket){
         socket.data.sessionHash=tokenHash(token);
         socket.data.cookieSession=false;
         saveServersToDisk();
-        socket.emit('auth-success',{token,profile:publicProfile(profiles.get(recoveryUserId)),accountRecovered:true,recoveredIdentity:true});
+        ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
+        socket.emit('auth-success',{token,profile:publicProfile(profiles.get(recoveryUserId)),recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(recoveryUserId,safeUsername)||'',accountRecovered:true,recoveredIdentity:true});
         emitAccountState(socket); sendServerList(socket); emitFriendState(recoveryUserId); emitGroupState(recoveryUserId); broadcastOnlineUsers();
         return;
       }
 
       if(account.recoveredSessionOnly){
+        const recoveryMatches=String(recovery?.userId||'')===String(account.userId||'');
+        if(!recoveryMatches || !ACTIVE_RUNTIME?.verifyRecoveryProof(recovery)){
+          socket.emit('auth-error',{error:'Esta conta precisa ser reativada pelo dispositivo que possui a recuperação validada.'});
+          return;
+        }
         const newSalt=crypto.randomBytes(16).toString('hex');
         account.salt=newSalt;
         account.passwordHash=passwordDigest(safePassword,newSalt);
@@ -1734,7 +1737,8 @@ function setupSocket(socket){
       socket.data.cookieSession=false;
       saveServersToDisk();
 
-      socket.emit('auth-success',{token,profile:publicProfile(profile)});
+      ACTIVE_RUNTIME?.resetAuthAttempts(socket,safeUsername);
+      socket.emit('auth-success',{token,profile:publicProfile(profile),recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(account.userId,account.username)||''});
       emitAccountState(socket);
       sendServerList(socket);
       emitFriendState(account.userId);
@@ -1750,14 +1754,15 @@ function setupSocket(socket){
 
   socket.on('auth-restore',({token,recovery})=>{
     try{
-      let userId=sessionUserId(token,{renew:true});
+      let restoredToken=String(token||'');
+      let userId=sessionUserId(restoredToken,{renew:true});
       let profile=userId?profiles.get(userId):null;
       let recoveredAfterUpdate=false;
 
       // Recuperação de atualização:
       // se o host perdeu o arquivo local, o navegador ainda possui token,
       // id, perfil, servidores e amizades do próprio usuário.
-      if(!userId && recovery && String(token || '').length>=20){
+      if(!userId && recovery && String(restoredToken || '').length>=20 && ACTIVE_RUNTIME?.verifyRecoveryProof(recovery)){
         const safeUserId=String(recovery.userId || '').slice(0,100);
         const safeUsername=normalizeAccountUsername(recovery.username);
         const key=usernameKey(safeUsername);
@@ -1809,12 +1814,7 @@ function setupSocket(socket){
 
           profiles.set(safeUserId,profile);
 
-          sessions.set(tokenHash(token),{
-            userId:safeUserId,
-            createdAt:Date.now(),
-            lastSeenAt:Date.now(),
-            expiresAt:Date.now()+SESSION_LIFETIME_MS
-          });
+          restoredToken=newSession(safeUserId);
 
           userId=safeUserId;
           recoveredAfterUpdate=true;
@@ -1914,14 +1914,15 @@ function setupSocket(socket){
 
       socket.data.userId=userId;
       socket.data.username=profile.username;
-      socket.data.sessionHash=tokenHash(token);
+      socket.data.sessionHash=tokenHash(restoredToken);
       socket.data.cookieSession=false;
 
       saveServersToDisk();
 
       socket.emit('auth-success',{
-        token,
+        token:restoredToken,
         profile:publicProfile(profile),
+        recoveryProof:ACTIVE_RUNTIME?.issueRecoveryProof(userId,profile.username)||'',
         sessionRestored:true,
         recoveredAfterUpdate
       });
@@ -4289,8 +4290,8 @@ function setupSocket(socket){
     }
 
     const safeNew=String(newPassword||'');
-    if(safeNew.length<6||safeNew.length>128){
-      reply({ok:false,error:'A nova senha precisa ter entre 6 e 128 caracteres'});
+    if(safeNew.length<8||safeNew.length>128){
+      reply({ok:false,error:'A nova senha precisa ter entre 8 e 128 caracteres'});
       return;
     }
 
@@ -4947,11 +4948,13 @@ export class AcordRealtime extends DurableObject{
     this.lastPersistAt=0;
     this.lastPersistError='';
     this.sqlReady=false;
+    this.recoverySigningKey='';
     ACTIVE_RUNTIME=this;
     io=createIoCompat(this);
 
     ctx.blockConcurrencyWhile(async()=>{
       this.prepareSql();
+      await this.ensureRecoverySigningKey();
       const loaded=await this.loadSnapshot();
       await this.migrateLegacyHistories();
       if(loaded){
@@ -5017,13 +5020,142 @@ export class AcordRealtime extends DurableObject{
       )
     `);
 
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS auth_rate (
+        rate_key TEXT PRIMARY KEY,
+        window_start INTEGER NOT NULL,
+        attempts INTEGER NOT NULL,
+        blocked_until INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
     this.sqlReady=true;
+  }
+
+  async ensureRecoverySigningKey(){
+    try{
+      let key=await this.ctx.storage.get('recovery-signing-key-v1');
+      if(!key){
+        key=crypto.randomBytes(32).toString('hex');
+        await this.ctx.storage.put('recovery-signing-key-v1',key);
+      }
+      this.recoverySigningKey=String(key||'');
+    }catch(error){
+      console.error('Falha ao preparar chave de recuperação:',error);
+      this.recoverySigningKey='';
+    }
+  }
+
+  issueRecoveryProof(userId,username){
+    const uid=String(userId||'').slice(0,100);
+    const key=usernameKey(username);
+    if(!uid||!key||!this.recoverySigningKey) return '';
+    return crypto.createHmac('sha256',this.recoverySigningKey)
+      .update('acord-recovery-v1|'+uid+'|'+key)
+      .digest('hex');
+  }
+
+  verifyRecoveryProof(recovery){
+    try{
+      const proof=String(recovery?.recoveryProof||'');
+      const expected=this.issueRecoveryProof(recovery?.userId,recovery?.username);
+      if(!proof||!expected||proof.length!==expected.length) return false;
+      return crypto.timingSafeEqual(Buffer.from(proof,'hex'),Buffer.from(expected,'hex'));
+    }catch{return false}
+  }
+
+  issueMediaSignature(mediaKey){
+    const key=String(mediaKey||'').slice(0,220);
+    if(!key||!this.recoverySigningKey) return '';
+    return crypto.createHmac('sha256',this.recoverySigningKey)
+      .update('acord-media-v1|'+key)
+      .digest('hex');
+  }
+
+  verifyMediaSignature(mediaKey,signature){
+    try{
+      const sig=String(signature||'');
+      const expected=this.issueMediaSignature(mediaKey);
+      if(!sig||!expected||sig.length!==expected.length) return false;
+      return crypto.timingSafeEqual(Buffer.from(sig,'hex'),Buffer.from(expected,'hex'));
+    }catch{return false}
+  }
+
+  signedMediaUrl(value){
+    const raw=String(value||'');
+    if(!raw.startsWith('/api/media/') || raw.includes('sig=')) return raw;
+    try{
+      const parsed=new URL(raw,'https://acord.local');
+      const key=decodeURIComponent(parsed.pathname.slice('/api/media/'.length));
+      if(!key.startsWith('message:')) return raw;
+      const sig=this.issueMediaSignature(key);
+      if(!sig) return raw;
+      parsed.searchParams.set('sig',sig);
+      return parsed.pathname+parsed.search;
+    }catch{return raw}
+  }
+
+  authRateKey(socket,username){
+    const ip=String(socket?.data?.clientIp||'unknown').slice(0,100);
+    const user=usernameKey(normalizeAccountUsername(username))||'unknown';
+    return crypto.createHash('sha256').update(ip+'|'+user).digest('hex');
+  }
+
+  allowAuthAttempt(socket,username){
+    this.prepareSql();
+    const rateKey=this.authRateKey(socket,username);
+    const now=Date.now();
+    const windowMs=5*60*1000;
+    const rows=[...this.ctx.storage.sql.exec(
+      `SELECT window_start,attempts,blocked_until FROM auth_rate WHERE rate_key=? LIMIT 1`,
+      rateKey
+    )];
+    let windowStart=Number(rows[0]?.window_start||now);
+    let attempts=Number(rows[0]?.attempts||0);
+    const blockedUntil=Number(rows[0]?.blocked_until||0);
+
+    if(blockedUntil>now){
+      return {ok:false,retryAfterMs:blockedUntil-now,rateKey};
+    }
+
+    if(now-windowStart>windowMs){
+      windowStart=now;
+      attempts=0;
+    }
+
+    attempts+=1;
+    let nextBlocked=0;
+    if(attempts>10){
+      const exponent=Math.min(4,Math.max(0,attempts-11));
+      nextBlocked=now+(60*1000*(2**exponent));
+    }
+
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO auth_rate(rate_key,window_start,attempts,blocked_until,updated_at) VALUES (?,?,?,?,?)`,
+      rateKey,windowStart,attempts,nextBlocked,now
+    );
+
+    // Limpeza oportunista para não acumular chaves antigas.
+    if(Math.random()<0.02){
+      this.ctx.storage.sql.exec(`DELETE FROM auth_rate WHERE updated_at<?`,now-(24*60*60*1000));
+    }
+
+    return {ok:nextBlocked===0,retryAfterMs:Math.max(0,nextBlocked-now),rateKey};
+  }
+
+  resetAuthAttempts(socket,username){
+    try{
+      this.prepareSql();
+      this.ctx.storage.sql.exec(`DELETE FROM auth_rate WHERE rate_key=?`,this.authRateKey(socket,username));
+    }catch{}
   }
 
   rowToChatMessage(row){
     if(!row) return null;
     let attachment=null,reactions={},mentions=[];
     try{attachment=row.attachment_json?JSON.parse(row.attachment_json):null}catch{}
+    if(attachment?.data) attachment={...attachment,data:this.signedMediaUrl(attachment.data)};
     try{reactions=row.reactions_json?JSON.parse(row.reactions_json):{}}catch{}
     try{mentions=row.mentions_json?JSON.parse(row.mentions_json):[]}catch{}
     return {
@@ -5226,7 +5358,9 @@ export class AcordRealtime extends DurableObject{
         value,
         Date.now()
       );
-      return '/api/media/'+encodeURIComponent(String(mediaKey||'').slice(0,220))+'?v='+Date.now();
+      const safeKey=String(mediaKey||'').slice(0,220);
+      const signature=safeKey.startsWith('message:')?this.issueMediaSignature(safeKey):'';
+      return '/api/media/'+encodeURIComponent(safeKey)+'?v='+Date.now()+(signature?'&sig='+encodeURIComponent(signature):'');
     }catch(error){
       this.lastPersistError=String(error?.message||error);
       return '';
@@ -5520,6 +5654,23 @@ export class AcordRealtime extends DurableObject{
 
     if(url.pathname.startsWith('/media/')){
       const mediaKey=decodeURIComponent(url.pathname.slice('/media/'.length));
+
+      // Anexos de mensagens exigem sessão e acesso atual ao servidor.
+      if(mediaKey.startsWith('message:')){
+        const messageId=String(mediaKey.split(':')[1]||'');
+        const message=this.getChatMessage(messageId);
+        const cookieHeader=request.headers.get('Cookie');
+        const cookieToken=readCookie(cookieHeader,SESSION_COOKIE)||readCookie(cookieHeader,LEGACY_SESSION_COOKIE);
+        const viewerId=cookieToken?sessionUserId(cookieToken,{renew:false}):null;
+        const serverData=message?servers.get(String(message.serverId||'')):null;
+        const signed=this.verifyMediaSignature(mediaKey,url.searchParams.get('sig'));
+        const allowed=signed || !!(
+          viewerId && serverData &&
+          (serverData.ownerId===viewerId || (serverData.members||[]).includes(viewerId))
+        );
+        if(!allowed) return new Response('Não autorizado',{status:401,headers:{'Cache-Control':'no-store'}});
+      }
+
       const media=this.getMedia(mediaKey);
 
       if(!media?.data_url){
@@ -5542,7 +5693,7 @@ export class AcordRealtime extends DurableObject{
           status:200,
           headers:{
             'Content-Type':String(media.mime||match[1]||'application/octet-stream'),
-            'Cache-Control':'public, max-age=31536000, immutable',
+            'Cache-Control':mediaKey.startsWith('message:')?'private, max-age=3600':'public, max-age=31536000, immutable',
             'X-Content-Type-Options':'nosniff'
           }
         });
@@ -5578,23 +5729,26 @@ export class AcordRealtime extends DurableObject{
     const client=pair[0];
     const server=pair[1];
 
-    const cookieToken=readCookie(request.headers.get('Cookie'),'acord_session');
+    const cookieHeader=request.headers.get('Cookie');
+    const cookieToken=readCookie(cookieHeader,SESSION_COOKIE)||readCookie(cookieHeader,LEGACY_SESSION_COOKIE);
     const cookieUserId=cookieToken
       ? sessionUserId(cookieToken,{renew:true})
       : null;
     const cookieProfile=cookieUserId?profiles.get(cookieUserId):null;
 
+    const clientIp=String(request.headers.get('X-Acord-Client-IP')||request.headers.get('CF-Connecting-IP')||'unknown').slice(0,100);
     const meta={
       id:id(),
       rooms:[],
       data:cookieUserId&&cookieProfile
         ? {
+            clientIp,
             userId:cookieUserId,
             username:cookieProfile.username,
             sessionHash:tokenHash(cookieToken),
             cookieSession:true
           }
-        : {}
+        : {clientIp}
     };
 
     this.ctx.acceptWebSocket(server);
@@ -5649,7 +5803,11 @@ async function doFetch(env,path,request){
   const stub=env.ACORD_REALTIME.get(id);
   const url=new URL(request.url);
   url.pathname=path;
-  return stub.fetch(new Request(url.toString(),request));
+  const forwarded=new Request(url.toString(),request);
+  const clientIp=String(request.headers.get('CF-Connecting-IP')||'unknown').slice(0,100);
+  const headers=new Headers(forwarded.headers);
+  headers.set('X-Acord-Client-IP',clientIp);
+  return stub.fetch(new Request(forwarded,{headers}));
 }
 
 function json(data,status=200){
@@ -5666,6 +5824,32 @@ export default{
   async fetch(request,env,ctx){
     const url=new URL(request.url);
 
+    // Compatibilidade sem redirecionamento: clientes antigos recebem os assets
+    // atuais diretamente, evitando loops e versões misturadas no startup.
+    const legacyAssets={
+      '/index-v61.html':'/index-v64.html',
+      '/index-v62.html':'/index-v64.html',
+      '/index-v63.html':'/index-v64.html',
+      '/bootstrap-v62.js':'/bootstrap-v64.js',
+      '/bootstrap-v63.js':'/bootstrap-v64.js',
+      '/bundle-v61.js':'/bundle-v64.js',
+      '/bundle-v62.js':'/bundle-v64.js',
+      '/bundle-v63.js':'/bundle-v64.js',
+      '/app-v61.css':'/app-v64.css',
+      '/app-v62.css':'/app-v64.css',
+      '/app-v63.css':'/app-v64.css',
+      '/phone-camera-v61.html':'/phone-camera-v64.html',
+      '/phone-camera-v62.html':'/phone-camera-v64.html',
+      '/phone-camera-v63.html':'/phone-camera-v64.html',
+      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v64.js',
+      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v64.js',
+      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v64.js'
+    };
+    if(request.method==='GET' && legacyAssets[url.pathname]){
+      const assetUrl=new URL(legacyAssets[url.pathname],url);
+      return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
+    }
+
     const acceptsHtml=String(request.headers.get('Accept')||'').includes('text/html');
     const appNavigation=
       request.method==='GET' &&
@@ -5677,7 +5861,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v63.html',url);
+      const assetUrl=new URL('/index-v64.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -5693,7 +5877,8 @@ export default{
         platform:'cloudflare-workers',
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
-        dataVersion:23,
+        dataVersion:24,
+        appVersion:'6.4.0',
         ...state
       });
     }
@@ -5704,14 +5889,13 @@ export default{
 
     if(url.pathname==='/api/session-cookie'){
       if(request.method==='DELETE'){
-        return new Response(JSON.stringify({ok:true}),{
-          status:200,
-          headers:{
-            'Content-Type':'application/json; charset=utf-8',
-            'Cache-Control':'no-store',
-            'Set-Cookie':'acord_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
-          }
+        const headers=new Headers({
+          'Content-Type':'application/json; charset=utf-8',
+          'Cache-Control':'no-store'
         });
+        headers.append('Set-Cookie',SESSION_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+        headers.append('Set-Cookie',LEGACY_SESSION_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+        return new Response(JSON.stringify({ok:true}),{status:200,headers});
       }
 
       if(request.method!=='POST'){
@@ -5740,21 +5924,23 @@ export default{
         return json({ok:false,error:'Sessão inválida'},401);
       }
 
+      const headers=new Headers({
+        'Content-Type':'application/json; charset=utf-8',
+        'Cache-Control':'no-store'
+      });
+      headers.append(
+        'Set-Cookie',
+        SESSION_COOKIE+'='+encodeURIComponent(token)+
+        '; Path=/; HttpOnly; Secure; SameSite=Strict; Priority=High; Max-Age='+
+        Math.floor(SESSION_LIFETIME_MS/1000)
+      );
+      // Remove o nome antigo depois da migração para o cookie __Host-.
+      headers.append('Set-Cookie',LEGACY_SESSION_COOKIE+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+
       return new Response(JSON.stringify({
         ok:true,
         profile:data.profile||null
-      }),{
-        status:200,
-        headers:{
-          'Content-Type':'application/json; charset=utf-8',
-          'Cache-Control':'no-store',
-          'Set-Cookie':
-            'acord_session='+
-            encodeURIComponent(token)+
-            '; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+
-            Math.floor(SESSION_LIFETIME_MS/1000)
-        }
-      });
+      }),{status:200,headers});
     }
 
     if(url.pathname.startsWith('/api/media/')){
@@ -5850,12 +6036,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v63.html',url);
+      const assetUrl=new URL('/phone-camera-v64.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v63.html',url);
+      const assetUrl=new URL('/index-v64.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 

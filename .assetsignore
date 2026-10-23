@@ -12,3 +12,5 @@ package-lock.json
 pnpm-lock.yaml
 yarn.lock
 npm-debug.log*
+
+tests/

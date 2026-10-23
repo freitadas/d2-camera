@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Acord</title>
-<link rel="stylesheet" href="/app-v63.css">
+<link rel="stylesheet" href="/app-v64.css">
 </head>
 <body>
 
@@ -90,6 +90,7 @@
 
       <button id="loginBtn" class="btn primary" style="width:100%;margin-top:14px;">Entrar</button>
       <div id="authError" class="authError"></div>
+      <div id="bootStatus" class="bootStatus">Carregando o Acord…</div>
 
       <div class="loginPrivacy"><b>Conta pessoal:</b> cada nome é exclusivo e não pode se repetir.</div>
     </section>
@@ -179,6 +180,7 @@
         <div id="topSub" class="topSub">chat, amigos e calls</div>
       </div>
       <div class="topActions">
+        <span id="connectionStatus" class="connectionStatus" data-state="connecting">Conectando…</span>
         <button id="topWindowsDownloadBtn" class="btn topDownloadBtn small" type="button">↓ Windows</button>
         <button id="quickInviteBtn" class="btn secondary small">Copiar convite</button>
       </div>
@@ -1340,7 +1342,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="/bootstrap-v63.js"></script>
-<script src="/bundle-v63.js"></script>
+<script src="/runtime-v64.js"></script>
+<script src="/bootstrap-v64.js"></script>
+<script src="/bundle-v64.js"></script>
 </body>
 </html>
