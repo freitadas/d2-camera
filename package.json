@@ -1,6 +1,6 @@
 {
   "name": "acord-cloudflare",
-  "version": "6.8.0",
+  "version": "6.8.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,9 +15,9 @@
     "check:generated": "node build-assets.mjs --check"
   },
   "devDependencies": {
-    "wrangler": "4.68.0"
+    "wrangler": "4.151.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22 <25"
   }
 }

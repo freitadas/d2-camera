@@ -240,8 +240,8 @@ const socket = io({reconnection:true});
 
 const $ = (s) => document.querySelector(s);
 
-window.__ACORD_BUILD='6.8.0';
-document.documentElement.dataset.acordBuild='6.8.0';
+window.__ACORD_BUILD='6.8.1';
+document.documentElement.dataset.acordBuild='6.8.1';
 
 window.addEventListener('error',event=>{
   console.error('Acord runtime:',event.error||event.message);
@@ -2196,7 +2196,7 @@ function startLabTimer(minutes){
 
 function labsDiagnosticText(){
   return [
-    'Acord v6.8.0',
+    'Acord v6.8.1',
     'Usuário: '+(state.username||''),
     'Servidor: '+(currentServer()?.name||'nenhum'),
     'Canal: '+(currentText()?.name||'nenhum'),
