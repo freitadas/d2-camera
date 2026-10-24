@@ -2097,8 +2097,10 @@ async function toggleScreen(){
 
 const __acordDesktopBridgeState={
   ready:false,
+  consoleReady:false,
   platform:'',
   version:'',
+  consoleToken:'',
   seq:0,
   pending:new Map()
 };
@@ -2112,7 +2114,15 @@ window.addEventListener('message',event=>{
     __acordDesktopBridgeState.version=String(data.version||'');
     return;
   }
-  if(data.__acordDesktopBridgeReply!==true || !data.id) return;
+  if(data.__acordDesktopConsoleBridgeReady===true){
+    __acordDesktopBridgeState.consoleReady=true;
+    __acordDesktopBridgeState.platform=String(data.platform||'win32');
+    __acordDesktopBridgeState.version=String(data.version||'');
+    __acordDesktopBridgeState.consoleToken=String(data.token||'');
+    return;
+  }
+  if(data.__acordDesktopBridgeReply!==true && data.__acordDesktopConsoleBridgeReply!==true) return;
+  if(!data.id) return;
   const pending=__acordDesktopBridgeState.pending.get(String(data.id));
   if(!pending) return;
   __acordDesktopBridgeState.pending.delete(String(data.id));
@@ -2123,10 +2133,33 @@ window.addEventListener('message',event=>{
 
 function sharedControlDesktopHint(){
   return __acordDesktopBridgeState.ready ||
+    __acordDesktopBridgeState.consoleReady ||
+    window.__ACORD_DESKTOP_NATIVE__?.available===true ||
     window.__ACORD_DESKTOP_SHELL__===true ||
     window.__ACORD_DESKTOP_SHELL__?.available===true ||
     new URLSearchParams(location.search).get('desktop')==='1' ||
     /AcordDesktop\//i.test(navigator.userAgent);
+}
+
+function sharedControlConsoleRequest(action,payload={},timeout=5000){
+  const injected=window.__ACORD_DESKTOP_NATIVE__;
+  const token=String(injected?.token||__acordDesktopBridgeState.consoleToken||'');
+  if(!token) return Promise.reject(new Error('Canal nativo de emergência ainda não está pronto'));
+  const id='console-'+Date.now().toString(36)+'-'+(++__acordDesktopBridgeState.seq).toString(36);
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      __acordDesktopBridgeState.pending.delete(id);
+      reject(new Error('Canal nativo do Acord Desktop não respondeu'));
+    },timeout);
+    __acordDesktopBridgeState.pending.set(id,{resolve,reject,timer});
+    try{
+      console.info('__ACORD_NATIVE_V685__:'+JSON.stringify({token,id,action,payload:payload||{}}));
+    }catch(error){
+      clearTimeout(timer);
+      __acordDesktopBridgeState.pending.delete(id);
+      reject(error);
+    }
+  });
 }
 
 function sharedControlNativeFetch(action,payload={},timeout=5000){
@@ -2150,13 +2183,33 @@ function sharedControlBridge(){
   if(direct && direct.available===true){
     return {
       ...direct,
+      transport:'preload',
       ping:typeof direct.ping==='function'?()=>direct.ping():()=>Promise.resolve({ok:true,available:true,platform:direct.platform||'win32'})
     };
   }
+
+  const injected=window.__ACORD_DESKTOP_NATIVE__;
+  const consoleReady=__acordDesktopBridgeState.consoleReady || injected?.available===true;
+  const consoleToken=String(injected?.token||__acordDesktopBridgeState.consoleToken||'');
+  if(consoleReady && consoleToken){
+    return {
+      available:true,
+      platform:String(injected?.platform||__acordDesktopBridgeState.platform||'win32'),
+      version:String(injected?.version||__acordDesktopBridgeState.version||''),
+      transport:'console',
+      ping:()=>sharedControlConsoleRequest('ping',{},2500),
+      setHostEnabled:enabled=>sharedControlConsoleRequest('setHostEnabled',{enabled:!!enabled},6000),
+      getPrimaryDisplaySource:()=>sharedControlConsoleRequest('getPrimaryDisplaySource',{},5000),
+      injectInput:envelope=>sharedControlConsoleRequest('injectInput',envelope,2200).catch(()=>{}),
+      releaseAll:()=>sharedControlConsoleRequest('releaseAll',{},2200).catch(()=>{})
+    };
+  }
+
   if(!sharedControlDesktopHint()) return null;
   return {
     available:true,
     platform:'win32',
+    transport:'protocol',
     ping:()=>sharedControlNativeFetch('ping',{},3000),
     setHostEnabled:enabled=>sharedControlNativeFetch('host',{enabled:!!enabled},6000),
     getPrimaryDisplaySource:()=>sharedControlNativeFetch('primary',{},5000),
@@ -2165,7 +2218,7 @@ function sharedControlBridge(){
   };
 }
 
-async function waitForSharedControlBridge(timeout=4500){
+async function waitForSharedControlBridge(timeout=7000){
   const started=Date.now();
   let lastError=null;
   while(Date.now()-started<timeout){
@@ -2443,11 +2496,11 @@ async function setSharedControlHostEnabled(enabled){
     }
     state.sharedControl.activating=true;
     renderSharedControlPanel();
-    bridge=await waitForSharedControlBridge(5000);
+    bridge=await waitForSharedControlBridge(8000);
     if(!bridge){
       state.sharedControl.activating=false;
       renderSharedControlPanel();
-      toast('A integração nativa do Acord Desktop não iniciou. Feche o aplicativo por completo e abra a v6.8.4.');
+      toast('A integração nativa do Acord Desktop não respondeu. Abra a versão v6.8.5 e tente novamente.');
       return;
     }
 

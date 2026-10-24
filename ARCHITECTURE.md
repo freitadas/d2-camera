@@ -2,8 +2,8 @@
 
 ## Fontes editáveis
 
-- arquivos `01-core-auth.js`, `02-app-chat.js`, `03-calls-control.js` e `04-features-runtime.js` na raiz: frontend dividido por domínio. O arquivo publicado `bundle-v684.js` é gerado pela concatenação ordenada desses arquivos.
-- arquivos CSS `01-foundation.css`, `02-layout.css`, `03-components.css` e `04-calls-themes.css` na raiz: CSS dividido por domínio. O arquivo publicado `app-v684.css` é gerado pela concatenação ordenada desses arquivos.
+- arquivos `01-core-auth.js`, `02-app-chat.js`, `03-calls-control.js` e `04-features-runtime.js` na raiz: frontend dividido por domínio. O arquivo publicado `bundle-v685.js` é gerado pela concatenação ordenada desses arquivos.
+- arquivos CSS `01-foundation.css`, `02-layout.css`, `03-components.css` e `04-calls-themes.css` na raiz: CSS dividido por domínio. O arquivo publicado `app-v685.css` é gerado pela concatenação ordenada desses arquivos.
 - `state-indexes.js`: índices de leitura para usuários, amizades, solicitações, servidores, convites e grupos.
 - `socket-compat.js`: transporte WebSocket compatível e roteamento de salas.
 - `socket-rate-limiter.js`: limites de eventos por socket.
@@ -31,7 +31,7 @@ A v6.8 mantém o Durable Object coordenador único para preservar compatibilidad
 O próximo salto de escala, quando necessário, é particionar o coordenador em Durable Objects por domínio/servidor sem alterar o protocolo do cliente.
 
 
-## v6.8.4 — Controle compartilhado em um clique
+## v6.8.5 — Controle compartilhado em um clique
 - O Acord Desktop seleciona o monitor principal via `desktopCapturer` e inicia a transmissão automaticamente ao ativar Controle compartilhado.
 - Não é mais necessário iniciar `Compartilhar` antes.
 - O fluxo de controle usa captura de monitor (não de janela), com atualização de ponteiro em ~60 Hz e prioridade de frame rate.

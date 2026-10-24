@@ -7,8 +7,8 @@ const root=here;
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const fail=message=>{throw new Error(message)};
 const server=read('index.js');
-const bundle=read('bundle-v684.js');
-const html=read('index-v684.html');
+const bundle=read('bundle-v685.js');
+const html=read('index-v685.html');
 
 const must=(source,marker,label=marker)=>{if(!source.includes(marker))fail('Proteção ausente: '+label)};
 const mustNot=(source,marker,label=marker)=>{if(source.includes(marker))fail('Padrão inseguro encontrado: '+label)};
@@ -45,4 +45,4 @@ mustNot(bundle,'eval(','eval');
 mustNot(bundle,'new Function(','new Function');
 mustNot(bundle,'document.write(','document.write');
 
-console.log(JSON.stringify({ok:true,securityRegression:true,version:'6.8.4'},null,2));
+console.log(JSON.stringify({ok:true,securityRegression:true,version:'6.8.5'},null,2));
