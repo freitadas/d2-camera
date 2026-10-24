@@ -2129,30 +2129,58 @@ function sharedControlDesktopHint(){
     /AcordDesktop\//i.test(navigator.userAgent);
 }
 
-function sharedControlBridgeRequest(action,payload={},timeout=4500){
-  return new Promise((resolve,reject)=>{
-    const id='acd-'+Date.now().toString(36)+'-'+(++__acordDesktopBridgeState.seq).toString(36);
-    const timer=setTimeout(()=>{
-      __acordDesktopBridgeState.pending.delete(id);
-      reject(new Error('A ponte nativa do Acord Desktop não respondeu'));
-    },timeout);
-    __acordDesktopBridgeState.pending.set(id,{resolve,reject,timer});
-    window.postMessage({__acordDesktopBridgeRequest:true,id,action,payload},'*');
-  });
+function sharedControlNativeFetch(action,payload={},timeout=5000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  return fetch('acord-native://control/'+action,{
+    method:action==='ping'||action==='primary'?'GET':'POST',
+    headers:{'Content-Type':'application/json'},
+    body:action==='ping'||action==='primary'?undefined:JSON.stringify(payload||{}),
+    cache:'no-store',
+    signal:controller.signal
+  }).then(async response=>{
+    const result=await response.json().catch(()=>({ok:false,error:'Resposta nativa inválida'}));
+    if(!response.ok && result?.ok!==false) return {ok:false,error:'Ponte nativa indisponível'};
+    return result;
+  }).finally(()=>clearTimeout(timer));
 }
 
 function sharedControlBridge(){
   const direct=window.AcordDesktopControl;
-  if(direct && direct.available===true) return direct;
+  if(direct && direct.available===true){
+    return {
+      ...direct,
+      ping:typeof direct.ping==='function'?()=>direct.ping():()=>Promise.resolve({ok:true,available:true,platform:direct.platform||'win32'})
+    };
+  }
   if(!sharedControlDesktopHint()) return null;
   return {
     available:true,
-    platform:__acordDesktopBridgeState.platform||'win32',
-    setHostEnabled:enabled=>sharedControlBridgeRequest('setHostEnabled',{enabled:!!enabled}),
-    getPrimaryDisplaySource:()=>sharedControlBridgeRequest('getPrimaryDisplaySource',{},5000),
-    injectInput:event=>window.postMessage({__acordDesktopBridgeRequest:true,action:'injectInput',payload:{event}},'*'),
-    releaseAll:()=>window.postMessage({__acordDesktopBridgeRequest:true,action:'releaseAll',payload:{}},'*')
+    platform:'win32',
+    ping:()=>sharedControlNativeFetch('ping',{},3000),
+    setHostEnabled:enabled=>sharedControlNativeFetch('host',{enabled:!!enabled},6000),
+    getPrimaryDisplaySource:()=>sharedControlNativeFetch('primary',{},5000),
+    injectInput:event=>sharedControlNativeFetch('input',event,2500).catch(()=>{}),
+    releaseAll:()=>sharedControlNativeFetch('release',{},2500).catch(()=>{})
   };
+}
+
+async function waitForSharedControlBridge(timeout=4500){
+  const started=Date.now();
+  let lastError=null;
+  while(Date.now()-started<timeout){
+    const bridge=sharedControlBridge();
+    if(bridge){
+      try{
+        const ping=await Promise.resolve(bridge.ping?.()||{ok:true});
+        if(ping?.ok) return bridge;
+        lastError=new Error(ping?.error||'Ponte nativa indisponível');
+      }catch(error){lastError=error}
+    }
+    await new Promise(resolve=>setTimeout(resolve,180));
+  }
+  if(lastError) console.warn('Ponte nativa do Acord Desktop:',lastError);
+  return null;
 }
 
 function sharedControlDesktopAvailable(){
@@ -2406,16 +2434,23 @@ function closeSharedControlPanel(){
 async function setSharedControlHostEnabled(enabled){
   if(!state.joinedVoiceId){toast('Entre em uma call primeiro');return}
   if(state.sharedControl.activating) return;
-  const bridge=sharedControlBridge();
+  let bridge=sharedControlBridge();
 
   if(enabled){
-    if(!sharedControlDesktopAvailable()){
-      toast(sharedControlDesktopHint()?'A ponte nativa do Acord Desktop não carregou. Feche e abra o Acord novamente.':'Para hospedar o Controle compartilhado, abra o Acord Desktop no Windows');
+    if(!sharedControlDesktopHint()){
+      toast('Para hospedar o Controle compartilhado, abra o Acord Desktop no Windows');
+      return;
+    }
+    state.sharedControl.activating=true;
+    renderSharedControlPanel();
+    bridge=await waitForSharedControlBridge(5000);
+    if(!bridge){
+      state.sharedControl.activating=false;
+      renderSharedControlPanel();
+      toast('A integração nativa do Acord Desktop não iniciou. Feche o aplicativo por completo e abra a v6.8.4.');
       return;
     }
 
-    state.sharedControl.activating=true;
-    renderSharedControlPanel();
     let nativeStarted=false;
     let autoCaptureStarted=false;
     try{

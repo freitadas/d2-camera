@@ -45,7 +45,7 @@ const globalSocketScans=(server.match(/io\.sockets\.sockets\.values\(\)/g)||[]).
 if(globalSocketScans>4) fail('Ainda existem varreduras globais demais de sockets: '+globalSocketScans);
 
 const pkg=JSON.parse(read('package.json'));
-if(pkg.version!=='6.8.2') fail('Versão raiz incorreta.');
+if(pkg.version!=='6.8.4') fail('Versão raiz incorreta.');
 if(!pkg.scripts?.['check:generated']) fail('Verificação de assets gerados ausente.');
 
-console.log(JSON.stringify({ok:true,version:'6.8.2',stateIndexRevision:idx.revision,scalabilityRegression:true},null,2));
+console.log(JSON.stringify({ok:true,version:'6.8.4',stateIndexRevision:idx.revision,scalabilityRegression:true},null,2));

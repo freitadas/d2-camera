@@ -5990,51 +5990,51 @@ export default{
     // Compatibilidade sem redirecionamento: clientes antigos recebem os assets
     // atuais diretamente, evitando loops e versões misturadas no startup.
     const legacyAssets={
-      '/index-v61.html':'/index-v683.html',
-      '/index-v62.html':'/index-v683.html',
-      '/index-v63.html':'/index-v683.html',
-      '/index-v64.html':'/index-v683.html',
-      '/index-v65.html':'/index-v683.html',
-      '/index-v66.html':'/index-v683.html',
-      '/index-v67.html':'/index-v683.html',
-      '/runtime-v64.js':'/runtime-v683.js',
-      '/runtime-v65.js':'/runtime-v683.js',
-      '/runtime-v66.js':'/runtime-v683.js',
-      '/runtime-v67.js':'/runtime-v683.js',
-      '/bootstrap-v62.js':'/bootstrap-v683.js',
-      '/bootstrap-v63.js':'/bootstrap-v683.js',
-      '/bootstrap-v64.js':'/bootstrap-v683.js',
-      '/bootstrap-v65.js':'/bootstrap-v683.js',
-      '/bootstrap-v66.js':'/bootstrap-v683.js',
-      '/bootstrap-v67.js':'/bootstrap-v683.js',
-      '/bundle-v61.js':'/bundle-v683.js',
-      '/bundle-v62.js':'/bundle-v683.js',
-      '/bundle-v63.js':'/bundle-v683.js',
-      '/bundle-v64.js':'/bundle-v683.js',
-      '/bundle-v65.js':'/bundle-v683.js',
-      '/bundle-v66.js':'/bundle-v683.js',
-      '/bundle-v67.js':'/bundle-v683.js',
-      '/app-v61.css':'/app-v683.css',
-      '/app-v62.css':'/app-v683.css',
-      '/app-v63.css':'/app-v683.css',
-      '/app-v64.css':'/app-v683.css',
-      '/app-v65.css':'/app-v683.css',
-      '/app-v66.css':'/app-v683.css',
-      '/app-v67.css':'/app-v683.css',
-      '/phone-camera-v61.html':'/phone-camera-v683.html',
-      '/phone-camera-v62.html':'/phone-camera-v683.html',
-      '/phone-camera-v63.html':'/phone-camera-v683.html',
-      '/phone-camera-v64.html':'/phone-camera-v683.html',
-      '/phone-camera-v65.html':'/phone-camera-v683.html',
-      '/phone-camera-v66.html':'/phone-camera-v683.html',
-      '/phone-camera-v67.html':'/phone-camera-v683.html',
-      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v65.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v66.js':'/phone-camera-bundle-v683.js',
-      '/phone-camera-bundle-v67.js':'/phone-camera-bundle-v683.js'
+      '/index-v61.html':'/index-v684.html',
+      '/index-v62.html':'/index-v684.html',
+      '/index-v63.html':'/index-v684.html',
+      '/index-v64.html':'/index-v684.html',
+      '/index-v65.html':'/index-v684.html',
+      '/index-v66.html':'/index-v684.html',
+      '/index-v67.html':'/index-v684.html',
+      '/runtime-v64.js':'/runtime-v684.js',
+      '/runtime-v65.js':'/runtime-v684.js',
+      '/runtime-v66.js':'/runtime-v684.js',
+      '/runtime-v67.js':'/runtime-v684.js',
+      '/bootstrap-v62.js':'/bootstrap-v684.js',
+      '/bootstrap-v63.js':'/bootstrap-v684.js',
+      '/bootstrap-v64.js':'/bootstrap-v684.js',
+      '/bootstrap-v65.js':'/bootstrap-v684.js',
+      '/bootstrap-v66.js':'/bootstrap-v684.js',
+      '/bootstrap-v67.js':'/bootstrap-v684.js',
+      '/bundle-v61.js':'/bundle-v684.js',
+      '/bundle-v62.js':'/bundle-v684.js',
+      '/bundle-v63.js':'/bundle-v684.js',
+      '/bundle-v64.js':'/bundle-v684.js',
+      '/bundle-v65.js':'/bundle-v684.js',
+      '/bundle-v66.js':'/bundle-v684.js',
+      '/bundle-v67.js':'/bundle-v684.js',
+      '/app-v61.css':'/app-v684.css',
+      '/app-v62.css':'/app-v684.css',
+      '/app-v63.css':'/app-v684.css',
+      '/app-v64.css':'/app-v684.css',
+      '/app-v65.css':'/app-v684.css',
+      '/app-v66.css':'/app-v684.css',
+      '/app-v67.css':'/app-v684.css',
+      '/phone-camera-v61.html':'/phone-camera-v684.html',
+      '/phone-camera-v62.html':'/phone-camera-v684.html',
+      '/phone-camera-v63.html':'/phone-camera-v684.html',
+      '/phone-camera-v64.html':'/phone-camera-v684.html',
+      '/phone-camera-v65.html':'/phone-camera-v684.html',
+      '/phone-camera-v66.html':'/phone-camera-v684.html',
+      '/phone-camera-v67.html':'/phone-camera-v684.html',
+      '/phone-camera-bundle-v61.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v62.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v63.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v64.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v65.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v66.js':'/phone-camera-bundle-v684.js',
+      '/phone-camera-bundle-v67.js':'/phone-camera-bundle-v684.js'
     };
     if(request.method==='GET' && legacyAssets[url.pathname]){
       const assetUrl=new URL(legacyAssets[url.pathname],url);
@@ -6052,7 +6052,7 @@ export default{
       );
 
     if(appNavigation && !url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/index-v683.html',url);
+      const assetUrl=new URL('/index-v684.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
@@ -6069,7 +6069,7 @@ export default{
         realtime:'durable-objects-websocket',
         storage:'durable-object-sqlite',
         dataVersion:24,
-        appVersion:'6.8.3',
+        appVersion:'6.8.4',
         ...state
       });
     }
@@ -6231,12 +6231,12 @@ export default{
     }
 
     if(url.pathname.startsWith('/phone-camera/')){
-      const assetUrl=new URL('/phone-camera-v683.html',url);
+      const assetUrl=new URL('/phone-camera-v684.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 
     if(url.pathname.startsWith('/invite/')){
-      const assetUrl=new URL('/index-v683.html',url);
+      const assetUrl=new URL('/index-v684.html',url);
       return env.ASSETS.fetch(new Request(assetUrl.toString(),request));
     }
 

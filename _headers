@@ -8,24 +8,24 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
   Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https://tenor.googleapis.com; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https://tenor.googleapis.com acord-native:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
 
 /index.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/index-v683.html
+/index-v684.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/runtime-v683.js
+/runtime-v684.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/bootstrap-v683.js
+/bootstrap-v684.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/bundle-v683.js
+/bundle-v684.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/app-v683.css
+/app-v684.css
   Cache-Control: no-store, no-cache, must-revalidate
 
 /socket.io.js
@@ -34,10 +34,10 @@
 /sw.js
   Cache-Control: no-store, no-cache, must-revalidate
 
-/phone-camera-v683.html
+/phone-camera-v684.html
   Cache-Control: no-store, no-cache, must-revalidate
 
-/phone-camera-bundle-v683.js
+/phone-camera-bundle-v684.js
   Cache-Control: no-store, no-cache, must-revalidate
 
 /manifest.webmanifest
